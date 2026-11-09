@@ -127,11 +127,11 @@ jest.mock("../components/handshake/handshake-confirmation-result", () => {
           <Pressable testID={props.testID} onPress={props.onCtaPress}>
             <Text>confirmation</Text>
           </Pressable>
-          {props.onSecondaryCtaPress ? (
-            <Pressable testID={`${props.testID}-secondary-cta`} onPress={props.onSecondaryCtaPress}>
-              <Text>{props.secondaryCtaLabel}</Text>
+          {props.secondaryCtas?.map((cta: { id: string; label: string; onPress: () => void }) => (
+            <Pressable key={cta.id} testID={`${props.testID}-secondary-cta-${cta.id}`} onPress={cta.onPress}>
+              <Text>{cta.label}</Text>
             </Pressable>
-          ) : null}
+          ))}
         </View>
       );
     },
@@ -178,6 +178,7 @@ import DeliverySuccessScreen from "../app/(app)/shipments/[id]/delivery/success"
 function shipment(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     id: "shipment-1",
+    senderId: "sender-1",
     receiverId: "receiver-1",
     deliveryAddress: "Bv. Illia 500, Córdoba",
     deliveryLat: -31.42,
@@ -527,8 +528,8 @@ describe("delivery/success (AC8/AC9)", () => {
 
     const { getByTestId } = await render(<DeliverySuccessScreen />);
 
-    expect(getByTestId("delivery-success-result-secondary-cta")).toHaveTextContent("Calificar al receptor");
-    await act(async () => fireEvent.press(getByTestId("delivery-success-result-secondary-cta")));
+    expect(getByTestId("delivery-success-result-secondary-cta-receiver")).toHaveTextContent("Calificar al receptor");
+    await act(async () => fireEvent.press(getByTestId("delivery-success-result-secondary-cta-receiver")));
 
     expect(mockRatingSheetProps?.visible).toBe(true);
     expect(mockRatingSheetProps?.target).toEqual(
@@ -546,6 +547,36 @@ describe("delivery/success (AC8/AC9)", () => {
 
     const { getByTestId } = await render(<DeliverySuccessScreen />);
 
-    expect(getByTestId("delivery-success-result-secondary-cta")).toHaveTextContent("Ya calificaste al receptor");
+    expect(getByTestId("delivery-success-result-secondary-cta-receiver")).toHaveTextContent("Ya calificaste al receptor");
+    expect(getByTestId("delivery-success-result-secondary-cta-sender")).toHaveTextContent("Calificar al emisor");
+  });
+
+  it("también ofrece calificar al emisor y abre la hoja con él", async () => {
+    mockUseDeliveryResult.mockReturnValue({ result: confirmResult, setResult: jest.fn() });
+    mockUseShipment.mockReturnValue({ data: shipment(), isLoading: false, isError: false });
+    mockUsePublicProfile.mockImplementation((id: string | undefined) => ({
+      data: id === "sender-1" ? { fullName: "Pedro Yorlano" } : { fullName: "Julia Mancini" },
+    }));
+    mockUseShipmentRatings.mockReturnValue({ data: [] });
+
+    const { getByTestId } = await render(<DeliverySuccessScreen />);
+
+    expect(getByTestId("delivery-success-result-secondary-cta-sender")).toHaveTextContent("Calificar al emisor");
+    await act(async () => fireEvent.press(getByTestId("delivery-success-result-secondary-cta-sender")));
+    expect(mockRatingSheetProps?.visible).toBe(true);
+    expect(mockRatingSheetProps?.target).toEqual(
+      expect.objectContaining({ userId: "sender-1", fullName: "Pedro Yorlano", roleLabel: "Emisor", rateeRole: "sender" }),
+    );
+  });
+
+  it("si el emisor también es el receptor, un solo botón", async () => {
+    mockUseDeliveryResult.mockReturnValue({ result: confirmResult, setResult: jest.fn() });
+    mockUseShipment.mockReturnValue({ data: shipment({ receiverId: "sender-1" }), isLoading: false, isError: false });
+    mockUseShipmentRatings.mockReturnValue({ data: [] });
+
+    const { getByTestId, queryByTestId } = await render(<DeliverySuccessScreen />);
+
+    expect(getByTestId("delivery-success-result-secondary-cta-sender")).toBeTruthy();
+    expect(queryByTestId("delivery-success-result-secondary-cta-receiver")).toBeNull();
   });
 });

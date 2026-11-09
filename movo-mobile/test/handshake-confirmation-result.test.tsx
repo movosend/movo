@@ -145,28 +145,33 @@ describe("HandshakeConfirmationResult", () => {
     expect(getByText("Volver a Inicio")).toBeTruthy();
   });
 
-  it("MOVO-199: sin secondaryCtaLabel/onSecondaryCtaPress, no muestra un segundo botón", async () => {
+  it("MOVO-199: sin secondaryCtas, no muestra botones secundarios", async () => {
     const { queryByTestId } = await render(
       <HandshakeConfirmationResult testID="hcr" result={baseResult} onCtaPress={jest.fn()} />,
     );
 
-    expect(queryByTestId("hcr-secondary-cta")).toBeNull();
+    expect(queryByTestId("hcr-secondary-cta-receiver")).toBeNull();
   });
 
-  it("MOVO-199: con secondaryCtaLabel/onSecondaryCtaPress, muestra el CTA secundario y lo dispara al tocarlo", async () => {
-    const onSecondaryCtaPress = jest.fn();
+  it("MOVO-199: con secondaryCtas, muestra un botón por cada uno y dispara el que se toca", async () => {
+    const onRateReceiver = jest.fn();
+    const onRateSender = jest.fn();
     const { getByTestId, getByText } = await render(
       <HandshakeConfirmationResult
         testID="hcr"
         result={baseResult}
         onCtaPress={jest.fn()}
-        secondaryCtaLabel="Calificar al receptor"
-        onSecondaryCtaPress={onSecondaryCtaPress}
+        secondaryCtas={[
+          { id: "sender", label: "Calificar al emisor", onPress: onRateSender },
+          { id: "receiver", label: "Calificar al receptor", onPress: onRateReceiver },
+        ]}
       />,
     );
 
+    expect(getByText("Calificar al emisor")).toBeTruthy();
     expect(getByText("Calificar al receptor")).toBeTruthy();
-    await act(async () => fireEvent.press(getByTestId("hcr-secondary-cta")));
-    expect(onSecondaryCtaPress).toHaveBeenCalled();
+    await act(async () => fireEvent.press(getByTestId("hcr-secondary-cta-receiver")));
+    expect(onRateReceiver).toHaveBeenCalled();
+    expect(onRateSender).not.toHaveBeenCalled();
   });
 });

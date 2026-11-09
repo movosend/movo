@@ -5,7 +5,10 @@ import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { HandshakeConfirmationResult } from "../../../../components/handshake/handshake-confirmation-result";
 import { HandshakeScanStep } from "../../../../components/handshake/handshake-scan-step";
+import { RatingSheet, type RatingTarget } from "../../../../components/shipments/rating-sheet";
 import type { ConfirmHandshakeResult } from "../../../../src/api/shipments-client";
+import { usePublicProfile } from "../../../../src/hooks/use-profile";
+import { useShipmentRatings } from "../../../../src/hooks/use-ratings";
 import { useShipment } from "../../../../src/hooks/use-shipments";
 
 /**
@@ -15,12 +18,30 @@ import { useShipment } from "../../../../src/hooks/use-shipments";
  *
  * El estado confirmado es `HandshakeConfirmationResult` a pantalla completa, con su CTA horneado
  * adentro: este archivo solo decide a dónde va ese CTA y desde qué lado se lee el texto (en la
- * entrega quien escanea es el receptor, MOVO-346).
+ * entrega quien escanea es el receptor, MOVO-346). En la entrega el receptor puede calificar al
+ * transportista desde ahí mismo, como el transportista califica a sus contrapartes en su propio
+ * éxito (feedback de TestFlight, build 17).
  */
 export default function HandshakeScanScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: shipment } = useShipment(id);
   const [confirmedResult, setConfirmedResult] = useState<ConfirmHandshakeResult | null>(null);
+  const [ratingOpen, setRatingOpen] = useState(false);
+  const isDelivery = confirmedResult?.stage === "delivery";
+  const carrierId = isDelivery ? (shipment?.carrierId ?? undefined) : undefined;
+  const { data: ratings } = useShipmentRatings(id, { enabled: !!carrierId });
+  const { data: carrierProfile } = usePublicProfile(carrierId);
+  const existingRating = carrierId ? ratings?.find((r) => r.rateeId === carrierId) : undefined;
+  const ratingTarget: RatingTarget | null = carrierId
+    ? {
+        userId: carrierId,
+        fullName: carrierProfile?.fullName ?? "Transportista",
+        photoUrl: carrierProfile?.photoUrl ?? null,
+        roleLabel: "Transportista",
+        rateeRole: "carrier",
+        existingRating,
+      }
+    : null;
 
   const title = shipment?.status === "in_transit" ? "Confirmar entrega" : "Confirmar retiro";
 
@@ -33,7 +54,28 @@ export default function HandshakeScanScreen() {
           viewer={confirmedResult.stage === "delivery" ? "receiver" : "carrier"}
           ctaLabel="Volver a Inicio"
           onCtaPress={() => router.replace("/")}
+          secondaryCtas={
+            ratingTarget
+              ? [
+                  {
+                    id: "carrier",
+                    label: existingRating ? "Ya calificaste al transportista" : "Calificar al transportista",
+                    onPress: () => setRatingOpen(true),
+                  },
+                ]
+              : undefined
+          }
         />
+        {id ? (
+          <RatingSheet
+            testID="handshake-scan-rating-sheet"
+            shipmentId={id}
+            target={ratingTarget}
+            visible={ratingOpen}
+            onClose={() => setRatingOpen(false)}
+            onSuccess={() => setRatingOpen(false)}
+          />
+        ) : null}
       </SafeAreaView>
     );
   }
