@@ -4004,3 +4004,6 @@ Mensajes señalados: ventana móvil de 7 días, porque ni un mensaje moderado ni
 - **Viaje en curso vacío**: `updateStatus` anota los viajes de la oferta aceptada y, al cancelarse el envío o bajarse el transportista, expira en la misma transacción los que quedan `active` sin paquetes vivos (`expireEmptyActiveTrips` en `trip-repository.ts`, mismo `where` que el barrido, que queda como red). Destino `expired` por DD-029/DD-032; un `declared` sigue a cargo de `cancelOverdueDeclared`.
 - **Routes**: `google-routes-provider.ts` recibe `app.log` y loguea `google_routes_error` con el status y el mensaje de Google (mismo helper que `svc-users`).
 - Pendiente: el envío del "Ventana vencida" del feedback (`16d2352c…`, retiro del 25/10) es uno de los `assigned` que el barrido de no-retiro no puede cancelar porque falla la liberación del hold en MP.
+### Feedback de TestFlight build 17 — reseñas recientes por rol
+
+`GET /internal/users/:id/ratings/recent` acepta `role` (rol del calificado) y `listRecentByRateePaginated` lo filtra. Sin él devuelve todas, como antes. Lo usa `svc-users` para separar las reseñas del perfil por pestaña.

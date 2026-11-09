@@ -1408,3 +1408,6 @@ quien reportó además bloqueó al reportado. "Vencen hoy" es el día de Argenti
 - `google-error.ts` (`readGoogleErrorDetail`): los adapters de Places y Geocoding reciben `app.log` desde la factory y, ante un rechazo, loguean `google_places_error`/`google_geocoding_error` con el status y el mensaje de Google, nunca la URL (Geocoding lleva la key en el query string). El 502 al cliente no cambia.
 - Geocoding: solo `ZERO_RESULTS` es 422 `GEOCODING_ADDRESS_NOT_FOUND`. `REQUEST_DENIED`/`OVER_QUERY_LIMIT` (que Google responde con 200) pasan a 502: antes una key sin facturación parecía una dirección mal cargada.
 - Causa del feedback: el proyecto de Google Cloud de dev (`289071851142`) no tiene facturación activa; Places, Geocoding y Routes rechazan la key. Se arregla en la consola de Google, no en el código.
+### Feedback de TestFlight build 17 — reseñas recientes por rol
+
+`GET /users/:id` suma `recentRatingCommentsByRole` (`asSender`/`asCarrier`, opcional en `@movo/shared`), con dos pedidos más a `svc-shipments` en paralelo: filtrar las 10 últimas generales dejaba una pestaña vacía aunque ese rol tuviera reseñas más viejas. `recentRatingComments` no cambia, para las builds anteriores. `GET /users/:id/ratings` acepta `role` (`sender`/`carrier`).
