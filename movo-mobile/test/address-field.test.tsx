@@ -17,14 +17,20 @@ jest.mock("../src/lib/location.ts", () => ({
   getCurrentLocation: jest.fn(),
 }));
 
+jest.mock("../src/api/geocode-client", () => ({
+  geocodeClient: { reverseGeocode: jest.fn() },
+}));
+
 import { placesClient } from "../src/api/places-client";
 import { useAddresses } from "../src/hooks/use-addresses";
 import { getCurrentLocation } from "../src/lib/location";
+import { geocodeClient } from "../src/api/geocode-client";
 
 const mockAutocomplete = placesClient.autocomplete as jest.Mock;
 const mockDetails = placesClient.details as jest.Mock;
 const mockUseAddresses = useAddresses as jest.Mock;
 const mockGetCurrentLocation = getCurrentLocation as jest.Mock;
+const mockReverseGeocode = geocodeClient.reverseGeocode as jest.Mock;
 
 // MOVO-83 rediseño de UI: reemplaza el formulario manual de 6 campos por búsqueda
 // tipo Uber/PedidosYa (Google Places) — cubre el flujo nuevo completo: abrir la
@@ -112,6 +118,7 @@ describe("AddressField", () => {
 
   it("usa la ubicación actual por GPS", async () => {
     mockGetCurrentLocation.mockResolvedValue({ granted: true, lat: -31.41, lng: -64.18 });
+    mockReverseGeocode.mockResolvedValue({ formattedAddress: "Rafael Núñez 4500, Córdoba" });
     const onChange = jest.fn();
 
     const { getByTestId } = await render(
@@ -128,11 +135,33 @@ describe("AddressField", () => {
     });
 
     expect(onChange).toHaveBeenCalledWith({
-      address: "Ubicación actual",
+      address: "Rafael Núñez 4500, Córdoba",
       lat: -31.41,
       lng: -64.18,
       source: "gps",
     });
+  });
+
+  it("si no se puede obtener la dirección del GPS, avisa y no elige nada (TestFlight build 17)", async () => {
+    mockGetCurrentLocation.mockResolvedValue({ granted: true, lat: -31.41, lng: -64.18 });
+    mockReverseGeocode.mockRejectedValue(new Error("502"));
+    const onChange = jest.fn();
+
+    const { getByTestId, getByText } = await render(
+      <AddressField testID="pickup" label="Retiro" dotColor="#000" value={null} onChange={onChange} />,
+    );
+
+    await act(async () => {
+      fireEvent.press(getByTestId("pickup"));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId("pickup-sheet-use-location"));
+      await Promise.resolve();
+    });
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(getByText("No pudimos obtener la dirección de tu ubicación. Escribila en el buscador.")).toBeTruthy();
   });
 
   it("permite elegir una dirección guardada sin llamar a Places", async () => {

@@ -9,41 +9,60 @@ import type { AddressSelection } from "../types/address-selection";
  * reusado también por la pantalla de gestión de direcciones guardadas vía
  * `address-search-sheet.tsx`).
  */
-const FALLBACK_ADDRESS = "Ubicación actual";
+const UNNAMED_LOCATION_LABEL = "Ubicación actual";
+
+export const REVERSE_GEOCODE_FAILED_MESSAGE =
+  "No pudimos obtener la dirección de tu ubicación. Escribila en el buscador.";
+
+export interface ResolveCurrentLocationOptions {
+  /**
+   * `true` (default): si el reverse-geocode falla, no devuelve nada y deja el error para
+   * mostrar. Es el caso de toda dirección que se guarda (retiro, entrega, extremos de un
+   * viaje): un "Ubicación actual" guardado no le dice nada al transportista ni al
+   * receptor (feedback de TestFlight, build 17).
+   *
+   * `false`: devuelve igual el punto con un label genérico. Solo para usos que no guardan
+   * la dirección, como el origen del feed de Transportar, donde lo que importa es lat/lng.
+   */
+  requireAddress?: boolean;
+}
 
 export function useMyLocation() {
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const resolveCurrentLocation = useCallback(async (): Promise<AddressSelection | null> => {
-    setLocating(true);
-    setError(null);
-    try {
-      const result = await getCurrentLocation();
-      if (!result.granted) {
-        setError("Necesitamos permiso de ubicación para usar tu posición actual.");
-        return null;
-      }
-      // MOVO-125: resuelve una dirección real en vez del string fijo — sin esto, el
-      // envío quedaba con "Ubicación actual" para siempre, sin forma de saber después
-      // cuál era la dirección real. Fallback silencioso si el reverse-geocode falla
-      // (red, proveedor caído): nunca bloquea el flujo por esto, el pin sigue siendo
-      // la fuente de verdad (lat/lng), solo se pierde el label legible.
-      let address = FALLBACK_ADDRESS;
+  const resolveCurrentLocation = useCallback(
+    async ({ requireAddress = true }: ResolveCurrentLocationOptions = {}): Promise<AddressSelection | null> => {
+      setLocating(true);
+      setError(null);
       try {
-        const reverse = await geocodeClient.reverseGeocode(result.lat, result.lng);
-        address = reverse.formattedAddress;
+        const result = await getCurrentLocation();
+        if (!result.granted) {
+          setError("Necesitamos permiso de ubicación para usar tu posición actual.");
+          return null;
+        }
+        // MOVO-125: resuelve una dirección real en vez del string fijo.
+        let address: string;
+        try {
+          const reverse = await geocodeClient.reverseGeocode(result.lat, result.lng);
+          address = reverse.formattedAddress;
+        } catch {
+          if (requireAddress) {
+            setError(REVERSE_GEOCODE_FAILED_MESSAGE);
+            return null;
+          }
+          address = UNNAMED_LOCATION_LABEL;
+        }
+        return { address, lat: result.lat, lng: result.lng, source: "gps" };
       } catch {
-        // silencioso a propósito, ver comentario arriba.
+        setError("No pudimos obtener tu ubicación actual. Intentá de nuevo.");
+        return null;
+      } finally {
+        setLocating(false);
       }
-      return { address, lat: result.lat, lng: result.lng, source: "gps" };
-    } catch {
-      setError("No pudimos obtener tu ubicación actual. Intentá de nuevo.");
-      return null;
-    } finally {
-      setLocating(false);
-    }
-  }, []);
+    },
+    [],
+  );
 
   return { resolveCurrentLocation, locating, error, clearError: () => setError(null) };
 }

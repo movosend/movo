@@ -46,7 +46,9 @@ export function useTransportOrigin(enabled = true) {
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    resolveCurrentLocation().then((result) => {
+    // Sin `requireAddress`: este origen no se guarda (solo ordena el feed por cercanía), así
+    // que un reverse-geocode caído no justifica perder el GPS y caer a la dirección guardada.
+    resolveCurrentLocation({ requireAddress: false }).then((result) => {
       if (cancelled) return;
       setGpsResult(result);
       setGpsAttempted(true);
