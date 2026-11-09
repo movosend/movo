@@ -181,7 +181,8 @@ function DecisionForm({
           disabled={pending}
           autoFocus
           max={ADMIN_KYC_DECISION_REASON_MAX_LENGTH}
-          hint={`Mínimo ${ADMIN_KYC_DECISION_REASON_MIN_LENGTH} caracteres. Queda en Didit y en la bitácora. No pegues datos del documento.`}
+          min={ADMIN_KYC_DECISION_REASON_MIN_LENGTH}
+          hint="Queda en Didit y en la bitácora. No pegues datos del documento."
           placeholder={
             approve
               ? "Por qué se aprueba (ej. el documento es legible y coincide con la selfie)"
@@ -191,6 +192,12 @@ function DecisionForm({
         <ActionError message={error} />
       </DialogBody>
       <DialogFooter>
+        {!valid && !pending && (
+          // Por qué el botón está apagado, a la vista y no solo en un tooltip.
+          <span className="mr-auto self-center text-xs text-muted-foreground">
+            Escribí el motivo para {approve ? "aprobar" : "rechazar"}
+          </span>
+        )}
         <Button type="button" variant="outline" onClick={onClose}>
           Cancelar
         </Button>

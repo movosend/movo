@@ -76,11 +76,11 @@ describe("DecisionPanel", () => {
     const confirm = await screen.findByRole("button", { name: "Aprobar" })
     expect(confirm).toBeDisabled()
 
-    fireEvent.change(screen.getByLabelText("Motivo"), {
+    fireEvent.change(screen.getByLabelText(/Motivo/), {
       target: { value: "corto" },
     })
     expect(confirm).toBeDisabled()
-    fireEvent.change(screen.getByLabelText("Motivo"), {
+    fireEvent.change(screen.getByLabelText(/Motivo/), {
       target: { value: "El documento y la selfie coinciden" },
     })
     expect(confirm).toBeEnabled()
@@ -104,7 +104,7 @@ describe("DecisionPanel", () => {
     render(<DecisionPanel {...props} />)
 
     fireEvent.click(screen.getByRole("button", { name: /Rechazar/ }))
-    fireEvent.change(await screen.findByLabelText("Motivo"), {
+    fireEvent.change(await screen.findByLabelText(/Motivo/), {
       target: { value: "El documento está vencido" },
     })
     fireEvent.click(screen.getByRole("button", { name: "Rechazar" }))
@@ -127,7 +127,7 @@ describe("DecisionPanel", () => {
     render(<DecisionPanel {...props} />)
 
     fireEvent.click(screen.getByRole("button", { name: /Aprobar/ }))
-    fireEvent.change(await screen.findByLabelText("Motivo"), {
+    fireEvent.change(await screen.findByLabelText(/Motivo/), {
       target: { value: "El documento y la selfie coinciden" },
     })
     fireEvent.click(screen.getByRole("button", { name: "Aprobar" }))
@@ -165,5 +165,27 @@ describe("DecisionPanel", () => {
     fireEvent.keyDown(window, { key: "a", metaKey: true })
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+
+  it("deja claro cuántos caracteres faltan y por qué el botón está apagado", async () => {
+    render(<DecisionPanel {...props} />)
+
+    fireEvent.click(screen.getByRole("button", { name: /Aprobar/ }))
+    const field = await screen.findByLabelText(/Motivo/)
+    expect(screen.getByText(/mínimo 10 caracteres/)).toBeInTheDocument()
+    expect(screen.getByText("Faltan 10 caracteres")).toBeInTheDocument()
+    expect(screen.getByText("Escribí el motivo para aprobar")).toBeInTheDocument()
+    expect(field).toHaveAttribute("aria-describedby", "kyc-reason-status")
+
+    fireEvent.change(field, { target: { value: "  documento  " } })
+    // cuenta sin los espacios de los bordes, como el backend
+    expect(screen.getByText("Faltan 1 carácter")).toBeInTheDocument()
+    expect(field).toHaveAttribute("aria-invalid", "true")
+
+    fireEvent.change(field, { target: { value: "Documento legible" } })
+    expect(screen.queryByText(/Faltan/)).not.toBeInTheDocument()
+    expect(screen.getByText("17/500")).toBeInTheDocument()
+    expect(screen.queryByText("Escribí el motivo para aprobar")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Aprobar" })).toBeEnabled()
   })
 })
