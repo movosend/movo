@@ -139,6 +139,8 @@ export function useStartTrip() {
       queryClient.invalidateQueries({ queryKey: ["trips", "detail", id] });
       queryClient.invalidateQueries({ queryKey: ["trips", "mine", "active"] });
       queryClient.invalidateQueries({ queryKey: ["shipments", "transporting"] });
+      // DD-061: el detalle del envío decide con `carrierTripActive` si ya se puede retirar.
+      queryClient.invalidateQueries({ queryKey: ["shipments", "detail"] });
       queryClient.invalidateQueries({ queryKey: ["route"] });
     },
   });

@@ -1,4 +1,4 @@
-import { FundingRoute, OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
+import { FundingRoute, OfferStatus, ShipmentStatus, TripStatus, toArgentinaCalendarDateString } from "@movo/shared";
 import { toPaymentMethod } from "./payment-method";
 import { selectFundingRoute } from "../domain/funding";
 import { Prisma, PrismaClient, Offer as OfferRow, Shipment as ShipmentRow } from "../generated/prisma/client";
@@ -23,22 +23,28 @@ import {
 import { TRIP_SERIES_INCLUDE, Trip, buildTripCreateData, mapTrip } from "../models/trip";
 
 /** MOVO-177: el transportista puede proponer retirar hasta 3 días después de la
- * fecha pedida por el emisor (nunca antes -- el paquete recién está listo desde ese
- * día). Constante propia del repositorio: es la única regla de negocio que consume
- * este rango, no amerita vivir en `@movo/shared` todavía. */
+ * fecha pedida por el emisor. Constante propia del repositorio: es la única regla de
+ * negocio que consume este rango, no amerita vivir en `@movo/shared` todavía. */
 const OFFER_DATE_MAX_FORWARD_OFFSET_DAYS = 3;
 
 function utcDateOnly(d: Date): number {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 }
 
-/** AC10 relajado por MOVO-177: `offeredDate` puede coincidir con `pickupDate` o caer
- * hasta `OFFER_DATE_MAX_FORWARD_OFFSET_DAYS` días después (nunca antes). */
-function isWithinOfferDateRange(offeredDate: Date, pickupDate: Date): boolean {
+/** AC10 relajado por MOVO-177 y DD-060: `offeredDate` va desde hoy (calendario argentino; o
+ * desde `pickupDate` si ya pasó) hasta `OFFER_DATE_MAX_FORWARD_OFFSET_DAYS` días después de
+ * `pickupDate`. El emisor acepta o no un retiro adelantado al elegir la oferta.
+ *
+ * Este chequeo no es el que impide ofertar en el pasado: eso lo hace el de la franja efectiva
+ * vencida (`OFFER_PICKUP_WINDOW_IN_PAST`), al crear en `shipments.service.ts` y al editar en
+ * `updateOffer`, que también rechaza hoy con la franja terminada. El `min` con `pickupDay` deja
+ * crear ofertas por el repositorio sobre envíos con el retiro ya pasado (fixtures de tests). */
+function isWithinOfferDateRange(offeredDate: Date, pickupDate: Date, now: Date = new Date()): boolean {
   const offeredDay = utcDateOnly(offeredDate);
   const pickupDay = utcDateOnly(pickupDate);
+  const today = Date.parse(`${toArgentinaCalendarDateString(now)}T00:00:00.000Z`);
   const maxDay = pickupDay + OFFER_DATE_MAX_FORWARD_OFFSET_DAYS * 24 * 60 * 60 * 1000;
-  return offeredDay >= pickupDay && offeredDay <= maxDay;
+  return offeredDay >= Math.min(today, pickupDay) && offeredDay <= maxDay;
 }
 
 /**
@@ -163,8 +169,16 @@ export class OfferShipmentNotFoundError extends Error {
   }
 }
 
+/** DD-060: al editar, la franja efectiva de la oferta ya terminó (422 `OFFER_PICKUP_WINDOW_IN_PAST`). */
+export class OfferPickupWindowInPastError extends Error {
+  constructor(public readonly offerId: string) {
+    super(`la franja de retiro de la oferta '${offerId}' ya terminó`);
+    this.name = "OfferPickupWindowInPastError";
+  }
+}
+
 /**
- * AC10, relajado por MOVO-177: `offeredDate` tiene que caer entre `pickupDate` y
+ * AC10, relajado por MOVO-177 y DD-060: `offeredDate` tiene que caer entre hoy y
  * `pickupDate + OFFER_DATE_MAX_FORWARD_OFFSET_DAYS` días (`isWithinOfferDateRange`).
  * Hasta MOVO-177 exigía coincidencia exacta (`sameDay`) -- probado en dispositivo
  * (MOVO-149/MOVO-177), un transportista real casi siempre quiere correr el retiro
@@ -541,13 +555,18 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         // de solo precio no la toca. `null` en la franja = reset a la del envío.
         const affectsExpiry = patch.offeredDate !== undefined || patch.offeredPickupTimeWindowEnd !== undefined;
         if (affectsExpiry) {
-          data.expiresAt = offerExpiresAtInstant(
+          const expiresAt = offerExpiresAtInstant(
             patch.offeredDate ?? current.offeredDate,
             patch.offeredPickupTimeWindowEnd !== undefined
               ? patch.offeredPickupTimeWindowEnd
               : current.offeredPickupTimeWindowEnd,
             current.shipment.pickupTimeWindowEnd
           );
+          // DD-060: mismo corte que `createOfferForShipment`.
+          if (expiresAt <= new Date()) {
+            throw new OfferPickupWindowInPastError(id);
+          }
+          data.expiresAt = expiresAt;
         }
 
         // Compare-and-swap contra `status` -- mismo mecanismo que

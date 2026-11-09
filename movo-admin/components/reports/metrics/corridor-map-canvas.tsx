@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
 import "maplibre-gl/dist/maplibre-gl.css"
@@ -13,9 +13,12 @@ import { CORRIDOR_LOW_COMPLETION, corridorKey } from "@/lib/reports/catalog"
 import {
   TILE_ATTRIBUTION,
   basemapStyleUrl,
+  isBasemapRejected,
   withArcgisToken,
+  type BasemapProblem,
   type MapTheme,
 } from "@/lib/shipments/tracking/tiles"
+import { BasemapNotice } from "@/components/shipments/tracking/basemap-notice"
 
 /**
  * Arco entre dos ciudades: una curva cuadrática corrida hacia un costado, así dos corredores que
@@ -78,6 +81,9 @@ export default function CorridorMapCanvas({
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const tilesRef = useRef<L.MaplibreGL | null>(null)
+  const [basemapProblem, setBasemapProblem] = useState<BasemapProblem | null>(
+    null
+  )
   const layerRef = useRef<L.LayerGroup | null>(null)
   const fittedFor = useRef<string | null>(null)
   const hoverRef = useRef(onHover)
@@ -120,6 +126,7 @@ export default function CorridorMapCanvas({
     tilesRef.current = null
     const apiKey = process.env.NEXT_PUBLIC_ESRI_API_KEY
     const style = basemapStyleUrl(theme, apiKey)
+    setBasemapProblem(apiKey ? null : "missing_key")
     if (style && apiKey) {
       const layer = maplibreGL({
         style,
@@ -127,6 +134,11 @@ export default function CorridorMapCanvas({
       })
       layer.options.attribution = TILE_ATTRIBUTION
       tilesRef.current = layer.addTo(map)
+      // Un error tardío de la capa del tema anterior no tiene que pisar el aviso de la actual.
+      layer.getMaplibreMap()?.on("error", ({ error }: { error: unknown }) => {
+        if (tilesRef.current !== layer) return
+        if (isBasemapRejected(error)) setBasemapProblem("rejected")
+      })
     }
   }, [theme])
 
@@ -199,11 +211,14 @@ export default function CorridorMapCanvas({
   }, [corridors, hover, band])
 
   return (
-    <div
-      ref={containerRef}
-      className="mv-track-map absolute inset-0"
-      role="img"
-      aria-label="Mapa de los corredores con más envíos"
-    />
+    <>
+      <div
+        ref={containerRef}
+        className="mv-track-map absolute inset-0"
+        role="img"
+        aria-label="Mapa de los corredores con más envíos"
+      />
+      <BasemapNotice problem={basemapProblem} />
+    </>
   )
 }

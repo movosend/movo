@@ -19,4 +19,13 @@ describe("AcceptSuccessModal", () => {
     await fireEvent.press(getByTestId("success-modal-view-button"));
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
+
+  it("llega al borde de la pantalla en Android, detrás de las barras del sistema", async () => {
+    const { getByTestId } = await render(
+      <AcceptSuccessModal visible={true} onDismiss={jest.fn()} testID="success-modal" />,
+    );
+
+    expect(getByTestId("success-modal").props.statusBarTranslucent).toBe(true);
+    expect(getByTestId("success-modal").props.navigationBarTranslucent).toBe(true);
+  });
 });

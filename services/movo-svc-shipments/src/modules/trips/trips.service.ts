@@ -3,6 +3,7 @@ import { FastifyBaseLogger } from "fastify";
 import {
   ApiError,
   MAX_ACTIVE_RECURRING_SERIES,
+  TRIP_DEPARTURE_PAST_TOLERANCE_MS,
   ShipmentStatus,
   PaymentMethod,
   UserRole,
@@ -328,7 +329,7 @@ export function createTripsService(deps: {
       // MOVO-116 (DD-036): identidad + licencia + MP, antes de cualquier escritura.
       await assertCarrierCanOperate(carrierGate, callerId, callerRoles);
 
-      if (input.departureAt.getTime() <= Date.now()) {
+      if (input.departureAt.getTime() <= Date.now() - TRIP_DEPARTURE_PAST_TOLERANCE_MS) {
         throw new ApiError(400, "TRIP_DEPARTURE_IN_PAST", "La fecha y hora de salida debe ser futura.");
       }
 
@@ -445,7 +446,7 @@ export function createTripsService(deps: {
         }
       }
 
-      if (input.departureAt && input.departureAt.getTime() <= Date.now()) {
+      if (input.departureAt && input.departureAt.getTime() <= Date.now() - TRIP_DEPARTURE_PAST_TOLERANCE_MS) {
         throw new ApiError(400, "TRIP_DEPARTURE_IN_PAST", "La fecha y hora de salida debe ser futura.");
       }
 
@@ -605,8 +606,8 @@ export function createTripsService(deps: {
         forbiddenMessage: "No tenés permiso para iniciar este viaje.",
       });
 
-      // MOVO-277: no antes del día de salida (calendario argentino, regla compartida con
-      // el mobile). Solo aplica a un `declared`: sobre otro estado manda el
+      // MOVO-277 y DD-060: hasta 3 días antes de la salida (calendario argentino, regla
+      // compartida con el mobile). Solo aplica a un `declared`: sobre otro estado manda el
       // `TRIP_NOT_DECLARED` de `start()`, que describe mejor el problema.
       if (trip.status === TripStatus.DECLARED && !canStartTripOn(trip.departureAt)) {
         throw new ApiError(
@@ -692,7 +693,7 @@ export function createTripsService(deps: {
       // MOVO-175 (DD-026): mismo filtro de bloqueos que el feed "Transportar", falla abierto.
       const blockedIds = await safeBlockRelatedUserIds(usersClient, trip.carrierId, logger);
 
-      // 1. Prefiltro geométrico (corredor <= 15 km, fecha calendario argentina y ventana de retiro)
+      // 1. Prefiltro geométrico (corredor <= 15 km y fecha calendario argentina)
       const { items, total } = await shipmentRepository.listAvailable({
         originLat: trip.originLat,
         originLng: trip.originLng,
@@ -700,8 +701,6 @@ export function createTripsService(deps: {
         destinationLng: trip.destinationLng,
         radiusKm: effectiveRadiusKm,
         pickupDate: toArgentinaCalendarDate(trip.departureAt),
-        // MOVO-314: además del día, la salida tiene que caer en la ventana de retiro.
-        departureAt: trip.departureAt,
         excludeUserId: trip.carrierId,
         excludePartyIds: blockedIds,
         page,

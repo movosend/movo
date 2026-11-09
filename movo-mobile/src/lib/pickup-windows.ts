@@ -32,13 +32,38 @@ function argentinaInstant(date: string, time: string): Date {
 }
 
 /**
- * MOVO-340: las franjas de `date` que todavía se pueden elegir — misma regla que el backend
- * (`SHIPMENT_PICKUP_WINDOW_IN_PAST`, `shipments.service.ts`): el inicio de la franja no
- * puede haber pasado. Un día anterior a hoy no tiene ninguna.
+ * MOVO-340 y DD-060: las franjas de `date` que todavía se pueden elegir — misma regla que el
+ * backend (`SHIPMENT_PICKUP_WINDOW_IN_PAST`, `shipments.service.ts`): una franja en curso sirve,
+ * solo queda afuera la que ya terminó. Un día anterior a hoy no tiene ninguna.
  */
 export function availableWindowsFor(date: string, now: Date = new Date()): PickupTimeWindow[] {
   if (!DATE_PATTERN.test(date)) return [];
-  return PICKUP_TIME_WINDOWS.filter((w) => argentinaInstant(date, w.start) >= now);
+  return PICKUP_TIME_WINDOWS.filter((w) => !isTimeWindowEnded(date, w.end, now));
+}
+
+/** DD-060: `true` si la franja que termina a `end` (`"HH:mm"`) ya terminó ese día (hora argentina). */
+export function isTimeWindowEnded(date: string, end: string, now: Date = new Date()): boolean {
+  return argentinaInstant(date, end) <= now;
+}
+
+/**
+ * DD-060: días que se pueden proponer en una oferta, como corrimiento desde la fecha pedida:
+ * desde hoy (nunca un día pasado) hasta `maxForwardDays` después de la pedida, el mismo rango que
+ * `isWithinOfferDateRange` (`offer-repository.ts`). Hacia atrás la lista se corta en
+ * `maxBackwardDays` antes de la pedida: con un retiro lejano, el backend acepta cualquier día desde
+ * hoy, pero una fila de 30 chips no se puede usar.
+ */
+export function offerDayOffsets(
+  pickupDate: string,
+  maxForwardDays: number,
+  maxBackwardDays: number,
+  now: Date = new Date(),
+): number[] {
+  const toDay = (date: string) => Date.parse(`${date}T00:00:00.000Z`);
+  const todayOffset = Math.round((toDay(todayInArgentina(now)) - toDay(pickupDate)) / DAY_MS);
+  const earliest = Math.max(todayOffset, -maxBackwardDays);
+  if (earliest > maxForwardDays) return [];
+  return Array.from({ length: maxForwardDays - earliest + 1 }, (_, i) => earliest + i);
 }
 
 /** MOVO-340: fecha con la que arranca el wizard — hoy si todavía queda alguna franja,

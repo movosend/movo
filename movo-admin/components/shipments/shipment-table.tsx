@@ -89,8 +89,12 @@ export function ShipmentRowLink({
           <span className="truncate text-xs text-muted-foreground min-[82.5rem]:hidden">
             {partiesLine(row)}
           </span>
-          <span className="hidden truncate text-xs text-muted-foreground min-[82.5rem]:block">
-            {addressLine(row)}
+          <span
+            className="truncate text-xs text-muted-foreground"
+            title={addressLine(row)}
+          >
+            {row.pickupCity ?? "Sin ciudad"} →{" "}
+            {row.deliveryCity ?? "Sin ciudad"}
           </span>
           {alert && (
             <span className="mt-0.5 flex items-start gap-1.5 text-xs font-medium text-warn-fg">

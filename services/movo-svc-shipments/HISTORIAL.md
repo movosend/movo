@@ -3990,3 +3990,11 @@ Mensajes señalados: ventana móvil de 7 días, porque ni un mensaje moderado ni
 - **`Shipment.distanceKm` y `quoteBreakdown`**, migración `20261102130000`: la distancia se completa con la estimación de pricing en los envíos existentes; el desglose no se puede reconstruir. `quoteShipment` siempre pide el desglose y la cotización congelada lo guarda en Redis.
 - **Fecha de publicación**: el primer evento a `published`, no `created_at`, porque el envío puede esperar antes al receptor. Un envío sin eventos no aparece en estos reportes.
 - **`activeCarriers` con tramo** cuenta solo ofertas a envíos de ese tramo: un viaje no tiene distancia de envío.
+
+### Fixes de la prueba del 04/11 — fechas, retiro con viaje iniciado y distancia (DD-060, DD-061, DD-062)
+
+- **Fechas** (DD-060): `createShipment` rechaza solo la franja terminada; `isWithinOfferDateRange` admite desde hoy; `OFFER_PICKUP_WINDOW_IN_PAST` al crear y editar una oferta que nacería vencida; `tripDepartureOnPickupDay` reemplaza a `tripDepartureFitsPickupWindow` y el feed de recomendados filtra solo por `pickup_date`; `canStartTripOn` admite 3 días antes de la salida.
+- **Retiro** (DD-061): `assertCarrierTripStarted` en `handshake.service.ts`, en `generate` y `confirm`. `HANDSHAKE_TRIP_NOT_STARTED`.
+- **Distancia** (DD-062): la lógica no cambia, porque ya comparaba las dos partes. Un rechazo ahora deja un `warn` con la distancia: el código de error no queda en el log de la request y sin esto no se podía diagnosticar.
+- **Panel**: el `label` de los pines del seguimiento es la dirección, y las filas de disputas exponen `pickupAddress`.
+- Pendiente: el barrido de no-retiro sigue fallando con `PAYMENT_PROVIDER_ERROR` en tres envíos de dev del 25/10, dos de ellos todavía `assigned`.

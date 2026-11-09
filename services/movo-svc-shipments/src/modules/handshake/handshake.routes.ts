@@ -79,7 +79,8 @@ export default async function handshakeRoutes(app: FastifyInstance, opts: Handsh
           "canónico exacto que el cliente firma con la clave privada del dispositivo (nunca viaja al " +
           "backend, MOVO-157) para armar el QR. Un nuevo /generate invalida cualquier QR anterior " +
           "todavía vigente para el mismo envío/etapa. 403 si el caller no es el cedente correcto; 409 " +
-          "HANDSHAKE_INVALID_SHIPMENT_STATE si el envío no está en un estado con handshake pendiente.",
+          "HANDSHAKE_INVALID_SHIPMENT_STATE si el envío no está en un estado con handshake pendiente; 409 " +
+          "HANDSHAKE_TRIP_NOT_STARTED en el retiro si el transportista no inició el viaje.",
         tags: ["handshake"],
         params: handshakeSchemas.shipmentIdParam,
         body: handshakeSchemas.generateHandshakeBody,

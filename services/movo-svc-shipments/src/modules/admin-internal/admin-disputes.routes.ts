@@ -131,6 +131,7 @@ export default async function adminDisputesRoutes(app: FastifyInstance, opts: Ad
       receiver: { id: shipment.receiverId, name: names.receiver },
       outcome: dispute.resolution?.outcome ?? null,
       pickupCity: shipment.pickupCity,
+      pickupAddress: shipment.pickupAddress,
     };
   }
 

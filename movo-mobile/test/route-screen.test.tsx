@@ -432,7 +432,7 @@ describe("OptimizedRouteScreen (MOVO-207)", () => {
 
     it("con la salida en un día futuro muestra desde cuándo se puede, sin botón", async () => {
       const { getByTestId, queryByTestId } = await renderDeclaredTrip({
-        departureAt: new Date(Date.now() + 3 * DAY_MS).toISOString(),
+        departureAt: new Date(Date.now() + 5 * DAY_MS).toISOString(),
       });
 
       expect(queryByTestId("route-trip-cta-start-button")).toBeNull();

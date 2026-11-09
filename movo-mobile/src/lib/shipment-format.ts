@@ -172,6 +172,8 @@ export function isFundingWindowOpen(
   return !Number.isNaN(pickupStart) && pickupStart - FUNDING_WINDOW_DAYS * 86_400_000 <= now.getTime();
 }
 
+const TRIP_NOT_STARTED_SENDER_TEXT = "Vas a poder entregarle el paquete cuando el transportista inicie su viaje.";
+
 /** Acción contextual del pie del detalle del envío (MOVO-194 AC2): una sola por
  * combinación rol + estado. `assigned_unfunded` no tiene CTA porque la máquina de
  * estados rechaza `assigned_unfunded -> in_transit` (MOVO-208). */
@@ -179,7 +181,7 @@ export function shipmentDetailCta(
   role: ShipmentDetailRole | null,
   status: ShipmentStatus,
   shipmentId: string,
-  options?: { fundingWindowOpen?: boolean },
+  options?: { fundingWindowOpen?: boolean; carrierTripActive?: boolean },
 ): ShipmentDetailCta | null {
   const base = `/(app)/shipments/${shipmentId}`;
   // MOVO-269: el emisor reserva los fondos (con tarjeta guardada + CVV) al aceptar una oferta
@@ -192,6 +194,14 @@ export function shipmentDetailCta(
   }
   if (status === ShipmentStatus.ASSIGNED_UNFUNDED && (role === "sender" || role === "carrier")) {
     return { kind: "info", text: FUNDS_PENDING_INFO_TEXT };
+  }
+  // DD-061: sin el viaje iniciado no hay retiro. `undefined` (el Home no lo tiene) no cambia nada:
+  // el detalle y el wizard lo resuelven, y el backend responde `HANDSHAKE_TRIP_NOT_STARTED`.
+  if (status === ShipmentStatus.ASSIGNED && options?.carrierTripActive === false) {
+    if (role === "sender") return { kind: "info", text: TRIP_NOT_STARTED_SENDER_TEXT };
+    if (role === "carrier") {
+      return { kind: "action", label: "Iniciar viaje", path: "/(app)/carrier/trips", icon: "package" };
+    }
   }
   if (role === "sender" && status === ShipmentStatus.ASSIGNED) {
     return { kind: "action", label: SENDER_PICKUP_CTA_LABEL, path: `${base}/handshake`, icon: "qr" };

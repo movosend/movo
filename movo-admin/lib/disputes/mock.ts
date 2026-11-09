@@ -56,6 +56,7 @@ function toRow(d: AdminDisputeDetail): AdminDisputeRow {
     receiver: d.receiver,
     outcome: d.outcome,
     pickupCity: d.pickupCity,
+    pickupAddress: d.pickupAddress,
   }
 }
 
@@ -103,9 +104,7 @@ export async function mockListDisputes(
   }
 }
 
-export async function mockGetDispute(
-  id: string
-): Promise<AdminDisputeDetail> {
+export async function mockGetDispute(id: string): Promise<AdminDisputeDetail> {
   await sleep(latency())
   if (shouldFail("dispute")) throw unavailable()
   return find(id).detail

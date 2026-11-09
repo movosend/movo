@@ -8,8 +8,17 @@ import Animated, {
   withDelay,
   withTiming,
 } from "react-native-reanimated";
+import {
+  SafeAreaProvider,
+  SafeAreaView,
+  initialWindowMetrics,
+} from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 
+const FALLBACK_METRICS = {
+  frame: { x: 0, y: 0, width: 0, height: 0 },
+  insets: { top: 0, left: 0, right: 0, bottom: 0 },
+};
 const SUCCESS_LIME = "#C6F24A";
 const CHECK_CIRCLE = "#0A0A0B";
 const SUCCESS_DELAY_MS = 80;
@@ -26,7 +35,11 @@ export interface AcceptSuccessModalProps {
  * Vive a nivel de pantalla en `ShipmentDetailScreen` para no desmontarse cuando el status
  * del envío pasa a `published` y se desmonta `ReceiverActionsBar`.
  */
-export function AcceptSuccessModal({ visible, onDismiss, testID }: AcceptSuccessModalProps) {
+export function AcceptSuccessModal({
+  visible,
+  onDismiss,
+  testID,
+}: AcceptSuccessModalProps) {
   const successOpacity = useSharedValue(0);
   const checkScale = useSharedValue(0.4);
 
@@ -59,55 +72,74 @@ export function AcceptSuccessModal({ visible, onDismiss, testID }: AcceptSuccess
       visible={visible}
       transparent
       animationType="fade"
+      statusBarTranslucent
+      navigationBarTranslucent
       onRequestClose={onDismiss}
       testID={testID ?? "receiver-accept-success-modal"}
     >
-      <View className="flex-1 items-center justify-center bg-[#C6F24A] px-10">
-        <Animated.View style={[{ alignItems: "center", width: "100%", gap: 20 }, successStyle]}>
+      <SafeAreaProvider
+        initialMetrics={initialWindowMetrics ?? FALLBACK_METRICS}
+      >
+        <SafeAreaView
+          edges={["top", "bottom"]}
+          className="flex-1 items-center justify-center bg-[#C6F24A] px-10"
+        >
           <Animated.View
             style={[
-              {
-                width: 72,
-                height: 72,
-                borderRadius: 999,
-                backgroundColor: CHECK_CIRCLE,
-                alignItems: "center",
-                justifyContent: "center",
-              },
-              checkStyle,
+              { alignItems: "center", width: "100%", gap: 20 },
+              successStyle,
             ]}
           >
-            <Svg width={34} height={34} viewBox="0 0 24 24" fill="none">
-              <Path
-                d="M4 12.5L9.5 18L20 6"
-                stroke={SUCCESS_LIME}
-                strokeWidth={2.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </Svg>
+            <Animated.View
+              style={[
+                {
+                  width: 72,
+                  height: 72,
+                  borderRadius: 999,
+                  backgroundColor: CHECK_CIRCLE,
+                  alignItems: "center",
+                  justifyContent: "center",
+                },
+                checkStyle,
+              ]}
+            >
+              <Svg width={34} height={34} viewBox="0 0 24 24" fill="none">
+                <Path
+                  d="M4 12.5L9.5 18L20 6"
+                  stroke={SUCCESS_LIME}
+                  strokeWidth={2.5}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </Svg>
+            </Animated.View>
+
+            <View className="items-center">
+              <Text className="mb-2 font-sans-semibold text-[22px] tracking-tight text-ink-950">
+                Envío aceptado
+              </Text>
+              <Text className="text-center font-sans text-[14px] leading-[21px] text-[#3A3A40]">
+                Confirmaste que esperás este paquete. El emisor fue notificado y
+                el envío ya está publicado para transportistas.
+              </Text>
+            </View>
+
+            <Pressable
+              testID={
+                testID
+                  ? `${testID}-view-button`
+                  : "receiver-accept-success-button"
+              }
+              onPress={onDismiss}
+              className="mt-2 rounded-full border border-black/25 px-5 py-2.5"
+            >
+              <Text className="font-sans-medium text-[13px] text-ink-950">
+                Ver detalle
+              </Text>
+            </Pressable>
           </Animated.View>
-
-          <View className="items-center">
-            <Text className="mb-2 font-sans-semibold text-[22px] tracking-tight text-ink-950">
-              Envío aceptado
-            </Text>
-            <Text className="text-center font-sans text-[14px] leading-[21px] text-[#3A3A40]">
-              Confirmaste que esperás este paquete. El emisor fue notificado y el envío ya está publicado para transportistas.
-            </Text>
-          </View>
-
-          <Pressable
-            testID={testID ? `${testID}-view-button` : "receiver-accept-success-button"}
-            onPress={onDismiss}
-            className="mt-2 rounded-full border border-black/25 px-5 py-2.5"
-          >
-            <Text className="font-sans-medium text-[13px] text-ink-950">
-              Ver detalle
-            </Text>
-          </Pressable>
-        </Animated.View>
-      </View>
+        </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }

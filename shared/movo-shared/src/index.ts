@@ -326,7 +326,12 @@ export type {
 export { isValidTimeOfDay, isWithinQuietHours } from "./config/quiet-hours";
 
 // trip start (MOVO-277)
-export { canStartTripOn, tripStartAvailableOn } from "./config/trip-start";
+export {
+  TRIP_START_MAX_DAYS_EARLY,
+  TRIP_DEPARTURE_PAST_TOLERANCE_MS,
+  canStartTripOn,
+  tripStartAvailableOn,
+} from "./config/trip-start";
 export {
   PACKAGE_WEIGHT_KG_MIN,
   PACKAGE_WEIGHT_KG_STEP,

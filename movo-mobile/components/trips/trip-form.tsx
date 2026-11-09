@@ -1,4 +1,5 @@
 import { argentinaWeekday } from "@movo/shared/dist/config/trip-recurrence";
+import { TRIP_DEPARTURE_PAST_TOLERANCE_MS } from "@movo/shared/dist/config/trip-start";
 import { router } from "expo-router";
 import { AlertTriangle, CheckCircle2 } from "lucide-react-native";
 import { useState } from "react";
@@ -145,7 +146,8 @@ export function TripForm(props: TripFormProps) {
   const untilInvalid = effectiveUntil !== null && !isUntilAfterDeparture(effectiveUntil, departureAt);
 
   const tooClose = areTooClose(origin, destination);
-  const inThePast = departureAt.getTime() <= Date.now();
+  // DD-060: misma tolerancia que el backend, para que "salgo ahora" no lo bloquee el cliente.
+  const inThePast = departureAt.getTime() <= Date.now() - TRIP_DEPARTURE_PAST_TOLERANCE_MS;
   const isValid = !!origin && !!destination && !tooClose && !inThePast && !!vehicle && !untilInvalid;
 
   /** Campos de recurrencia del PATCH: solo lo que cambió. Apagar manda `null` y el

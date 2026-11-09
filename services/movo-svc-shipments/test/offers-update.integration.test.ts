@@ -10,7 +10,7 @@ import { createShipmentRepository, ShipmentRepository } from "../src/repositorie
 import { CreateOfferInput } from "../src/models/offer";
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
 
-const PICKUP_DATE = new Date("2026-08-20T00:00:00.000Z");
+const PICKUP_DATE = new Date("2030-08-20T00:00:00.000Z");
 
 describe("PATCH /offers/:id (Postgres, MOVO-181)", () => {
   let app: FastifyInstance;
@@ -144,14 +144,14 @@ describe("PATCH /offers/:id (Postgres, MOVO-181)", () => {
   it("bug real (sin ticket propio): cambiar offeredDate recomputa expiresAt contra la ventana del envío", async () => {
     const shipmentId = await createPublishedShipment();
     const offer = await offerRepo.create(baseOfferInput({ shipmentId }));
-    const newOfferedDate = new Date(PICKUP_DATE.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10); // 2026-08-21
+    const newOfferedDate = new Date(PICKUP_DATE.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10); // 2030-08-21
 
     const response = await requestPatch(offer.id, carrierId, { offeredDate: newOfferedDate });
 
     expect(response.statusCode).toBe(200);
     // Ventana del envío 09:00-12:00 hora argentina -> cierre real 15hs UTC del
     // nuevo día ofertado, no del `PICKUP_DATE` original.
-    expect(response.json().expiresAt).toBe("2026-08-21T15:00:00.000Z");
+    expect(response.json().expiresAt).toBe("2030-08-21T15:00:00.000Z");
   });
 
   it("bug real (sin ticket propio): resetear la franja propuesta a null recomputa expiresAt contra la ventana del envío, no la vieja franja propuesta", async () => {
@@ -177,7 +177,7 @@ describe("PATCH /offers/:id (Postgres, MOVO-181)", () => {
     expect(response.json().offeredPickupTimeWindowEnd).toBeNull();
     // Vuelve a la ventana del propio envío (12:00 hora argentina -> 15hs UTC),
     // no a las 19:00 de la franja propuesta que se acaba de resetear.
-    expect(response.json().expiresAt).toBe("2026-08-20T15:00:00.000Z");
+    expect(response.json().expiresAt).toBe("2030-08-20T15:00:00.000Z");
   });
 
   it("403 AUTH_FORBIDDEN si quien modifica no es el dueño de la oferta", async () => {
@@ -223,7 +223,7 @@ describe("PATCH /offers/:id (Postgres, MOVO-181)", () => {
   it("AC3: 422 OFFER_DATE_OUT_OF_RANGE si el offeredDate editado sale del rango permitido", async () => {
     const shipmentId = await createPublishedShipment();
     const offer = await offerRepo.create(baseOfferInput({ shipmentId }));
-    const tooEarly = new Date(PICKUP_DATE.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const tooEarly = "2020-01-01";
 
     const response = await requestPatch(offer.id, carrierId, { offeredDate: tooEarly });
 

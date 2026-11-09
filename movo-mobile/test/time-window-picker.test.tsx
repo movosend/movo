@@ -117,7 +117,7 @@ describe("TimeWindowPicker", () => {
       jest.useRealTimers();
     });
 
-    it("deshabilita las franjas de hoy cuyo inicio ya pasó y deja elegir las que quedan", async () => {
+    it("DD-060: deshabilita las franjas de hoy que ya terminaron y deja elegir la que está en curso", async () => {
       Object.defineProperty(Platform, "OS", { value: "ios", configurable: true });
       const onChangeWindow = jest.fn();
 
@@ -133,8 +133,10 @@ describe("TimeWindowPicker", () => {
       );
 
       fireEvent.press(getByTestId("time-window-window-09:00"));
-      fireEvent.press(getByTestId("time-window-window-12:00"));
       expect(onChangeWindow).not.toHaveBeenCalled();
+
+      fireEvent.press(getByTestId("time-window-window-12:00"));
+      expect(onChangeWindow).toHaveBeenCalledWith("12:00", "18:00");
 
       fireEvent.press(getByTestId("time-window-window-18:00"));
       expect(onChangeWindow).toHaveBeenCalledWith("18:00", "22:00");

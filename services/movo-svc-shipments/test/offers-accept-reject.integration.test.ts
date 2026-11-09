@@ -701,7 +701,7 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
         expect(second.tripId).toBe(first.tripId);
       });
 
-      it("crea un viaje nuevo si el viaje sale después de que cierra la ventana de retiro", async () => {
+      it("DD-060: se suma al viaje del mismo día aunque salga después de que cierra la ventana", async () => {
         // Viaje a las 09:00 ART (primer envío); el segundo retira entre 06:00 y 08:00 ART.
         const first = await acceptNew();
         const earlier = await acceptNew({
@@ -709,8 +709,8 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
           pickupTimeWindowEnd: new Date("1970-01-01T08:00:00.000Z"),
         });
 
-        expect(earlier.tripId).not.toBe(first.tripId);
-        expect(await countTrips()).toBe(2);
+        expect(earlier.tripId).toBe(first.tripId);
+        expect(await countTrips()).toBe(1);
       });
 
       it("no se suma a un viaje de otro transportista", async () => {
