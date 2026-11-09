@@ -815,3 +815,7 @@ Bitácora: `AdminAuditLogPage`, `AuditTargetRef`, `auditTargetKey`, `ADMIN_AUDIT
 ### MOVO-35 — Tipos de las otras pestañas de Métricas (`types/admin-reports.ts`, DD-059)
 
 Los contratos de MOVO-345 (`AdminReportById` y los de cada pestaña), más `distanceBandOf`, `buildReportBody` (KPIs y series de una sola función), `reportExportSections` y `ShipmentReportFact`/`PaymentReportFact`, los datos que cruza `svc-admin`. Al rebasear, MOVO-345 se queda con estos.
+
+### Feedback de TestFlight build 17 — reseñas por rol y errores de Google
+
+`types/user-profile.ts`: `ProfileRatingRole` (pestaña del perfil; la de emisor incluye lo recibido como receptor) y `RecentRatingCommentsByRole`, opcional en `PublicProfile`. `utils/google-error.ts` (`readGoogleErrorDetail`, `googleErrorDetail`, `ProviderLogger` estructural para no depender de `fastify`): lo usan los adapters de Google de `svc-users` y `svc-shipments`, que tenían una copia cada uno.

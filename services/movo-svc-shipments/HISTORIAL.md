@@ -4006,4 +4006,5 @@ Mensajes señalados: ventana móvil de 7 días, porque ni un mensaje moderado ni
 - Pendiente: el envío del "Ventana vencida" del feedback (`16d2352c…`, retiro del 25/10) es uno de los `assigned` que el barrido de no-retiro no puede cancelar porque falla la liberación del hold en MP.
 ### Feedback de TestFlight build 17 — reseñas recientes por rol
 
-`GET /internal/users/:id/ratings/recent` acepta `role` (rol del calificado) y `listRecentByRateePaginated` lo filtra. Sin él devuelve todas, como antes. Lo usa `svc-users` para separar las reseñas del perfil por pestaña.
+`GET /internal/users/:id/ratings/recent` acepta `role`, una lista separada por comas de roles del calificado (`sender,receiver`), y `listRecentByRateePaginated` la filtra. Sin él devuelve todas, como antes. `GET /internal/users/:id/ratings/recent-by-role` devuelve en una llamada las últimas generales y las de cada pestaña del perfil (la de emisor suma las de receptor, `PROFILE_SENDER_RATING_ROLES`), para que `GET /users/:id` no haga tres pedidos.
+- El viaje que se vence en la misma transacción viaja en `ShipmentStatusChangedEvent.expiredTripIds` y `realtime.ts` lo loguea como `trip_auto_expired` (`reason: last_shipment_released`), igual que el barrido. `google-error.ts` pasó a `@movo/shared`.
