@@ -2,7 +2,7 @@ import type { UserLedgerEntry } from "@movo/shared/dist/types/user-ledger";
 import { router } from "expo-router";
 import { ChevronRight } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, InteractionManager, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useBalance } from "../../src/hooks/use-balance";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { balanceEntryAmount, balanceEntryLabel, balanceEntryRole, balanceEntryTitle, formatBalanceArs } from "../../src/lib/balance-format";
@@ -64,10 +64,27 @@ export function BalanceTab({ openPay, onPayOpened }: { openPay?: boolean; onPayO
   const balance = useBalance();
   const cards = useSavedCards();
   const [payOpen, setPayOpen] = useState(false);
+  // Cada apertura monta la hoja de nuevo. iOS a veces no presenta el `Modal` (por ejemplo, si se pide durante la
+  // animación de entrada de la pantalla o mientras otro se cierra): `payOpen` quedaba en `true` sin hoja a la vista y
+  // "Pagar mi saldo" ya no hacía nada (feedback de TestFlight, build 17). Con una `key` nueva, cada toque la vuelve a presentar.
+  const [payKey, setPayKey] = useState(0);
+  const openPaySheet = () => {
+    setPayKey((key) => key + 1);
+    setPayOpen(true);
+  };
   const page = balance.data?.pages[0];
   const amount = page?.balanceArs ?? 0;
   const entries = (balance.data?.pages.flatMap((p) => p.items) ?? []).filter(isOpenDebt);
-  useEffect(() => { if (openPay) { setPayOpen(true); onPayOpened?.(); } }, [openPay, onPayOpened]);
+  // Desde un atajo (`?pay=1`) la hoja se abre después de que termina la transición de la pantalla.
+  useEffect(() => {
+    if (!openPay) return;
+    onPayOpened?.();
+    const task = InteractionManager.runAfterInteractions(() => {
+      setPayKey((key) => key + 1);
+      setPayOpen(true);
+    });
+    return () => task.cancel();
+  }, [openPay, onPayOpened]);
   // El endpoint pagina todos los movimientos. Si la página visible solo contiene pagos o
   // deudas cerradas, avanzar hasta encontrar una deuda o agotar las páginas.
   useEffect(() => {
@@ -82,7 +99,7 @@ export function BalanceTab({ openPay, onPayOpened }: { openPay?: boolean; onPayO
       <ScrollView testID="balance-tab" contentContainerClassName="gap-6 px-5 pb-10 pt-5" refreshControl={<RefreshControl refreshing={balance.isRefetching && !balance.isFetchingNextPage} onRefresh={() => void balance.refetch()} />}>
         {balance.isPending ? <ActivityIndicator /> : balance.isError ? <View className="gap-2"><Text className="font-sans text-danger-600">No pudimos consultar tu saldo.</Text><Pressable accessibilityRole="button" onPress={() => void balance.refetch()}><Text className="font-sans-semibold text-fg">Reintentar</Text></Pressable></View> : (
           <>
-            {amount > 0 ? <View className="gap-4 rounded-[14px] border border-danger-200 p-5"><View><Text className="font-sans-medium text-[11px] uppercase tracking-wider text-danger-700">Saldo pendiente</Text><Text testID="balance-amount" className="mt-1.5 font-sans-semibold text-[32px] leading-[38px] text-danger-600">{formatBalanceArs(amount)}</Text><Text className="mt-2 font-sans text-[13.5px] leading-[20px] text-fg-2">Lo descontamos de tus próximos cobros o se suma a tu próximo pago. También podés pagarlo ahora.</Text></View><Pressable accessibilityRole="button" onPress={() => setPayOpen(true)} className="h-12 items-center justify-center rounded-lg bg-fg active:opacity-80"><Text className="font-sans-semibold text-[14px] text-bg">Pagar mi saldo</Text></Pressable></View>
+            {amount > 0 ? <View className="gap-4 rounded-[14px] border border-danger-200 p-5"><View><Text className="font-sans-medium text-[11px] uppercase tracking-wider text-danger-700">Saldo pendiente</Text><Text testID="balance-amount" className="mt-1.5 font-sans-semibold text-[32px] leading-[38px] text-danger-600">{formatBalanceArs(amount)}</Text><Text className="mt-2 font-sans text-[13.5px] leading-[20px] text-fg-2">Lo descontamos de tus próximos cobros o se suma a tu próximo pago. También podés pagarlo ahora.</Text></View><Pressable testID="balance-pay-button" accessibilityRole="button" onPress={openPaySheet} className="h-12 items-center justify-center rounded-lg bg-fg active:opacity-80"><Text className="font-sans-semibold text-[14px] text-bg">Pagar mi saldo</Text></Pressable></View>
               : <View testID="balance-status" className="rounded-[14px] border border-border p-5"><Text className="font-sans-medium text-[11px] uppercase tracking-wider text-fg-2">Saldo</Text><Text className="mt-1 font-sans-semibold text-[30px] text-fg">{amount < 0 ? formatBalanceArs(Math.abs(amount)) : "$0"}</Text><Text className="mt-2 font-sans text-[13.5px] leading-[20px] text-fg-2">{amount < 0 ? "Tenés saldo a favor en tu cuenta corriente." : "Estás al día. Si te toca una penalidad, la vas a ver acá."}</Text></View>}
             {entries.length > 0 || balance.hasNextPage ? <View>
                 <Text className="mb-3 font-sans-semibold text-caption uppercase text-fg-3">Qué forma tu saldo</Text>
@@ -94,7 +111,7 @@ export function BalanceTab({ openPay, onPayOpened }: { openPay?: boolean; onPayO
           </>
         )}
       </ScrollView>
-      <BalancePaySheet visible={payOpen} onClose={() => { setPayOpen(false); void balance.refetch(); }} cards={cards.data} initialBalanceArs={amount} />
+      <BalancePaySheet key={payKey} visible={payOpen} onClose={() => { setPayOpen(false); void balance.refetch(); }} cards={cards.data} initialBalanceArs={amount} />
     </>
   );
 }
