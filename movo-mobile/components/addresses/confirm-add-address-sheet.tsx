@@ -2,18 +2,33 @@ import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { MapPin } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
-import { useState } from "react";
-import { ActivityIndicator, Modal, Platform, Pressable, Text, View } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE, type Region } from "react-native-maps";
+import { useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Modal,
+  Platform,
+  Pressable,
+  Text,
+  View,
+} from "react-native";
+import MapView, {
+  Marker,
+  PROVIDER_GOOGLE,
+  type Region,
+} from "react-native-maps";
 import {
   SafeAreaProvider,
   initialWindowMetrics,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { movoMapStyleDark, movoMapStyleLight } from "../../src/constants/map-style";
+import {
+  movoMapStyleDark,
+  movoMapStyleLight,
+} from "../../src/constants/map-style";
 import { useCreateAddress } from "../../src/hooks/use-addresses";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { addressSelectionToCreateInput } from "../../src/lib/address-selection-to-input";
+import { resolvePinAddress } from "../../src/lib/pin-address";
 import type { AddressSelection } from "../../src/types/address-selection";
 import { ErrorBanner } from "../ui/error-banner";
 
@@ -76,7 +91,9 @@ export function ConfirmAddAddressSheet({
       onRequestClose={onClose}
       testID={testID}
     >
-      <SafeAreaProvider initialMetrics={initialWindowMetrics ?? FALLBACK_METRICS}>
+      <SafeAreaProvider
+        initialMetrics={initialWindowMetrics ?? FALLBACK_METRICS}
+      >
         {selection ? (
           <ConfirmAddAddressBody
             key={`${selection.lat}-${selection.lng}-${selection.address}`}
@@ -109,6 +126,10 @@ function ConfirmAddAddressBody({
   const createAddress = useCreateAddress();
   const [lat, setLat] = useState(selection.lat);
   const [lng, setLng] = useState(selection.lng);
+  // El texto sigue al pin: al moverlo se vuelve a resolver la dirección (ver `resolvePinAddress`).
+  const [address, setAddress] = useState(selection.address);
+  const [resolvingAddress, setResolvingAddress] = useState(false);
+  const pinRequestRef = useRef(0);
   const [error, setError] = useState<string | null>(null);
 
   const region: Region = {
@@ -122,7 +143,7 @@ function ConfirmAddAddressBody({
     setError(null);
     try {
       await createAddress.mutateAsync(
-        addressSelectionToCreateInput({ ...selection, lat, lng }),
+        addressSelectionToCreateInput({ ...selection, address, lat, lng }),
       );
       onSaved();
     } catch {
@@ -130,13 +151,14 @@ function ConfirmAddAddressBody({
     }
   };
 
-  const blurTint = Platform.OS === "ios"
-    ? isDark
-      ? "systemUltraThinMaterialDark"
-      : "systemUltraThinMaterialLight"
-    : isDark
-      ? "dark"
-      : "light";
+  const blurTint =
+    Platform.OS === "ios"
+      ? isDark
+        ? "systemUltraThinMaterialDark"
+        : "systemUltraThinMaterialLight"
+      : isDark
+        ? "dark"
+        : "light";
   const blurMethod = Platform.OS === "android" ? "dimezisBlurView" : "none";
 
   return (
@@ -165,6 +187,13 @@ function ConfirmAddAddressBody({
             const { latitude, longitude } = e.nativeEvent.coordinate;
             setLat(latitude);
             setLng(longitude);
+            const request = ++pinRequestRef.current;
+            setResolvingAddress(true);
+            void resolvePinAddress(latitude, longitude).then((resolved) => {
+              if (request !== pinRequestRef.current) return;
+              setAddress(resolved);
+              setResolvingAddress(false);
+            });
           }}
         >
           <View
@@ -178,13 +207,26 @@ function ConfirmAddAddressBody({
               elevation: 4,
             }}
           >
-            <MapPin size={44} strokeWidth={1.5} color="#1A1A1D" fill="#C6F24A" />
+            <MapPin
+              size={44}
+              strokeWidth={1.5}
+              color="#1A1A1D"
+              fill="#C6F24A"
+            />
           </View>
         </Marker>
       </MapView>
 
       {/* Header flotante sobre el mapa, mismo lenguaje "glassy" que FloatingTabBar */}
-      <View style={{ position: "absolute", top: 0, left: 0, right: 0, overflow: "hidden" }}>
+      <View
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          overflow: "hidden",
+        }}
+      >
         <BlurView
           intensity={isDark ? 45 : 70}
           tint={blurTint}
@@ -199,7 +241,9 @@ function ConfirmAddAddressBody({
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: isDark ? "rgba(10,10,11,0.4)" : "rgba(255,255,255,0.55)",
+            backgroundColor: isDark
+              ? "rgba(10,10,11,0.4)"
+              : "rgba(255,255,255,0.55)",
           }}
         />
         <View
@@ -214,7 +258,9 @@ function ConfirmAddAddressBody({
             onPress={onClose}
             hitSlop={8}
           >
-            <Text className="font-sans-medium text-[13px] text-fg-3">Cancelar</Text>
+            <Text className="font-sans-medium text-[13px] text-fg-3">
+              Cancelar
+            </Text>
           </Pressable>
         </View>
       </View>
@@ -256,7 +302,10 @@ function ConfirmAddAddressBody({
         }}
       >
         <View className="gap-3 px-5 pb-4">
-          <ErrorBanner testID={testID ? `${testID}-error` : undefined} message={error} />
+          <ErrorBanner
+            testID={testID ? `${testID}-error` : undefined}
+            message={error}
+          />
           <View
             className="rounded-[12px] bg-bg px-4 py-3"
             style={{
@@ -267,8 +316,11 @@ function ConfirmAddAddressBody({
               elevation: 3,
             }}
           >
-            <Text numberOfLines={2} className="font-sans-medium text-[15px] text-fg">
-              {selection.address}
+            <Text
+              numberOfLines={2}
+              className="font-sans-medium text-[15px] text-fg"
+            >
+              {resolvingAddress ? "Buscando la dirección…" : address}
             </Text>
           </View>
           <Pressable
@@ -277,7 +329,7 @@ function ConfirmAddAddressBody({
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               void handleSave();
             }}
-            disabled={createAddress.isPending}
+            disabled={createAddress.isPending || resolvingAddress}
             className={`w-full flex-row items-center justify-center gap-2 rounded-lg py-3.5 ${
               createAddress.isPending ? "bg-bg-mute" : "bg-fg"
             }`}
@@ -289,7 +341,9 @@ function ConfirmAddAddressBody({
               elevation: 4,
             }}
           >
-            {createAddress.isPending ? <ActivityIndicator color={colors.fg3} /> : null}
+            {createAddress.isPending ? (
+              <ActivityIndicator color={colors.fg3} />
+            ) : null}
             <Text
               className={`font-sans-semibold text-body ${
                 createAddress.isPending ? "text-fg-3" : "text-bg"
