@@ -30,6 +30,7 @@ import { OtpStep } from "../../components/ui/otp-step";
 import { PasswordStrengthMeter } from "../../components/ui/password-strength-meter";
 import { TextField } from "../../components/ui/text-field";
 import { useOtpCooldown } from "../../src/hooks/use-otp-cooldown";
+import { type RegisterStep, registerStepProgress } from "../../src/lib/register-steps";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import {
   type FieldName,
@@ -54,10 +55,7 @@ import {
 // completar en el paso (momento en el que se esconde el teclado).
 const STEP0_FIELD_ORDER: FieldName[] = ["email", "phone"];
 
-const STEP_LABELS = ["Paso 1", "Paso 2", "Paso 3", "Paso 4"];
-const STEP_COUNT = STEP_LABELS.length;
-
-type Step = 0 | 1 | 2 | 3;
+type Step = RegisterStep;
 
 export default function RegisterScreen() {
   const colors = useThemeColors();
@@ -75,6 +73,9 @@ export default function RegisterScreen() {
     setAcceptedLegal,
   } = registration;
   const [step, setStep] = useState<Step>(0);
+  // true cuando el paso del código se salteó porque el teléfono ya estaba verificado. Solo vale
+  // mientras el token siga vigente: si el usuario cambia el teléfono, el código vuelve a contar.
+  const [otpSkippedFlag, setOtpSkipped] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [otpCode, setOtpCode] = useState("");
   const { secondsLeft: otpSecondsLeft, start: startOtpCooldown } = useOtpCooldown();
@@ -124,6 +125,9 @@ export default function RegisterScreen() {
 
   // Todo cambio de paso pasa por acá: un error de un paso anterior no debe
   // seguir mostrándose una vez que el usuario avanzó o volvió a otro paso.
+  const otpSkipped = otpSkippedFlag && Boolean(registration.phoneVerificationToken);
+  const progress = registerStepProgress(step, otpSkipped);
+
   function goToStep(next: Step) {
     clearErrorBanner();
     setStep(next);
@@ -141,6 +145,7 @@ export default function RegisterScreen() {
     // Simétrico al salto hacia adelante en goNext (paso 0): si el teléfono ya está verificado,
     // el paso del código (1) queda fuera de la navegación en ambos sentidos.
     if (step === 2 && registration.phoneVerificationToken) {
+      setOtpSkipped(true);
       goToStep(0);
       return;
     }
@@ -163,6 +168,7 @@ export default function RegisterScreen() {
       // El teléfono ya está verificado para el número actual (no cambió desde la última vez):
       // reenviar un código sería gastar un SMS de más y hacerle pisar el paso al usuario de nuevo.
       if (registration.phoneVerificationToken) {
+        setOtpSkipped(true);
         goToStep(2);
         return;
       }
@@ -170,6 +176,7 @@ export default function RegisterScreen() {
       if (!result.ok) return;
       setOtpCode("");
       startOtpCooldown(result.cooldownSeconds);
+      setOtpSkipped(false);
       goToStep(1);
     } else if (step === 1) {
       if (otpCode.length < OTP_LENGTH) return;
@@ -194,8 +201,8 @@ export default function RegisterScreen() {
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
       <WizardHeader
-        progress={(step + 1) / STEP_COUNT}
-        stepLabel={STEP_LABELS[step]}
+        progress={progress.fraction}
+        stepLabel={progress.label}
         onBack={goBack}
         testID="register-back"
       />

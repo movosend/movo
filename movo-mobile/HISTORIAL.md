@@ -5097,5 +5097,6 @@ el nombre y el DNI los completa Didit al aprobar el KYC (`svc-users`), y la dire
 `email`/`phone`/`password`/`passwordConfirm` (`isStepValid` solo tiene los pasos 0 y 1), sin `geocodeAddress` ni `confirmLocation`; `authClient` sin
 `geocodeAddress` ni `RegisterAddress`. `capitalizeName` delega en `normalizePersonName` de `@movo/shared` (partículas y apóstrofes). `profile-photo.tsx` toma el nombre
 del perfil, y `kyc.tsx` avisa que el nombre y el número salen del documento. Tests: `register-screen.test.tsx` (nuevo) y `use-registration.test.tsx`.
-Pendiente: la barra "Paso x" sigue contando 4 aunque se omita el código SMS (teléfono ya verificado); la Política de Privacidad todavía no menciona que se
-guardan nombre, número de documento y fecha de nacimiento del documento (cambiarla sube la versión legal y fuerza actualizar la app).
+La barra "Paso x" cuenta solo los pasos que se ven: con el teléfono ya verificado el código SMS deja de contar (`src/lib/register-steps.ts`, estado `otpSkipped` en `register.tsx`).
+La Política de Privacidad y los Términos se actualizaron (versión 2026-11-09): el nombre, el número de documento y la fecha de nacimiento salen del documento y no se editan; los builds anteriores
+no pueden registrarse hasta actualizar (`LEGAL_DOCUMENT_VERSION_MISMATCH`).
