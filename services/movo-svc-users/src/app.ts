@@ -12,6 +12,7 @@ import usersRoutes, { UsersRoutesOptions } from "./modules/users/users.routes";
 import authRoutes, { AuthRoutesOptions } from "./modules/auth/auth.routes";
 import kycRoutes, { KycRoutesOptions } from "./modules/kyc/kyc.routes";
 import kycInternalRoutes from "./modules/kyc/kyc-internal.routes";
+import kycReviewInternalRoutes from "./modules/kyc/kyc-review-internal.routes";
 import usersDeletionInternalRoutes from "./modules/users/users-deletion-internal.routes";
 import geocodeRoutes, {
   GeocodeRoutesOptions,
@@ -186,6 +187,13 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // MOVO-116: estado de KYC (identidad + licencia) para el bloqueo de transportista de
   // svc-shipments. Interno, mismo criterio que device-key.
   app.register(kycInternalRoutes, { prefix: "/internal" });
+
+  // Cola de revisión manual de KYC del panel: interno, lo llama svc-admin.
+  app.register(kycReviewInternalRoutes, {
+    prefix: "/internal",
+    ...(opts.diditClient ? { diditClient: opts.diditClient } : {}),
+    ...(opts.pushProvider ? { pushProvider: opts.pushProvider } : {}),
+  });
 
   // MOVO-230: fechas de baja para la purga de historial de svc-shipments. Interno, mismo
   // criterio que kyc-status.

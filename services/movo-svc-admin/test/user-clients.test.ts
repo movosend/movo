@@ -307,3 +307,92 @@ describe("clientes internos de la ficha del panel (MOVO-294)", () => {
     });
   });
 });
+
+describe("cola de revisión manual de KYC (svc-users)", () => {
+  const users = createUsersClient({ USERS_SERVICE_URL: "http://users" });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const row = {
+    sessionId: "sess-1",
+    userId: USER,
+    fullName: "Ana Ariza",
+    photoUrl: null,
+    verificationType: "identity",
+    reason: null,
+    requestedAt: "2026-11-01T10:00:00.000Z",
+  };
+
+  it("lista con q, page, pageSize y type en el querystring", async () => {
+    const fetchMock = mockFetch(200, { items: [row], page: 1, pageSize: 20, total: 1 });
+
+    const page = await users.listKycReviews({ type: "license", q: "ana", page: 1, pageSize: 20 }, ctx);
+
+    expect(fetchMock.mock.calls[0][0]).toBe("http://users/internal/admin/kyc/reviews?q=ana&page=1&pageSize=20&type=license");
+    expect(page.total).toBe(1);
+  });
+
+  it("el detalle devuelve 404 KYC_SESSION_NOT_FOUND como ApiError", async () => {
+    mockFetch(404, { error: { code: "KYC_SESSION_NOT_FOUND", message: "No existe", statusCode: 404 } });
+
+    const error = await catchApiError(users.getKycReview("x", ctx));
+
+    expect(error.statusCode).toBe(404);
+    expect(error.code).toBe("KYC_SESSION_NOT_FOUND");
+  });
+
+  it("decide con POST, x-user-id y el body, y valida la respuesta", async () => {
+    const fetchMock = mockFetch(200, { sessionId: "sess-1", userId: USER, verificationType: "identity", status: "approved" });
+
+    const result = await users.decideKycReview("sess-1", { decision: "approved", reason: "Motivo suficiente" }, "admin-1", ctx);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://users/internal/admin/kyc/reviews/sess-1/decision");
+    expect(init.method).toBe("POST");
+    expect(init.headers["x-user-id"]).toBe("admin-1");
+    expect(JSON.parse(init.body)).toEqual({ decision: "approved", reason: "Motivo suficiente" });
+    expect(result.status).toBe("approved");
+  });
+
+  it("un 502 KYC_PROVIDER_ERROR se relanza con su código (no es 'usuarios caído'); un 409 conserva el suyo", async () => {
+    mockFetch(502, { error: { code: "KYC_PROVIDER_ERROR", message: "Didit devolvió un error", statusCode: 502 } });
+    const provider = await catchApiError(users.decideKycReview("s", { decision: "rejected", reason: "Motivo suficiente" }, "a", ctx));
+    expect(provider.code).toBe("KYC_PROVIDER_ERROR");
+
+    mockFetch(409, { error: { code: "KYC_REVIEW_STATUS_CHANGED", message: "Ya no está en revisión", statusCode: 409 } });
+    const conflict = await catchApiError(users.decideKycReview("s", { decision: "rejected", reason: "Motivo suficiente" }, "a", ctx));
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.code).toBe("KYC_REVIEW_STATUS_CHANGED");
+  });
+
+  it("cualquier otro 502 (svc-users caído) sigue siendo USERS_SERVICE_UNAVAILABLE", async () => {
+    mockFetch(502, { error: { code: "INTERNAL_ERROR", message: "boom", statusCode: 502 } });
+
+    const error = await catchApiError(users.decideKycReview("s", { decision: "approved", reason: "Motivo suficiente" }, "a", ctx));
+
+    expect(error.code).toBe("USERS_SERVICE_UNAVAILABLE");
+  });
+
+  it("el detalle de Didit pide /evidence, valida la forma y relaya KYC_PROVIDER_ERROR y el 422", async () => {
+    const body = { fetchedAt: "2026-11-09T12:00:00.000Z", imagesExpireAt: "2026-11-09T13:00:00.000Z", images: {}, warnings: [], reviews: [] };
+    const fetchMock = mockFetch(200, body);
+    expect((await users.getKycEvidence("sess-1", ctx)).fetchedAt).toBe(body.fetchedAt);
+    expect(fetchMock.mock.calls[0][0]).toBe("http://users/internal/admin/kyc/reviews/sess-1/evidence");
+
+    mockFetch(200, { algo: "inesperado" });
+    expect((await catchApiError(users.getKycEvidence("sess-1", ctx))).code).toBe("USERS_SERVICE_UNAVAILABLE");
+
+    mockFetch(502, { error: { code: "KYC_PROVIDER_ERROR", message: "Didit no responde", statusCode: 502 } });
+    expect((await catchApiError(users.getKycEvidence("sess-1", ctx))).code).toBe("KYC_PROVIDER_ERROR");
+
+    mockFetch(422, { error: { code: "KYC_EVIDENCE_NOT_FOUND", message: "Sin detalle", statusCode: 422 } });
+    const noDetail = await catchApiError(users.getKycEvidence("sess-1", ctx));
+    expect(noDetail.statusCode).toBe(422);
+    expect(noDetail.code).toBe("KYC_EVIDENCE_NOT_FOUND");
+
+    mockFetch(404, { error: { code: "KYC_SESSION_NOT_FOUND", message: "No existe", statusCode: 404 } });
+    expect((await catchApiError(users.getKycEvidence("x", ctx))).code).toBe("KYC_SESSION_NOT_FOUND");
+  });
+});

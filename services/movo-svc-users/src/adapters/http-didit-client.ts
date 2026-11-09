@@ -1,6 +1,12 @@
 import { ApiError } from "@movo/shared";
 import { VerificationType } from "../models/kyc-verification";
-import { CreateDiditSessionInput, DiditClient, DiditSession, DiditSessionDecision } from "./didit-client";
+import {
+  CreateDiditSessionInput,
+  DiditClient,
+  DiditSession,
+  DiditSessionDecision,
+  UpdateDiditSessionStatusInput,
+} from "./didit-client";
 
 export interface HttpDiditClientConfig {
   baseUrl: string;
@@ -28,6 +34,16 @@ interface DiditSessionDecisionResponse {
   status?: string;
   [key: string]: unknown;
 }
+
+/** Tope de espera del pedido de decisión a Didit. */
+export const DIDIT_UPDATE_TIMEOUT_MS = 10_000;
+
+const unconfirmed = () =>
+  new ApiError(
+    502,
+    "KYC_PROVIDER_UNCONFIRMED",
+    "El proveedor de verificación no confirmó el cambio: puede haberse aplicado o no."
+  );
 
 /**
  * Implementación real de `DiditClient` sobre la API HTTP de Didit.me (AC1). Endpoint
@@ -101,6 +117,42 @@ export function createHttpDiditClient(config: HttpDiditClientConfig): DiditClien
       }
 
       return { sessionId: body.session_id ?? sessionId, rawStatus: body.status, decision: body };
+    },
+
+    async updateSessionStatus(input: UpdateDiditSessionStatusInput): Promise<void> {
+      let response: Response;
+      try {
+        response = await fetch(
+          `${config.baseUrl}/v3/session/${encodeURIComponent(input.sessionId)}/update-status/`,
+          {
+            method: "PATCH",
+            headers: { "x-api-key": config.apiKey, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              new_status: input.newStatus,
+              ...(input.comment ? { comment: input.comment } : {}),
+              send_email: false,
+            }),
+            // Menor que los 15 s con los que svc-admin espera a este servicio: así nunca se sigue esperando a Didit después
+            // de que el panel ya le informó al admin.
+            signal: AbortSignal.timeout(DIDIT_UPDATE_TIMEOUT_MS),
+          }
+        );
+      } catch {
+        // Red caída o timeout: Didit pudo haber aplicado el cambio antes de que se cortara la respuesta. No es un rechazo.
+        throw unconfirmed();
+      }
+
+      if (response.status === 404) {
+        throw new ApiError(404, "KYC_SESSION_NOT_FOUND", "El proveedor no conoce la sesión de verificación.");
+      }
+      if (response.status >= 500) {
+        // Un 5xx tampoco dice si el cambio quedó aplicado.
+        throw unconfirmed();
+      }
+      if (!response.ok) {
+        // 4xx: Didit rechazó el pedido y no aplicó nada (credenciales sin permiso, estado que no admite el cambio…).
+        throw new ApiError(502, "KYC_PROVIDER_ERROR", "El proveedor de verificación de identidad rechazó el pedido.");
+      }
     },
   };
 }

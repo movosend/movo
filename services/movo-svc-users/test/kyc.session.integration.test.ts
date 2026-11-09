@@ -41,6 +41,7 @@ function createFakeDiditClient() {
       if (decisionError) throw decisionError;
       return decision;
     },
+    async updateSessionStatus() {},
   };
 
   return {

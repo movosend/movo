@@ -410,7 +410,19 @@ export type ApiErrorCode =
   | "DISPUTE_PARTIAL_ABOVE_MAXIMUM"
   // MOVO-342 (ADR-025): reportes del panel.
   // Rango de fechas inválido, invertido, futuro o más largo que `REPORT_RANGE_MAX_DAYS`; `details.reason` (400).
-  | "REPORT_RANGE_INVALID";
+  | "REPORT_RANGE_INVALID"
+  // Cola de revisión manual de KYC del panel: la sesión no existe (404), el caso ya no está en revisión o cambió
+  // mientras se decidía (409) o el usuario abrió una verificación más nueva (409).
+  | "KYC_SESSION_NOT_FOUND"
+  | "KYC_REVIEW_STATUS_CHANGED"
+  | "KYC_REVIEW_SUPERSEDED"
+  // Didit no conoce la sesión cuyo detalle se pidió (422, no 404: el cliente interno de svc-admin lee un 404 como "no existe el objetivo").
+  | "KYC_EVIDENCE_NOT_FOUND"
+  // Otro admin está decidiendo el mismo caso en este momento (409).
+  | "KYC_REVIEW_IN_PROGRESS"
+  // Didit no respondió o respondió 5xx al pedido de decisión: el cambio pudo haberse aplicado o no (502). A diferencia de
+  // KYC_PROVIDER_ERROR (Didit rechazó el pedido), no es un rechazo seguro.
+  | "KYC_PROVIDER_UNCONFIRMED";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

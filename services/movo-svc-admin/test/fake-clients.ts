@@ -24,6 +24,8 @@ import {
   ResolveDisputeResponse,
   AccountSanction,
   AdminCandidate,
+  AdminKycEvidence,
+  AdminKycReviewDetail,
   AdminSummary,
   AdminUserLedgerRowPage,
   AdminUserMercadoPago,
@@ -362,6 +364,16 @@ export function createFakeUsersClient(
     /** MOVO-322: solo el KYC falla (las insignias del contexto de soporte fallan abierto). */
     kycDown?: boolean;
     cards?: PartyCard[];
+    /**
+     * Cola de revisión manual de KYC. `decisions` registra lo que decide el panel. Como en `svc-users`, solo se decide un
+     * caso `decidable` (409 `KYC_REVIEW_STATUS_CHANGED` si no) y `decideError` simula que Didit rechazó el pedido.
+     */
+    kycReviews?: AdminKycReviewDetail[];
+    kycDecisions?: Array<{ sessionId: string; decision: string; reason: string; actorId: string }>;
+    kycDecideError?: ApiError;
+    /** Detalle de Didit por sesión; sin entrada, `KYC_EVIDENCE_NOT_FOUND`. `kycEvidenceError` simula que Didit no responde. */
+    kycEvidence?: Record<string, AdminKycEvidence>;
+    kycEvidenceError?: ApiError;
     /** MOVO-299: historial de sanciones de todos los usuarios; se muta como en `svc-users`. */
     sanctions?: AccountSanction[];
     /**
@@ -562,6 +574,44 @@ export function createFakeUsersClient(
       sanctions.push(created);
       Object.assign(profile, { accountStatus: body.type === "disable" ? "banned" : "suspended", bannedUntil: body.endsAt ?? null });
       return created;
+    },
+    async listKycReviews(query) {
+      if (data.down) throw usersDown();
+      const term = query.q.toLowerCase();
+      const open = (data.kycReviews ?? []).filter(
+        (review) =>
+          review.decidable &&
+          (!query.type || review.verificationType === query.type) &&
+          (!term || review.fullName.toLowerCase().includes(term) || review.sessionId === query.q),
+      );
+      const start = (query.page - 1) * query.pageSize;
+      return { items: open.slice(start, start + query.pageSize), page: query.page, pageSize: query.pageSize, total: open.length };
+    },
+    async getKycReview(sessionId) {
+      if (data.down) throw usersDown();
+      const review = (data.kycReviews ?? []).find((r) => r.sessionId === sessionId);
+      if (!review) throw new ApiError(404, "KYC_SESSION_NOT_FOUND", "No existe esa verificación.");
+      return review;
+    },
+    async getKycEvidence(sessionId) {
+      if (data.down) throw usersDown();
+      if (!(data.kycReviews ?? []).some((r) => r.sessionId === sessionId))
+        throw new ApiError(404, "KYC_SESSION_NOT_FOUND", "No existe esa verificación.");
+      if (data.kycEvidenceError) throw data.kycEvidenceError;
+      const evidence = data.kycEvidence?.[sessionId];
+      if (!evidence) throw new ApiError(422, "KYC_EVIDENCE_NOT_FOUND", "Didit no tiene detalle de esta sesión.");
+      return evidence;
+    },
+    async decideKycReview(sessionId, body, actorId) {
+      if (data.down) throw usersDown();
+      const review = (data.kycReviews ?? []).find((r) => r.sessionId === sessionId);
+      if (!review) throw new ApiError(404, "KYC_SESSION_NOT_FOUND", "No existe esa verificación.");
+      if (!review.decidable) throw new ApiError(409, "KYC_REVIEW_STATUS_CHANGED", "La verificación ya no está en revisión manual.");
+      if (data.kycDecideError) throw data.kycDecideError;
+      data.kycDecisions?.push({ sessionId, decision: body.decision, reason: body.reason, actorId });
+      // Como en svc-users: queda resuelto, así un segundo pedido recibe 409.
+      review.decidable = false;
+      return { sessionId, userId: review.userId, verificationType: review.verificationType, status: body.decision };
     },
     async liftSanction(userId, sanctionId, reason, actorId) {
       const profile = profileOf(userId);
