@@ -125,12 +125,15 @@ más alto estándar de cuidado, y así los tratamos nosotros también.
 - El KYC lo ejecuta **Didit.me**, un proveedor externo especializado, bajo su
   propia política de privacidad y medidas de seguridad. MOVO recibe de Didit el
   **resultado** de la verificación (aprobado/rechazado/en revisión manual) y
-  metadatos asociados (fecha, tipo de verificación). Cuando se aprueba la
-  verificación de **identidad**, MOVO recibe además y guarda en tu cuenta tres
-  datos que figuran en tu documento: **nombre y apellido, número de documento
-  y fecha de nacimiento**. No los escribís al registrarte: los toma el
-  documento, así el nombre que ven otras personas es el que consta en tu DNI.
-  Una vez guardado, el nombre no se puede modificar desde la app.
+  metadatos asociados (fecha, tipo de verificación). Cuando Didit lee tu
+  documento en la verificación de **identidad**, MOVO recibe además y guarda en
+  tu cuenta tres datos que figuran en él: **nombre y apellido, número de
+  documento y fecha de nacimiento**, también si la verificación queda en
+  revisión manual. No los escribís al registrarte: los toma el documento, así
+  el nombre que ven otras personas es el que consta en tu DNI. Un
+  administrador de MOVO puede corregir el nombre si Didit lo leyó mal, al
+  revisar el caso. Una vez aprobada la verificación, el nombre no se puede
+  modificar desde la app.
 - MOVO no almacena una copia propia de las imágenes del documento ni de los
   datos biométricos más allá de lo que el flujo de verificación requiera de
   forma transitoria. La verificación de la **licencia de conducir** no cambia
@@ -145,8 +148,9 @@ más alto estándar de cuidado, y así los tratamos nosotros también.
   trata de un dato sensible — está identificado como trabajo pendiente,
   todavía no implementado en el producto.
 - Si Didit aprueba la verificación pero no puede leer tu nombre y apellido del
-  documento, no la aprobamos automáticamente: pasa a **revisión manual** hasta
-  que el dato esté disponible.
+  documento, no la aprobamos automáticamente: pasa a **revisión manual**, y un
+  administrador de MOVO completa el nombre mirando el documento antes de
+  aprobarla.
 - Si tu verificación es rechazada o expira sin completarse, podés reintentarla;
   los intentos previos no exitosos no te habilitan a operar como Transportista
   y son reemplazados por el intento vigente.

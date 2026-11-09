@@ -120,8 +120,9 @@ MOVO sí:
 - El registro requiere datos de contacto (teléfono verificado por OTP, email)
   y una contraseña. Tu **nombre, tu número de documento y tu fecha de
   nacimiento** no los escribís vos: los toma tu documento de identidad cuando
-  se aprueba la verificación de identidad (KYC), y desde entonces no se pueden
-  modificar desde la app.
+  Didit lo lee en la verificación de identidad (KYC). Un administrador de MOVO
+  puede corregirlos si se leyeron mal, y una vez aprobada la verificación no se
+  pueden modificar desde la app.
 - Para operar como **Transportista** es obligatorio aprobar un proceso de
   verificación de identidad (KYC) mediante un proveedor externo
   especializado. Ver la [Política de Privacidad](./politica-privacidad.md)

@@ -137,6 +137,8 @@ export function createKycReviewService(db: PrismaClient, diditClient: DiditClien
         status: row.status,
         resolvedAt: inReview ? null : (row.resolvedAt?.toISOString() ?? null),
         email: row.user.email,
+        firstName: row.user.firstName,
+        lastName: row.user.lastName,
         phone: row.user.phone,
         expirationDate: expirationDateOf(row.rawDecision),
         decidable: inReview && isLatest,

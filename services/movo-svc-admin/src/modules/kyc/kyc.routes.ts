@@ -104,6 +104,13 @@ export default async function kycRoutes(app: FastifyInstance, _opts: FastifyPlug
       const ctx = ctxOf(request);
       const raw = request.body as AdminKycDecisionRequest;
       const reason = requireReason(raw.reason);
+      if ((raw.firstName === undefined) !== (raw.lastName === undefined)) {
+        throw new ApiError(400, "VALIDATION_FAILED", "Mandá el nombre y el apellido juntos.");
+      }
+      if (raw.decision === "rejected" && raw.firstName !== undefined) {
+        throw new ApiError(400, "VALIDATION_FAILED", "El nombre solo se corrige al aprobar.");
+      }
+      const name = raw.firstName !== undefined && raw.lastName !== undefined ? { firstName: raw.firstName, lastName: raw.lastName } : null;
       if (reason.length < ADMIN_KYC_DECISION_REASON_MIN_LENGTH) {
         throw new ApiError(400, "VALIDATION_FAILED", `El motivo necesita al menos ${ADMIN_KYC_DECISION_REASON_MIN_LENGTH} caracteres.`);
       }
@@ -118,11 +125,12 @@ export default async function kycRoutes(app: FastifyInstance, _opts: FastifyPlug
           action: raw.decision === "approved" ? "kyc.approve" : "kyc.decline",
           target: { type: "user", id: review.userId },
           reason,
-          // Solo ids y el tipo: nada de datos personales ni del documento en una bitácora de solo agregar.
-          context: { sessionId, verificationType: review.verificationType },
+          // Solo ids, el tipo y si el admin corrigió el nombre: nada de datos personales ni del documento en una bitácora
+          // de solo agregar (el nombre en sí queda en la cuenta, no acá).
+          context: { sessionId, verificationType: review.verificationType, ...(name ? { nameCorrected: true } : {}) },
           requestId: request.requestId,
         },
-        () => app.usersClient.decideKycReview(sessionId, { decision: raw.decision, reason }, adminId, ctx),
+        () => app.usersClient.decideKycReview(sessionId, { decision: raw.decision, reason, ...(name ?? {}) }, adminId, ctx),
       );
     },
   );

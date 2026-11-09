@@ -143,6 +143,8 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
                     decidable={review.decidable}
                     sessionId={review.sessionId}
                     fullName={review.fullName}
+                    firstName={review.firstName}
+                    lastName={review.lastName}
                     verificationType={review.verificationType}
                   />
                 </div>

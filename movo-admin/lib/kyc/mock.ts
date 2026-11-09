@@ -53,6 +53,8 @@ function seed(): AdminKycReviewDetail[] {
       sessionId: `4d1f9c2e-7a3b-4e5d-9c01-${String(100000000000 + i * 7919)}`,
       userId: user.id,
       fullName: user.name,
+      firstName: user.name.split(" ")[0] ?? "",
+      lastName: user.name.split(" ").slice(1).join(" "),
       photoUrl: null,
       verificationType: spec.type,
       reason: spec.reason,

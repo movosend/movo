@@ -1,5 +1,6 @@
 import {
   ADMIN_KYC_DECISION_REASON_MAX_LENGTH,
+  ADMIN_KYC_NAME_MAX_LENGTH,
   ADMIN_KYC_REVIEW_DEFAULT_PAGE_SIZE,
   ADMIN_KYC_REVIEW_MAX_PAGE_SIZE,
 } from "@movo/shared";
@@ -131,6 +132,8 @@ export const kycSchemas = {
         resolvedAt: nullableStr,
         email: str,
         phone: str,
+        firstName: str,
+        lastName: str,
         expirationDate: nullableStr,
         decidable: { type: "boolean" },
         history: {
@@ -156,6 +159,9 @@ export const kycSchemas = {
       properties: {
         decision: { type: "string", enum: ["approved", "rejected"] },
         reason: { type: "string", minLength: 1, maxLength: ADMIN_KYC_DECISION_REASON_MAX_LENGTH },
+        // Nombre y apellido corregidos al aprobar una identidad: los dos o ninguno (se valida en la ruta).
+        firstName: { type: "string", minLength: 1, maxLength: ADMIN_KYC_NAME_MAX_LENGTH, pattern: "^\\S+(\\s+\\S+)*$" },
+        lastName: { type: "string", minLength: 1, maxLength: ADMIN_KYC_NAME_MAX_LENGTH, pattern: "^\\S+(\\s+\\S+)*$" },
       },
     },
     response: {

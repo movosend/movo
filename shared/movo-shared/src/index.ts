@@ -701,6 +701,7 @@ export {
   ADMIN_KYC_REVIEW_MAX_PAGE_SIZE,
   ADMIN_KYC_DECISION_REASON_MIN_LENGTH,
   ADMIN_KYC_DECISION_REASON_MAX_LENGTH,
+  ADMIN_KYC_NAME_MAX_LENGTH,
 } from "./types/admin-kyc";
 export type {
   AdminKycVerificationType,

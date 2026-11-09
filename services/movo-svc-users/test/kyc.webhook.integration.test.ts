@@ -294,6 +294,24 @@ describe("POST /kyc/webhook (MOVO-72, AC4-AC7)", () => {
     expect(user?.birthdate?.toISOString().slice(0, 10)).toBe("1990-05-17");
   });
 
+  it("In Review con el documento leído guarda el nombre y el DNI aunque la verificación quede en revisión", async () => {
+    const { userId, externalSessionId } = await createPendingVerification();
+
+    const response = await postWebhook({ status: "In Review", session_id: externalSessionId, decision: IDENTITY_DECISION });
+
+    expect(response.statusCode).toBe(200);
+    const user = await app.db.user.findUnique({ where: { id: userId } });
+    expect(user).toMatchObject({ kycStatusIdentity: "manual_review", firstName: "Julia María", lastName: "Pérez Gómez", dni: "12345678" });
+  });
+
+  it("Declined no guarda el nombre del documento", async () => {
+    const { userId, externalSessionId } = await createPendingVerification();
+
+    await postWebhook({ status: "Declined", session_id: externalSessionId, decision: IDENTITY_DECISION });
+
+    expect(await app.db.user.findUnique({ where: { id: userId } })).toMatchObject({ firstName: "Juan", lastName: "Perez", dni: null });
+  });
+
   it("Approved de identidad sin nombre en el documento pasa a manual_review y no toca el nombre de la cuenta", async () => {
     const { userId, externalSessionId } = await createPendingVerification();
 

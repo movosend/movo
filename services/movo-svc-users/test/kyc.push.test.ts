@@ -289,6 +289,28 @@ describe("Push del resultado de KYC (MOVO-274)", () => {
       expect(saved).not.toContain("12345678");
     });
 
+    it("si Didit deja la verificación en revisión manual, el nombre ya se guarda: aprobar después solo lo confirma", async () => {
+      mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.MANUAL_REVIEW));
+      const { service } = buildService();
+
+      await postWebhook(service, { status: "In Review", session_id: SESSION_ID, decision: IDENTITY_DECISION });
+
+      expect(mocks.setVerifiedIdentity).toHaveBeenCalledTimes(1);
+      expect(mocks.setVerifiedIdentity).toHaveBeenCalledWith(
+        USER_ID,
+        expect.objectContaining({ firstName: "JULIA MARÍA", lastName: "PÉREZ GÓMEZ", dni: "12345678" })
+      );
+    });
+
+    it("una verificación rechazada no guarda el nombre del documento", async () => {
+      mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.REJECTED));
+      const { service } = buildService();
+
+      await postWebhook(service, { status: "Declined", session_id: SESSION_ID, decision: IDENTITY_DECISION });
+
+      expect(mocks.setVerifiedIdentity).not.toHaveBeenCalled();
+    });
+
     it("un número de documento que no es un DNI de 7 u 8 dígitos no se guarda, pero no frena la aprobación", async () => {
       mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.APPROVED));
       const { service } = buildService();

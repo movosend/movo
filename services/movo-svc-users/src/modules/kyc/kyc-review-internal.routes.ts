@@ -3,6 +3,7 @@ import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
 import {
   ADMIN_KYC_DECISION_REASON_MAX_LENGTH,
   ADMIN_KYC_DECISION_REASON_MIN_LENGTH,
+  ADMIN_KYC_NAME_MAX_LENGTH,
   ADMIN_KYC_REVIEW_DEFAULT_PAGE_SIZE,
   ADMIN_KYC_REVIEW_MAX_PAGE_SIZE,
   AdminKycDecisionResponse,
@@ -176,13 +177,15 @@ const schemas = {
     response: {
       200: {
         type: "object",
-        required: [...rowRequired, "status", "resolvedAt", "email", "phone", "expirationDate", "decidable", "history"],
+        required: [...rowRequired, "status", "resolvedAt", "email", "phone", "firstName", "lastName", "expirationDate", "decidable", "history"],
         properties: {
           ...rowProperties,
           status: { type: "string" },
           resolvedAt: nullableString,
           email: { type: "string" },
           phone: { type: "string" },
+          firstName: { type: "string" },
+          lastName: { type: "string" },
           expirationDate: nullableString,
           decidable: { type: "boolean" },
           history: {
@@ -218,6 +221,9 @@ const schemas = {
       additionalProperties: false,
       properties: {
         decision: { type: "string", enum: ["approved", "rejected"] },
+        // Nombre y apellido corregidos al aprobar una identidad: los dos o ninguno (se valida en la ruta).
+        firstName: { type: "string", minLength: 1, maxLength: ADMIN_KYC_NAME_MAX_LENGTH, pattern: "^\\S+(\\s+\\S+)*$" },
+        lastName: { type: "string", minLength: 1, maxLength: ADMIN_KYC_NAME_MAX_LENGTH, pattern: "^\\S+(\\s+\\S+)*$" },
         reason: {
           type: "string",
           minLength: ADMIN_KYC_DECISION_REASON_MIN_LENGTH,
@@ -280,8 +286,19 @@ export default async function kycReviewInternalRoutes(app: FastifyInstance, opts
     { schema: schemas.decision },
     async (request: FastifyRequest): Promise<AdminKycDecisionResponse> => {
       const adminId = requireUserIdFromHeader(request);
-      const { decision, reason } = request.body as { decision: "approved" | "rejected"; reason: string };
+      const { decision, reason, firstName, lastName } = request.body as {
+        decision: "approved" | "rejected";
+        reason: string;
+        firstName?: string;
+        lastName?: string;
+      };
       const sessionId = sessionIdOf(request);
+      if ((firstName === undefined) !== (lastName === undefined)) {
+        throw new ApiError(400, "VALIDATION_FAILED", "Mandá el nombre y el apellido juntos.");
+      }
+      if (decision === "rejected" && firstName !== undefined) {
+        throw new ApiError(400, "VALIDATION_FAILED", "El nombre solo se corrige al aprobar.");
+      }
 
       // Dos admins decidiendo a la vez el mismo caso pasarían los dos el chequeo de `manual_review` y los dos le pedirían el
       // cambio a Didit (gana la última llamada allá y la primera escritura acá). Con el lock, el segundo recibe 409 sin
@@ -299,6 +316,7 @@ export default async function kycReviewInternalRoutes(app: FastifyInstance, opts
           externalSessionId: sessionId,
           decision: decision === "approved" ? KycStatus.APPROVED : KycStatus.REJECTED,
           reason,
+          ...(firstName !== undefined && lastName !== undefined ? { name: { firstName, lastName } } : {}),
         });
       } catch (error) {
         // Sin confirmación de Didit el cambio pudo quedar aplicado allá: el lock se deja vencer solo, así nadie manda la

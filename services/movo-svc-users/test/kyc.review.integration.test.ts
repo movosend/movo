@@ -290,11 +290,14 @@ describe("Cola de revisión manual de KYC (rutas internas del panel)", () => {
       expect(row?.birthdate?.toISOString().slice(0, 10)).toBe("1990-05-17");
     });
 
-    it("no se puede aprobar una identidad sin nombre legible en el documento: 409, Didit no recibe nada y sigue en revisión", async () => {
+    it("si Didit no leyó el nombre y la cuenta tampoco lo tiene, no se puede aprobar sin escribirlo: 409, Didit no recibe nada", async () => {
       didit.setDecision({ id_verifications: [{ document_number: "12345678" }] });
       const user = await createUser();
       const session = await createAttempt(user.id, "manual_review");
-      await app.db.user.update({ where: { id: user.id }, data: { kycStatusIdentity: "manual_review" } });
+      await app.db.user.update({
+        where: { id: user.id },
+        data: { kycStatusIdentity: "manual_review", firstName: "", lastName: "" },
+      });
 
       const response = await decide(session, { decision: "approved", reason: "Motivo suficiente" });
 
@@ -303,6 +306,76 @@ describe("Cola de revisión manual de KYC (rutas internas del panel)", () => {
       expect(didit.updates).toEqual([]);
       expect((await app.db.user.findUnique({ where: { id: user.id } }))?.kycStatusIdentity).toBe("manual_review");
       expect((await app.db.kycVerification.findUnique({ where: { externalSessionId: session } }))?.status).toBe("manual_review");
+    });
+
+    it("el admin escribe el nombre cuando Didit no lo leyó y se puede aprobar, con el nombre capitalizado", async () => {
+      didit.setDecision({ id_verifications: [{ document_number: "12345678" }] });
+      const user = await createUser();
+      const session = await createAttempt(user.id, "manual_review");
+      await app.db.user.update({
+        where: { id: user.id },
+        data: { kycStatusIdentity: "manual_review", firstName: "", lastName: "" },
+      });
+
+      const response = await decide(session, {
+        decision: "approved",
+        reason: "Motivo suficiente",
+        firstName: "ana  maría",
+        lastName: "DE LA CRUZ",
+      });
+
+      expect(response.statusCode).toBe(200);
+      const row = await app.db.user.findUnique({ where: { id: user.id } });
+      expect(row).toMatchObject({ kycStatusIdentity: "approved", firstName: "Ana María", lastName: "De la Cruz" });
+    });
+
+    it("el nombre corregido por el admin pisa el que leyó Didit", async () => {
+      const user = await createUser();
+      const session = await createAttempt(user.id, "manual_review");
+      await app.db.user.update({ where: { id: user.id }, data: { kycStatusIdentity: "manual_review" } });
+
+      const response = await decide(session, {
+        decision: "approved",
+        reason: "Motivo suficiente",
+        firstName: "Julia",
+        lastName: "Pérez Núñez",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(await app.db.user.findUnique({ where: { id: user.id } })).toMatchObject({
+        firstName: "Julia",
+        lastName: "Pérez Núñez",
+        dni: "12345678",
+      });
+    });
+
+    it("si la cuenta ya tiene el nombre guardado de cuando pasó a revisión, aprobar lo confirma aunque Didit ya no lo traiga", async () => {
+      didit.setDecision({ id_verifications: [] });
+      const user = await createUser("Julia María", "Pérez Gómez");
+      const session = await createAttempt(user.id, "manual_review");
+      await app.db.user.update({ where: { id: user.id }, data: { kycStatusIdentity: "manual_review" } });
+
+      const response = await decide(session, { decision: "approved", reason: "Motivo suficiente" });
+
+      expect(response.statusCode).toBe(200);
+      expect(await app.db.user.findUnique({ where: { id: user.id } })).toMatchObject({
+        kycStatusIdentity: "approved",
+        firstName: "Julia María",
+        lastName: "Pérez Gómez",
+      });
+    });
+
+    it("corregir el nombre al rechazar, o mandar solo uno de los dos, es 400", async () => {
+      const user = await createUser();
+      const session = await createAttempt(user.id, "manual_review");
+      await app.db.user.update({ where: { id: user.id }, data: { kycStatusIdentity: "manual_review" } });
+
+      const onReject = await decide(session, { decision: "rejected", reason: "Motivo suficiente", firstName: "Ana", lastName: "Paz" });
+      const onlyOne = await decide(session, { decision: "approved", reason: "Motivo suficiente", firstName: "Ana" });
+
+      expect(onReject.statusCode).toBe(400);
+      expect(onlyOne.statusCode).toBe(400);
+      expect(didit.updates).toEqual([]);
     });
 
     it("una identidad sin nombre legible sí se puede rechazar, para que la persona repita la verificación", async () => {

@@ -428,7 +428,13 @@ export function createKycService(
         const txUserRepository = createUserRepository(tx);
         await updateUserKycStatus(txUserRepository, result.userId, result.verificationType, effectiveStatus);
 
-        if (result.verificationType === "identity" && effectiveStatus === KycStatus.APPROVED && identity) {
+        // El nombre se guarda apenas Didit lo lee, también si la verificación queda en revisión manual: así la cuenta ya
+        // lo tiene mientras alguien decide, y aprobar solo lo confirma (o el admin lo corrige). No se guarda si se rechaza.
+        if (
+          result.verificationType === "identity" &&
+          identity &&
+          (effectiveStatus === KycStatus.APPROVED || effectiveStatus === KycStatus.MANUAL_REVIEW)
+        ) {
           // Una sola vez por transición: está dentro del gate de idempotencia de arriba.
           await txUserRepository.setVerifiedIdentity(result.userId, {
             firstName: identity.firstName,
@@ -572,6 +578,8 @@ export function createKycService(
       externalSessionId: string;
       decision: KycStatus.APPROVED | KycStatus.REJECTED;
       reason: string;
+      /** Nombre y apellido corregidos por el admin al aprobar una identidad; pisan los que leyó Didit. */
+      name?: { firstName: string; lastName: string };
     }): Promise<KycVerification> {
       const attempt = await kycVerificationRepository.findByExternalSessionId(input.externalSessionId);
       if (!attempt) {
@@ -612,17 +620,24 @@ export function createKycService(
 
       const approved = input.decision === KycStatus.APPROVED;
 
-      // Aprobar una identidad escribe el nombre, el DNI y la fecha de nacimiento del documento en la cuenta (DD-065), y esos
-      // datos son los que Didit ya extrajo en la sesión (`current`). Sin nombre y apellido legibles no hay con qué completar
-      // la cuenta: se corta ANTES de pedirle a Didit el cambio, así Movo y Didit no quedan en estados distintos. El admin
-      // puede rechazar, y la persona repite la verificación.
-      const identity = approved && attempt.verificationType === "identity" ? extractVerifiedIdentity(current?.decision) : null;
-      if (approved && attempt.verificationType === "identity" && !identity) {
-        throw new ApiError(
-          409,
-          "KYC_REVIEW_IDENTITY_MISSING",
-          "No se puede aprobar: el documento no trae un nombre y un apellido legibles. Rechazá la verificación para que la persona la repita."
-        );
+      // Aprobar una identidad confirma el nombre, el DNI y la fecha de nacimiento de la cuenta (DD-065). El nombre sale, en este
+      // orden, de lo que corrigió el admin, de lo que Didit extrajo de la sesión o de lo que la cuenta ya tenía guardado de
+      // cuando la verificación pasó a revisión. Sin ninguno no hay con qué completarlo: se corta ANTES de pedirle el cambio a
+      // Didit, así Movo y Didit no quedan en estados distintos, y el admin tiene que escribirlo.
+      let identity: VerifiedDocumentIdentity | null = null;
+      if (approved && attempt.verificationType === "identity") {
+        const extracted = extractVerifiedIdentity(current?.decision);
+        const stored = await userRepository.findById(attempt.userId);
+        const firstName = input.name?.firstName.trim() || extracted?.firstName || stored?.firstName.trim() || "";
+        const lastName = input.name?.lastName.trim() || extracted?.lastName || stored?.lastName.trim() || "";
+        if (!firstName || !lastName) {
+          throw new ApiError(
+            409,
+            "KYC_REVIEW_IDENTITY_MISSING",
+            "Falta el nombre y el apellido: Didit no los leyó del documento. Escribilos para poder aprobar."
+          );
+        }
+        identity = { firstName, lastName, dni: extracted?.dni ?? null, birthdate: extracted?.birthdate ?? null };
       }
 
       await diditClient.updateSessionStatus({
