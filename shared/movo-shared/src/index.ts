@@ -692,6 +692,31 @@ export type {
   AdminUserNameRef,
 } from "./types/admin-users";
 
+// admin: cola de revisión manual de KYC
+export {
+  ADMIN_KYC_REVIEW_DEFAULT_PAGE_SIZE,
+  ADMIN_KYC_REVIEW_MAX_PAGE_SIZE,
+  ADMIN_KYC_DECISION_REASON_MIN_LENGTH,
+  ADMIN_KYC_DECISION_REASON_MAX_LENGTH,
+} from "./types/admin-kyc";
+export type {
+  AdminKycVerificationType,
+  AdminKycDecision,
+  AdminKycReviewRow,
+  AdminKycReviewPage,
+  AdminKycReviewHistoryItem,
+  AdminKycReviewDetail,
+  AdminKycDecisionRequest,
+  AdminKycDecisionResponse,
+  AdminKycEvidence,
+  AdminKycEvidenceImages,
+  AdminKycEvidenceDocument,
+  AdminKycEvidenceIp,
+  AdminKycEvidenceContact,
+  AdminKycEvidenceWarning,
+  AdminKycEvidenceReview,
+} from "./types/admin-kyc";
+
 // admin: bandeja de soporte (MOVO-323, backend MOVO-321/MOVO-322)
 export {
   SUPPORT_STATUSES,
