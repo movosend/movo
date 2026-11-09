@@ -43,9 +43,13 @@ function createFakeShipmentsClient() {
     },
     async findRecentRatingComments(
       userId: string,
+      _limit?: number,
+      _cursor?: string,
+      role?: string,
     ): Promise<{ items: RawRecentRatingComment[]; nextCursor: string | null }> {
       commentsCallCount += 1;
-      return { items: commentsResponses.get(userId) ?? [], nextCursor: null };
+      const key = role ? `${userId}:${role}` : userId;
+      return { items: commentsResponses.get(key) ?? [], nextCursor: null };
     },
     // MOVO-202: esta suite no ejercita baja de cuenta.
     async deleteCarrierPositions() {
@@ -66,8 +70,8 @@ function createFakeShipmentsClient() {
       failingReputationUserIds.delete(userId);
       reputationResponses.set(userId, summary);
     },
-    setComments(userId: string, comments: RawRecentRatingComment[]) {
-      commentsResponses.set(userId, comments);
+    setComments(userId: string, comments: RawRecentRatingComment[], role?: "sender" | "carrier") {
+      commentsResponses.set(role ? `${userId}:${role}` : userId, comments);
     },
     setFailing(userId: string) {
       failingReputationUserIds.add(userId);
@@ -192,6 +196,22 @@ describe("Reputación real en el perfil (MOVO-152)", () => {
       // MOVO-170: `rater` es un UUID al azar, sin fila real en `users.users` -- cae al
       // label genérico en vez de romper el batch de nombres.
       expect(body.recentRatingComments[0].raterName).toBe("Usuario de Movo");
+    });
+
+    it("las reseñas recientes también llegan separadas por rol (una de transportista no aparece como emisor)", async () => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput({ firstName: "Lucas", lastName: "Dalmagro" }));
+      const asCarrier = { id: randomUUID(), raterId: randomUUID(), score: 3, comment: "Se frenó a tomar un café", createdAt: new Date().toISOString() };
+      fake.setReputation(target.id, buildSummary());
+      fake.setComments(target.id, [asCarrier]);
+      fake.setComments(target.id, [asCarrier], "carrier");
+
+      const response = await app.inject({ method: "GET", url: `/users/${target.id}`, headers: { "x-user-id": caller.id } });
+
+      const body = JSON.parse(response.body);
+      expect(body.recentRatingCommentsByRole.asCarrier).toHaveLength(1);
+      expect(body.recentRatingCommentsByRole.asCarrier[0]).toMatchObject({ id: asCarrier.id, comment: "Se frenó a tomar un café" });
+      expect(body.recentRatingCommentsByRole.asSender).toEqual([]);
     });
 
     it("MOVO-173: `categories` de cada rol calculadas en svc-shipments llegan al cliente", async () => {
@@ -390,6 +410,18 @@ describe("Reputación real en el perfil (MOVO-152)", () => {
   });
 
   describe("GET /users/:id/ratings (MOVO-170)", () => {
+    it("con ?role= devuelve solo las recibidas en ese rol", async () => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput());
+      fake.setComments(target.id, [{ id: randomUUID(), raterId: randomUUID(), score: 4, comment: null, createdAt: new Date().toISOString() }]);
+
+      const asSender = await app.inject({ method: "GET", url: `/users/${target.id}/ratings?role=sender`, headers: { "x-user-id": caller.id } });
+      const invalid = await app.inject({ method: "GET", url: `/users/${target.id}/ratings?role=receiver`, headers: { "x-user-id": caller.id } });
+
+      expect(JSON.parse(asSender.body).items).toEqual([]);
+      expect(invalid.statusCode).toBe(400);
+    });
+
     it("devuelve items con raterName resuelto y propaga nextCursor", async () => {
       const caller = await repo.create(buildInput());
       const target = await repo.create(buildInput());

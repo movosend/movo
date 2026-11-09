@@ -327,6 +327,25 @@ describe("Calificaciones post-entrega — /shipments/:id/ratings (Postgres) — 
     expect(body.nextCursor).toBeNull();
   });
 
+  it("filtra por el rol del calificado: una reseña como receptor no aparece al pedir las de transportista", async () => {
+    const shipmentId = await createDeliveredShipment();
+    await app.inject({
+      method: "POST",
+      url: `/shipments/${shipmentId}/ratings`,
+      headers: { "x-user-id": senderId },
+      payload: { rateeId: receiverId, score: 4 },
+    });
+
+    const asReceiver = await app.inject({ method: "GET", url: `/internal/users/${receiverId}/ratings/recent?role=receiver` });
+    const asCarrier = await app.inject({ method: "GET", url: `/internal/users/${receiverId}/ratings/recent?role=carrier` });
+    const invalid = await app.inject({ method: "GET", url: `/internal/users/${receiverId}/ratings/recent?role=admin` });
+
+    expect(asReceiver.json().items).toHaveLength(1);
+    expect(asReceiver.json().items[0].role).toBe("receiver");
+    expect(asCarrier.json().items).toHaveLength(0);
+    expect(invalid.statusCode).toBe(400);
+  });
+
   it("MOVO-170: pagina con cursor -- segunda página trae el resto, nextCursor null al agotarse", async () => {
     for (let i = 0; i < 3; i += 1) {
       const shipmentId = await createDeliveredShipment();

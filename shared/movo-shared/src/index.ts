@@ -76,6 +76,8 @@ export type {
   ReputationBreakdown,
   ReputationCategoryScore,
   RecentRatingComment,
+  RecentRatingCommentsByRole,
+  ProfileRatingRole,
   MutualConnections,
   VehicleProfile,
 } from "./types/user-profile";

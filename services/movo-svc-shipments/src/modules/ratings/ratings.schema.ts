@@ -169,6 +169,8 @@ export const ratingsSchemas = {
       limit: { type: "integer", minimum: 1, maximum: MAX_RECENT_RATINGS_LIMIT, default: DEFAULT_RECENT_RATINGS_LIMIT },
       // MOVO-170: cursor opaco (base64 de `createdAt|id`) para "ver todas las calificaciones".
       cursor: { type: "string" },
+      // Rol del calificado: sin él, todas. El perfil pide cada rol por separado (feedback de TestFlight, build 17).
+      role: { type: "string", enum: RATING_ROLE_VALUES },
     },
   },
 

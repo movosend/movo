@@ -372,8 +372,9 @@ export function createRatingsService(
       userId: string,
       limit: number,
       cursor?: string,
+      role?: RatingRole,
     ): Promise<{ items: Rating[]; nextCursor: string | null }> {
-      return ratingRepository.listRecentByRateePaginated(userId, limit, cursor);
+      return ratingRepository.listRecentByRateePaginated(userId, limit, cursor, role);
     },
 
     /**

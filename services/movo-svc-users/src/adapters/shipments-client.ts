@@ -1,4 +1,4 @@
-import { ApiError, ReputationBreakdown, RecentRatingComment, TransactionCounts } from "@movo/shared";
+import { ApiError, ProfileRatingRole, ReputationBreakdown, RecentRatingComment, TransactionCounts } from "@movo/shared";
 
 /**
  * MOVO-170: `svc-shipments` no conoce nombres de usuario -- devuelve `raterId` crudo.
@@ -56,6 +56,8 @@ export interface ShipmentsClient {
     userId: string,
     limit: number,
     cursor?: string,
+    /** Solo las recibidas en ese rol; sin él, todas. */
+    role?: ProfileRatingRole,
   ): Promise<{ items: RawRecentRatingComment[]; nextCursor: string | null }>;
   /**
    * MOVO-202/AC7: borra la traza GPS del usuario como transportista (supresión de
@@ -140,10 +142,12 @@ export function createShipmentsClient(config: ShipmentsClientConfig): ShipmentsC
       userId: string,
       limit: number,
       cursor?: string,
+      role?: ProfileRatingRole,
     ): Promise<{ items: RawRecentRatingComment[]; nextCursor: string | null }> {
       const cursorParam = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
+      const roleParam = role ? `&role=${role}` : "";
       const response = await fetch(
-        `${config.SHIPMENTS_SERVICE_URL}/internal/users/${encodeURIComponent(userId)}/ratings/recent?limit=${limit}${cursorParam}`,
+        `${config.SHIPMENTS_SERVICE_URL}/internal/users/${encodeURIComponent(userId)}/ratings/recent?limit=${limit}${cursorParam}${roleParam}`,
         { method: "GET", signal: AbortSignal.timeout(REPUTATION_REQUEST_TIMEOUT_MS) }
       );
       if (!response.ok) {

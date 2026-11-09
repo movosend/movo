@@ -82,6 +82,14 @@ export interface UsageStats {
  * lookup local, `raterId` es siempre un usuario del propio servicio). Cae a un label
  * genérico si la cuenta del calificador ya no existe (derecho de supresión, MOVO-39).
  */
+/** Rol del calificado con pestaña propia en el perfil. */
+export type ProfileRatingRole = "sender" | "carrier";
+
+export interface RecentRatingCommentsByRole {
+  asSender: RecentRatingComment[];
+  asCarrier: RecentRatingComment[];
+}
+
 export interface RecentRatingComment {
   id: string;
   raterId: string;
@@ -232,6 +240,13 @@ export interface PublicProfile {
   asSender: ReputationBreakdown;
   asCarrier: ReputationBreakdown;
   recentRatingComments: RecentRatingComment[];
+  /**
+   * Las mismas reseñas recientes, separadas por el rol en que las recibió (feedback de
+   * TestFlight, build 17: una reseña como transportista aparecía también en "Como emisor").
+   * Solo en `GET /users/:id`, igual que `recentRatingComments`. Opcional para no romper
+   * literales armados a mano; las de receptor no tienen pestaña y solo están en la lista general.
+   */
+  recentRatingCommentsByRole?: RecentRatingCommentsByRole;
   /** ISO date, de `User.createdAt`. */
   memberSince: string;
   phoneVerified: boolean;

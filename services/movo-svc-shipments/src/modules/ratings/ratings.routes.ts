@@ -7,7 +7,7 @@ import { createNotificationsClient, NotificationsClient } from "../../adapters/n
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createRatingRepository } from "../../repositories/rating-repository";
 import { createDisputeRepository } from "../../repositories/dispute-repository";
-import { Rating, RatingCategoryScoresInput } from "../../models/rating";
+import { Rating, RatingCategoryScoresInput, RatingRole } from "../../models/rating";
 
 export interface RatingsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración -- evita depender de un `movo-svc-users`
@@ -172,8 +172,8 @@ export async function internalRatingsRoutes(app: FastifyInstance, _opts: Fastify
     },
     async (request: FastifyRequest) => {
       const { userId } = request.params as { userId: string };
-      const { limit, cursor } = request.query as { limit: number; cursor?: string };
-      const { items, nextCursor } = await service.listRecentRatingsForUser(userId, limit, cursor);
+      const { limit, cursor, role } = request.query as { limit: number; cursor?: string; role?: RatingRole };
+      const { items, nextCursor } = await service.listRecentRatingsForUser(userId, limit, cursor, role);
       return { items: items.map(toRatingDto), nextCursor };
     },
   );

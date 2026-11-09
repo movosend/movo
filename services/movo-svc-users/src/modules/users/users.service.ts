@@ -10,6 +10,7 @@ import {
   MutualConnections,
   OwnAccountSanction,
   RecentRatingComment,
+  ProfileRatingRole,
   VehicleProfile as SharedVehicleProfile,
 } from "@movo/shared";
 import { PrismaClient, UserRole as PrismaUserRole } from "../../generated/prisma/client";
@@ -299,13 +300,14 @@ export function createUsersService(
     userId: string,
     limit: number = RECENT_RATING_COMMENTS_LIMIT,
     cursor?: string,
+    role?: ProfileRatingRole,
   ): Promise<{ items: RecentRatingComment[]; nextCursor: string | null }> {
     try {
-      const { items, nextCursor } = await shipmentsClient.findRecentRatingComments(userId, limit, cursor);
+      const { items, nextCursor } = await shipmentsClient.findRecentRatingComments(userId, limit, cursor, role);
       return { items: await enrichWithRaterNames(items), nextCursor };
     } catch (error) {
       logger.warn(
-        { userId, event: "reputation_recent_comments_fetch_failed", error: (error as Error).message },
+        { userId, role, event: "reputation_recent_comments_fetch_failed", error: (error as Error).message },
         "No se pudieron obtener las calificaciones recientes de svc-shipments"
       );
       return { items: [], nextCursor: null };
@@ -345,11 +347,14 @@ export function createUsersService(
   }
 
   async function composePublicProfile(user: User, includeComments: boolean): Promise<PublicProfile> {
-    const [summary, recentRatingCommentsPage, vehicle] = await Promise.all([
+    const noComments = Promise.resolve<{ items: RecentRatingComment[]; nextCursor: string | null }>({ items: [], nextCursor: null });
+    // Las de cada pestaña del perfil se piden aparte (feedback de TestFlight, build 17): filtrar las 10 últimas
+    // generales dejaba una pestaña vacía aunque ese rol tuviera reseñas más viejas.
+    const [summary, recentRatingCommentsPage, senderCommentsPage, carrierCommentsPage, vehicle] = await Promise.all([
       resolveReputationSummary(user.id),
-      includeComments
-        ? resolveRecentRatingComments(user.id)
-        : Promise.resolve<{ items: RecentRatingComment[]; nextCursor: string | null }>({ items: [], nextCursor: null }),
+      includeComments ? resolveRecentRatingComments(user.id) : noComments,
+      includeComments ? resolveRecentRatingComments(user.id, undefined, undefined, "sender") : noComments,
+      includeComments ? resolveRecentRatingComments(user.id, undefined, undefined, "carrier") : noComments,
       // MOVO-172: se resuelve siempre, incluso para `searchUsers` (donde el schema de
       // `GET /users/search` termina descartando el campo) -- mismo trade-off ya
       // aceptado para `bio` en MOVO-171, se prioriza consistencia con ese patrón
@@ -363,7 +368,8 @@ export function createUsersService(
       reputation,
       summary?.transactionCounts ?? NO_TRANSACTION_COUNTS,
       recentRatingComments,
-      vehicle ? toSharedVehicleProfile(vehicle) : null
+      vehicle ? toSharedVehicleProfile(vehicle) : null,
+      includeComments ? { asSender: senderCommentsPage.items, asCarrier: carrierCommentsPage.items } : undefined
     );
   }
 
@@ -436,12 +442,13 @@ export function createUsersService(
       id: string,
       limit: number,
       cursor?: string,
+      role?: ProfileRatingRole,
     ): Promise<{ items: RecentRatingComment[]; nextCursor: string | null }> {
       const user = await repository.findById(id);
       if (!user || user.status === AccountStatus.DELETED) {
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
       }
-      const { items, nextCursor } = await shipmentsClient.findRecentRatingComments(id, limit, cursor);
+      const { items, nextCursor } = await shipmentsClient.findRecentRatingComments(id, limit, cursor, role);
       return { items: await enrichWithRaterNames(items), nextCursor };
     },
 

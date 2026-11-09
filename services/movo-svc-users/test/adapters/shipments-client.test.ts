@@ -144,6 +144,15 @@ describe("ShipmentsClient (adapter concreto)", () => {
       expect(result.nextCursor).toBe("abc123");
     });
 
+    it("manda el rol en la query cuando se pide uno", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ items: [], nextCursor: null }) });
+
+      await client.findRecentRatingComments("user-1", 10, undefined, "carrier");
+
+      const [url] = fetchMock.mock.calls[0];
+      expect(url).toBe("http://svc-shipments.test/internal/users/user-1/ratings/recent?limit=10&role=carrier");
+    });
+
     it("devuelve items vacío pasa a través solo si el body ya viene vacío -- no swallowea errores", async () => {
       fetchMock.mockResolvedValue({ ok: true, json: async () => ({ items: [], nextCursor: null }) });
 

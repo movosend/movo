@@ -137,6 +137,7 @@ export interface RatingRepository {
     rateeId: string,
     limit: number,
     cursor?: string,
+    role?: RatingRole,
   ): Promise<{ items: Rating[]; nextCursor: string | null }>;
   /**
    * MOVO-222: TODAS las calificaciones que `raterId` ya hizo, acotadas a los
@@ -217,11 +218,14 @@ export function createRatingRepository(db: PrismaClient): RatingRepository {
       rateeId: string,
       limit: number,
       cursor?: string,
+      role?: RatingRole,
     ): Promise<{ items: Rating[]; nextCursor: string | null }> {
       const cursorFilter = cursor ? decodeRatingCursor(cursor) : null;
       const rows = await db.rating.findMany({
         where: {
           rateeId,
+          // Rol del calificado en ese envío: el perfil muestra las reseñas de cada rol por separado.
+          ...(role ? { role } : {}),
           ...(cursorFilter
             ? {
                 OR: [
