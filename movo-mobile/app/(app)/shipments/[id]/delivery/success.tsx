@@ -11,6 +11,7 @@ import { useShipment } from "../../../../../src/hooks/use-shipments";
 import { isCashShipment } from "../../../../../src/lib/payment-method";
 import { useShipmentRatings } from "../../../../../src/hooks/use-ratings";
 import { usePublicProfile } from "../../../../../src/hooks/use-profile";
+import { useAuthStore } from "../../../../../src/store/auth-store";
 import { useDeliveryResult } from "./_layout";
 
 /**
@@ -40,6 +41,7 @@ export default function DeliverySuccessScreen() {
   const [ratingOpen, setRatingOpen] = useState(false);
 
   const { data: shipment } = useShipment(result?.shipmentId);
+  const myUserId = useAuthStore((state) => state.user?.userId);
   const { data: ratings } = useShipmentRatings(result?.shipmentId, { enabled: !!result });
   const { data: senderProfile } = usePublicProfile(shipment?.senderId);
   const { data: receiverProfile } = usePublicProfile(shipment?.receiverId);
@@ -80,7 +82,8 @@ export default function DeliverySuccessScreen() {
     const userId = counterparty.userId;
     if (!userId || seen.has(userId)) continue;
     seen.add(userId);
-    const existingRating = ratings?.find((r) => r.rateeId === userId);
+    // Solo la mía: el endpoint devuelve las de todas las partes del envío.
+    const existingRating = ratings?.find((r) => r.raterId === myUserId && r.rateeId === userId);
     const target: RatingTarget = {
       userId,
       fullName: counterparty.profile?.fullName ?? counterparty.roleLabel,

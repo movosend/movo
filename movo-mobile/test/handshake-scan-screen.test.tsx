@@ -8,7 +8,10 @@ jest.mock("expo-router", () => ({
 const mockShipment = { id: "shipment-1", status: "in_transit", senderId: "sender-1", receiverId: "receiver-1", carrierId: "carrier-1" };
 jest.mock("../src/hooks/use-shipments", () => ({ useShipment: () => ({ data: mockShipment }) }));
 
-let mockRatings: { rateeId: string; score: number }[] = [];
+let mockRatings: { raterId: string; rateeId: string; score: number }[] = [];
+jest.mock("../src/store/auth-store", () => ({
+  useAuthStore: (selector: (state: { user: { userId: string } }) => unknown) => selector({ user: { userId: "receiver-1" } }),
+}));
 jest.mock("../src/hooks/use-ratings", () => ({ useShipmentRatings: () => ({ data: mockRatings }) }));
 jest.mock("../src/hooks/use-profile", () => ({
   usePublicProfile: (id?: string) => ({ data: id ? { fullName: "Juan Cruz", photoUrl: null } : undefined }),
@@ -84,13 +87,24 @@ describe("HandshakeScanScreen: calificar al transportista al recibir", () => {
   });
 
   it("si ya lo calificó, el botón lo dice", async () => {
-    mockRatings = [{ rateeId: "carrier-1", score: 4 }];
+    mockRatings = [{ raterId: "receiver-1", rateeId: "carrier-1", score: 4 }];
     const { getByTestId } = await render(<HandshakeScanScreen />);
     await act(async () => fireEvent.press(getByTestId("mock-confirm")));
 
     expect(getByTestId("handshake-confirmation-result-secondary-cta-carrier")).toHaveTextContent(
       "Ya calificaste al transportista",
     );
+  });
+
+  it("la calificación del emisor al transportista no cuenta como del receptor", async () => {
+    mockRatings = [{ raterId: "sender-1", rateeId: "carrier-1", score: 2 }];
+    const { getByTestId } = await render(<HandshakeScanScreen />);
+    await act(async () => fireEvent.press(getByTestId("mock-confirm")));
+
+    const cta = getByTestId("handshake-confirmation-result-secondary-cta-carrier");
+    expect(cta).toHaveTextContent("Calificar al transportista");
+    await act(async () => fireEvent.press(cta));
+    expect(mockRatingSheetProps?.target).toEqual(expect.objectContaining({ existingRating: undefined }));
   });
 
   it("en el retiro no hay botón de calificar", async () => {

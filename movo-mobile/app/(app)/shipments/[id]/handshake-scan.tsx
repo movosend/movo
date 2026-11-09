@@ -10,6 +10,7 @@ import type { ConfirmHandshakeResult } from "../../../../src/api/shipments-clien
 import { usePublicProfile } from "../../../../src/hooks/use-profile";
 import { useShipmentRatings } from "../../../../src/hooks/use-ratings";
 import { useShipment } from "../../../../src/hooks/use-shipments";
+import { useAuthStore } from "../../../../src/store/auth-store";
 
 /**
  * Escaneo del QR de quien recibe la custodia (MOVO-160), sin wizard: el receptor llega desde el CTA
@@ -27,21 +28,28 @@ export default function HandshakeScanScreen() {
   const { data: shipment } = useShipment(id);
   const [confirmedResult, setConfirmedResult] = useState<ConfirmHandshakeResult | null>(null);
   const [ratingOpen, setRatingOpen] = useState(false);
+  // Se fija al tocar el botón: `RatingSheet` se resetea cuando cambia su `target`, y un objeto nuevo en cada render
+  // (perfil que llega tarde, refetch) borraba lo que el usuario estaba escribiendo.
+  const [ratingTarget, setRatingTarget] = useState<RatingTarget | null>(null);
+  const myUserId = useAuthStore((state) => state.user?.userId);
   const isDelivery = confirmedResult?.stage === "delivery";
   const carrierId = isDelivery ? (shipment?.carrierId ?? undefined) : undefined;
   const { data: ratings } = useShipmentRatings(id, { enabled: !!carrierId });
   const { data: carrierProfile } = usePublicProfile(carrierId);
-  const existingRating = carrierId ? ratings?.find((r) => r.rateeId === carrierId) : undefined;
-  const ratingTarget: RatingTarget | null = carrierId
-    ? {
-        userId: carrierId,
-        fullName: carrierProfile?.fullName ?? "Transportista",
-        photoUrl: carrierProfile?.photoUrl ?? null,
-        roleLabel: "Transportista",
-        rateeRole: "carrier",
-        existingRating,
-      }
-    : null;
+  // Solo la mía: el endpoint devuelve las de todas las partes del envío (el emisor también califica al transportista).
+  const existingRating = carrierId ? ratings?.find((r) => r.raterId === myUserId && r.rateeId === carrierId) : undefined;
+  const openRating = () => {
+    if (!carrierId) return;
+    setRatingTarget({
+      userId: carrierId,
+      fullName: carrierProfile?.fullName ?? "Transportista",
+      photoUrl: carrierProfile?.photoUrl ?? null,
+      roleLabel: "Transportista",
+      rateeRole: "carrier",
+      existingRating,
+    });
+    setRatingOpen(true);
+  };
 
   const title = shipment?.status === "in_transit" ? "Confirmar entrega" : "Confirmar retiro";
 
@@ -55,12 +63,12 @@ export default function HandshakeScanScreen() {
           ctaLabel="Volver a Inicio"
           onCtaPress={() => router.replace("/")}
           secondaryCtas={
-            ratingTarget
+            carrierId
               ? [
                   {
                     id: "carrier",
                     label: existingRating ? "Ya calificaste al transportista" : "Calificar al transportista",
-                    onPress: () => setRatingOpen(true),
+                    onPress: openRating,
                   },
                 ]
               : undefined

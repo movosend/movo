@@ -150,9 +150,12 @@ jest.mock("../components/shipments/rating-sheet", () => {
 });
 
 const mockUseShipmentRatings = jest.fn<
-  { data: { rateeId: string; score: number; comment?: string }[] | undefined },
+  { data: { raterId?: string; rateeId: string; score: number; comment?: string }[] | undefined },
   [string | undefined, { enabled?: boolean } | undefined]
 >(() => ({ data: undefined }));
+jest.mock("../src/store/auth-store", () => ({
+  useAuthStore: (selector: (state: { user: { userId: string } }) => unknown) => selector({ user: { userId: "carrier-1" } }),
+}));
 jest.mock("../src/hooks/use-ratings", () => ({
   useShipmentRatings: (id: string | undefined, options?: { enabled?: boolean }) =>
     mockUseShipmentRatings(id, options),
@@ -542,13 +545,26 @@ describe("delivery/success (AC8/AC9)", () => {
     mockUseShipment.mockReturnValue({ data: shipment(), isLoading: false, isError: false });
     mockUsePublicProfile.mockReturnValue({ data: { fullName: "Julia Mancini" } });
     mockUseShipmentRatings.mockReturnValue({
-      data: [{ rateeId: "receiver-1", score: 5, comment: "Todo perfecto" }],
+      data: [{ raterId: "carrier-1", rateeId: "receiver-1", score: 5, comment: "Todo perfecto" }],
     });
 
     const { getByTestId } = await render(<DeliverySuccessScreen />);
 
     expect(getByTestId("delivery-success-result-secondary-cta-receiver")).toHaveTextContent("Ya calificaste al receptor");
     expect(getByTestId("delivery-success-result-secondary-cta-sender")).toHaveTextContent("Calificar al emisor");
+  });
+
+  it("la calificación que otra parte le dejó al receptor no cuenta como mía", async () => {
+    mockUseDeliveryResult.mockReturnValue({ result: confirmResult, setResult: jest.fn() });
+    mockUseShipment.mockReturnValue({ data: shipment(), isLoading: false, isError: false });
+    mockUsePublicProfile.mockReturnValue({ data: { fullName: "Julia Mancini" } });
+    mockUseShipmentRatings.mockReturnValue({
+      data: [{ raterId: "sender-1", rateeId: "receiver-1", score: 2 }],
+    });
+
+    const { getByTestId } = await render(<DeliverySuccessScreen />);
+
+    expect(getByTestId("delivery-success-result-secondary-cta-receiver")).toHaveTextContent("Calificar al receptor");
   });
 
   it("también ofrece calificar al emisor y abre la hoja con él", async () => {
