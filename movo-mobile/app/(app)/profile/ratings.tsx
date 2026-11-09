@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
 import { ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -7,7 +7,7 @@ import { ProfileSkeleton } from "../../../components/profile/profile-skeleton";
 import { useAuthStore } from "../../../src/store/auth-store";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
-import { formatRatingCount, formatReputationScore } from "../../../src/lib/profile-format";
+import { formatRatingCount, formatReputationScore, ratingCommentsForRole } from "../../../src/lib/profile-format";
 import { StarRatingInput } from "../../../components/ui/star-rating-input";
 
 /**
@@ -25,6 +25,13 @@ export default function ProfileRatingsScreen() {
   const colors = useThemeColors();
   const myId = useAuthStore((state) => state.user?.userId);
   const { data: profile, isLoading } = usePublicProfile(myId);
+  // Llega con la pestaña elegida en el perfil (`?role=`); sin ella, todas.
+  const { role } = useLocalSearchParams<{ role?: string }>();
+  const comments = profile
+    ? role === "carrier" || role === "sender"
+      ? ratingCommentsForRole(profile, role)
+      : profile.recentRatingComments
+    : [];
 
   const handleBack = () => {
     if (router.canGoBack()) router.back();
@@ -66,12 +73,12 @@ export default function ProfileRatingsScreen() {
             </View>
           </View>
 
-          {profile.recentRatingComments.length === 0 ? (
+          {comments.length === 0 ? (
             <Text testID="profile-ratings-empty" className="font-sans text-small text-fg-3">
               Todavía no tenés calificaciones.
             </Text>
           ) : (
-            profile.recentRatingComments.map((comment) => (
+            comments.map((comment) => (
               <ReputationCommentCard
                 key={comment.id}
                 comment={comment}

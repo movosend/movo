@@ -227,4 +227,26 @@ describe("ProfileActivityCard", () => {
     expect(queryByTestId("card-reputation-error")).toBeNull();
     expect(queryByTestId("card-reputation-skeleton")).toBeNull();
   });
+  it("cada pestaña muestra solo las reseñas recibidas en ese rol (feedback de TestFlight, build 17)", async () => {
+    const asCarrier = comment({ id: "c1", comment: "Se frenó a tomar un café" });
+    const { getByTestId, queryByText, getByText } = await render(
+      <ProfileActivityCard
+        testID="card"
+        transactionCounts={{ asSender: 1, asCarrier: 1 }}
+        reputationScore={3}
+        reputation={{
+          asCarrier: breakdown(),
+          asSender: breakdown(),
+          recentRatingComments: [asCarrier],
+          recentRatingCommentsByRole: { asCarrier: [asCarrier], asSender: [] },
+        }}
+      />,
+    );
+
+    expect(getByText("Se frenó a tomar un café")).toBeTruthy();
+    await act(async () => {
+      fireEvent.press(getByTestId("card-role-sender"));
+    });
+    expect(queryByText("Se frenó a tomar un café")).toBeNull();
+  });
 });

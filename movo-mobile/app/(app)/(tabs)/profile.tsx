@@ -138,13 +138,14 @@ export default function ProfileScreen() {
                       asSender: publicProfile.asSender,
                       asCarrier: publicProfile.asCarrier,
                       recentRatingComments: publicProfile.recentRatingComments,
+                      recentRatingCommentsByRole: publicProfile.recentRatingCommentsByRole,
                     }
                   : undefined
               }
               reputationLoading={reputationLoading}
               reputationError={reputationError}
               onRetryReputation={() => void refetchReputation()}
-              onViewAllRatings={() => router.push('/profile/ratings')}
+              onViewAllRatings={(role) => router.push(`/profile/ratings?role=${role}`)}
             />
           </>
         )}

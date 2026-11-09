@@ -1,4 +1,5 @@
 import {
+  ratingCommentsForRole,
   capitalizeName,
   formatGreetingDateLabel,
   formatMemberSince,
@@ -141,5 +142,19 @@ describe("formatMemberSince", () => {
   it("sin fecha o con una fecha inválida no muestra nada", () => {
     expect(formatMemberSince(null, now)).toBeNull();
     expect(formatMemberSince("no-es-una-fecha", now)).toBeNull();
+  });
+});
+
+describe("ratingCommentsForRole", () => {
+  const c = (id: string) => ({ id, raterId: "u", raterName: "U", score: 4, comment: null, createdAt: "2026-11-01T00:00:00.000Z" });
+
+  it("usa las separadas por rol cuando el backend las manda", () => {
+    const profile = { recentRatingComments: [c("a"), c("b")], recentRatingCommentsByRole: { asCarrier: [c("a")], asSender: [c("b")] } };
+    expect(ratingCommentsForRole(profile, "carrier").map((x) => x.id)).toEqual(["a"]);
+    expect(ratingCommentsForRole(profile, "sender").map((x) => x.id)).toEqual(["b"]);
+  });
+
+  it("con un backend anterior cae a la lista general", () => {
+    expect(ratingCommentsForRole({ recentRatingComments: [c("a")] }, "sender").map((x) => x.id)).toEqual(["a"]);
   });
 });

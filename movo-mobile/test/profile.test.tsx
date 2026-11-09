@@ -445,7 +445,8 @@ describe("ProfileScreen", () => {
     const { getByTestId } = await render(<ProfileScreen />);
     fireEvent.press(getByTestId("profile-activity-card-view-all"));
 
-    expect(router.push).toHaveBeenCalledWith("/profile/ratings");
+    // Con la pestaña elegida: solo hay envíos como emisor.
+    expect(router.push).toHaveBeenCalledWith("/profile/ratings?role=sender");
   });
 
   // MOVO-244 feedback: el visor de pantalla completa (`PhotoViewerModal`) se

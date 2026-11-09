@@ -1,3 +1,9 @@
+import type {
+  ProfileRatingRole,
+  RecentRatingComment,
+  RecentRatingCommentsByRole,
+} from "@movo/shared/dist/types/user-profile";
+
 /**
  * Formateo puro de los datos del perfil (MOVO-78 AC10 — el criterio que "rompe la
  * demo" si se descuida: sin envíos/ratings todavía en este sprint, todos los usuarios
@@ -8,6 +14,20 @@
  * explícito al inicio — nunca un `?? 0` ciego, que dejaría pasar `NaN` (`NaN ?? 0` es
  * `NaN`, no `0`) y lo renderizaría tal cual.
  */
+
+/**
+ * Reseñas recientes de una pestaña del perfil ("Como transportista" / "Como emisor"). Usa las que el
+ * backend ya separa por rol; con un backend anterior que no las manda, cae a la lista general (que
+ * mezcla los dos roles, como antes). Feedback de TestFlight, build 17.
+ */
+export function ratingCommentsForRole(
+  profile: { recentRatingComments: RecentRatingComment[]; recentRatingCommentsByRole?: RecentRatingCommentsByRole },
+  role: ProfileRatingRole,
+): RecentRatingComment[] {
+  const byRole = profile.recentRatingCommentsByRole;
+  if (!byRole) return profile.recentRatingComments;
+  return role === "carrier" ? byRole.asCarrier : byRole.asSender;
+}
 
 function isMissing(value: number | null | undefined): boolean {
   return value === null || value === undefined || Number.isNaN(value);
