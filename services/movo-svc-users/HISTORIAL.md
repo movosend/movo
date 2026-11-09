@@ -1413,4 +1413,4 @@ crea como predeterminada solo si viene. `kyc.service.ts#extractVerifiedIdentity`
 en `raw_decision`. El bloqueo `PROFILE_NAME_LOCKED_BY_KYC` no cambió. Tests: `kyc.push.test.ts`, `kyc.webhook.integration.test.ts`, `kyc.manual-review-reconcile.test.ts`, `auth.register.integration.test.ts`.
 Verificado contra la app sandbox de Didit (09/11/2026): `first_name` trae todos los nombres de pila y `last_name` los apellidos, `date_of_birth` va como `YYYY-MM-DD`, y una aprobación simulada
 sin pasar por el flujo trae `id_verifications: null` (cae en `manual_review`). El workflow live "KYC DNI" ya devuelve esos campos; el número de un pasaporte es alfanumérico y no se guarda como DNI.
-Límite conocido: cuando Didit toma el nombre del MRZ (pasaporte) llega sin tildes ("Maria"), y no hay cómo recuperarlas. `kyc.identity-extract.test.ts` fija la forma real. Las pruebas de integración no se corrieron en local (sin Postgres ni Redis).
+Las tildes no se tocan: `normalizePersonName` solo ajusta las mayúsculas. `kyc.identity-extract.test.ts` fija la forma real. Las pruebas de integración no se corrieron en local (sin Postgres ni Redis).
