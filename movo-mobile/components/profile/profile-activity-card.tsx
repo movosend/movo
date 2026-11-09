@@ -183,7 +183,11 @@ export function ProfileActivityCard({
                   <Pressable
                     key={r}
                     testID={testID ? `${testID}-role-${r}` : undefined}
-                    onPress={() => setRole(r)}
+                    onPress={() => {
+                      // Cada pestaña tiene su propia lista: el carrusel vuelve a la primera reseña.
+                      setRole(r);
+                      setActiveCommentIndex(0);
+                    }}
                     className={`flex-1 items-center rounded-lg py-2 ${role === r ? "bg-bg" : ""}`}
                   >
                     <Text
@@ -263,6 +267,7 @@ export function ProfileActivityCard({
             ) : (
               <>
                 <ScrollView
+                  key={role}
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   decelerationRate="fast"
