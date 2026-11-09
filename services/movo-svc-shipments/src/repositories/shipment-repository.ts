@@ -1329,6 +1329,8 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             }
           : {};
 
+      // Viajes que quedaron sin paquetes y se cerraron en esta misma transacción: se informan con el evento.
+      let expiredTripIds: string[] = [];
       const row = await db.$transaction(async (tx) => {
         // MOVO-118: compare-and-swap, mismo patrón que
         // `offer-repository.ts#acceptOffer` (MOVO-102/AC9). El WHERE
@@ -1501,7 +1503,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         // Feedback de TestFlight (build 17): sin esto el viaje seguía "en curso" con 0 paquetes
         // hasta la próxima corrida del barrido (`trip-expiry-sweep.ts`, que queda como red).
         if (releasedTripIds.length > 0) {
-          await expireEmptyActiveTrips(tx, releasedTripIds);
+          expiredTripIds = await expireEmptyActiveTrips(tx, releasedTripIds);
         }
 
         // `updateMany` no devuelve la fila actualizada (a diferencia de
@@ -1529,7 +1531,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
 
       // MOVO-201/AC4: recién después de que la transacción confirmó -- un rollback
       // (ej. ShipmentConcurrentModificationError) no debe cerrar ningún socket.
-      emitShipmentStatusChanged({ shipmentId: id, to });
+      emitShipmentStatusChanged({ shipmentId: id, to, ...(expiredTripIds.length > 0 ? { expiredTripIds } : {}) });
 
       return mapShipmentRow(row, to === ShipmentStatus.REJECTED_BY_RECEIVER ? (reason ?? null) : null);
     },

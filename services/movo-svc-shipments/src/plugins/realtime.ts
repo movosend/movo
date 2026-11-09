@@ -125,6 +125,13 @@ export default fp(async (app: FastifyInstance) => {
   app.decorate("chatHub", chatHub);
 
   const unsubscribeTracking = onShipmentStatusChanged((event: ShipmentStatusChangedEvent) => {
+    // Mismo evento que loguea el barrido (`trip-expiry-sweep.ts`), para diagnosticar los dos caminos igual.
+    for (const tripId of event.expiredTripIds ?? []) {
+      app.log.info(
+        { event: "trip_auto_expired", tripId, reason: "last_shipment_released", shipmentId: event.shipmentId, toStatus: event.to },
+        "Viaje vencido: se quedó sin paquetes"
+      );
+    }
     // MOVO-250/AC6: cada transición se difunde a los suscriptores -- las pantallas de QR
     // del handshake (MOVO-159) dejan de consultar cada 2,5s. Va ANTES del cierre por
     // estado terminal, para que el cliente reciba el estado final antes del `4009`.
