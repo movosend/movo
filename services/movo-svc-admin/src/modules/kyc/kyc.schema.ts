@@ -13,8 +13,15 @@ const int = { type: "integer" } as const;
 const object = (properties: Record<string, unknown>, required: string[] = Object.keys(properties)) =>
   ({ type: "object", required, properties }) as const;
 
+// Con `details` libre: el 409 de una sesión que Didit ya tenía resuelta trae `status` ahí.
 const errorResponse = object(
-  { error: object({ code: str, message: str, statusCode: int }), requestId: str },
+  {
+    error: object(
+      { code: str, message: str, statusCode: int, details: { type: "object", additionalProperties: true } },
+      ["code", "message", "statusCode"],
+    ),
+    requestId: str,
+  },
   ["error"],
 );
 const errors = {
@@ -36,6 +43,7 @@ const rowProperties = {
   verificationType,
   reason: nullableStr,
   requestedAt: str,
+  inReviewSince: nullableStr,
 };
 
 const sessionParams = object({ sessionId: { type: "string", minLength: 1, maxLength: 128 } });
@@ -119,6 +127,8 @@ export const kycSchemas = {
     response: {
       200: object({
         ...rowProperties,
+        status: str,
+        resolvedAt: nullableStr,
         email: str,
         phone: str,
         expirationDate: nullableStr,

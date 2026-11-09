@@ -36,6 +36,9 @@ const review = (userId: string, overrides: Partial<AdminKycReviewDetail> = {}): 
   verificationType: "identity",
   reason: "Documento borroso",
   requestedAt: "2026-11-01T10:00:00.000Z",
+  inReviewSince: "2026-11-01T12:00:00.000Z",
+  status: "manual_review",
+  resolvedAt: null,
   email: `${userId}@movo.test`,
   phone: "+5493511234567",
   expirationDate: null,
@@ -131,7 +134,14 @@ describe("Cola de revisión manual de KYC", { timeout: 15_000 }, () => {
 
     const found = await t.detail(t.first.sessionId);
     expect(found.statusCode).toBe(200);
-    expect(found.json()).toMatchObject({ sessionId: t.first.sessionId, decidable: true, reason: "Documento borroso" });
+    expect(found.json()).toMatchObject({
+      sessionId: t.first.sessionId,
+      decidable: true,
+      reason: "Documento borroso",
+      status: "manual_review",
+      inReviewSince: "2026-11-01T12:00:00.000Z",
+      resolvedAt: null,
+    });
 
     const missing = await t.detail("no-existe");
     expect(missing.statusCode).toBe(404);
@@ -198,6 +208,35 @@ describe("Cola de revisión manual de KYC", { timeout: 15_000 }, () => {
     expect(response.statusCode).toBe(502);
     expect(response.json().error.code).toBe("KYC_PROVIDER_ERROR");
     expect((await t.rows())[0]).toMatchObject({ outcome: "failed", errorCode: "KYC_PROVIDER_ERROR" });
+  });
+
+  it("si Didit no confirmó (svc-users responde 502 sin código conocido), la fila es unknown y no failed", async () => {
+    const t = await setup({ decideError: new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "El servicio de usuarios devolvió un error.") });
+
+    const response = await t.decide(t.first.sessionId, { decision: "approved", reason: "Documento y rostro coinciden" });
+
+    expect(response.statusCode).toBe(502);
+    expect((await t.rows())[0]).toMatchObject({ outcome: "unknown", errorCode: "USERS_SERVICE_UNAVAILABLE" });
+  });
+
+  it("otro admin decidiendo el mismo caso: 409 KYC_REVIEW_IN_PROGRESS con fila failed", async () => {
+    const t = await setup({ decideError: new ApiError(409, "KYC_REVIEW_IN_PROGRESS", "Otro admin está decidiendo.") });
+
+    const response = await t.decide(t.first.sessionId, { decision: "approved", reason: "Documento y rostro coinciden" });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe("KYC_REVIEW_IN_PROGRESS");
+    expect((await t.rows())[0]).toMatchObject({ outcome: "failed", errorCode: "KYC_REVIEW_IN_PROGRESS" });
+  });
+
+  it("el 409 de una sesión que Didit ya tenía resuelta conserva details.status", async () => {
+    const t = await setup({
+      decideError: new ApiError(409, "KYC_REVIEW_STATUS_CHANGED", "Didit ya la tenía resuelta.", { status: "rejected" }),
+    });
+
+    const response = await t.decide(t.first.sessionId, { decision: "approved", reason: "Documento y rostro coinciden" });
+
+    expect(response.json().error).toMatchObject({ code: "KYC_REVIEW_STATUS_CHANGED", details: { status: "rejected" } });
   });
 
   it("un admin no puede decidir su propio KYC (conflicto de interés) y no se llama a svc-users", async () => {

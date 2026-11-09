@@ -517,6 +517,8 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
         timeoutMs: 15000,
         isValid: isDecisionResponse,
         notFoundCodes: ["KYC_SESSION_NOT_FOUND"],
+        // Solo el rechazo seguro de Didit. `KYC_PROVIDER_UNCONFIRMED` (red, timeout o 5xx de Didit) no se relaya a
+        // propósito: cae en USERS_SERVICE_UNAVAILABLE y la bitácora lo registra como `unknown`, porque pudo aplicarse.
         relayServerErrorCodes: ["KYC_PROVIDER_ERROR"],
       });
       return orKycSessionNotFound(result);
