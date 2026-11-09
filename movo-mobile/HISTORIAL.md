@@ -5089,3 +5089,10 @@ Informe en `docs/pruebas/2026-10-25-flujo-completo.md`. Un commit por punto; el 
 - **Retiro**: `shipmentDetailCta` recibe `carrierTripActive`: sin viaje iniciado, "Iniciar viaje" para el transportista y un aviso para el emisor. `pickup/index.tsx` redirige al detalle para las entradas desde Home o ruta, y `useStartTrip` invalida el detalle.
 - **Entrega**: el paso 1 sigue informativo con textos que no sugieren una validación; `getCurrentLocation({ highAccuracy })` solo en el handshake.
 - **Modales**: `AcceptSuccessModal`, su copia en `shipment-confirmation-sheets.tsx` y `ChooseOfferSuccessModal` llegan al borde en Android (`statusBarTranslucent` + `navigationBarTranslucent`), con el contenido en `SafeAreaView`. Falta verlo en un Android real.
+
+### Feedback de TestFlight builds 16 y 17
+
+- **"Usar mi ubicación actual"**: si falla el reverse-geocode, `useMyLocation` avisa ("Escribila en el buscador") y no devuelve nada, en vez de guardar "Ubicación actual" como dirección. La pestaña Transportar pasa `requireAddress: false`: ese origen no se guarda y conserva el GPS.
+- **Viaje en curso con 0 paquetes**: `splitCarrierHomeTrips` ignora un `active` sin paquetes, y `useTripsSync` (montado con `useChatUnreadSync`) refresca los viajes con la push `shipment_cancelled` y al volver a primer plano.
+- **"Ventana vencida"**: `activeShipmentPickupWindowLabel` antepone el día ("dom 25/10 · 21:00 a 23:00 h") cuando la ventana venció otro día; antes la franja sola parecía futura.
+- **Viaje**: iniciarlo desde Inicio abre el mapa, como desde el detalle. El botón de la parada dice "Ver detalle".

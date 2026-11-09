@@ -1402,3 +1402,9 @@ quien escribe es transportista sin una llamada por fila. Aditivo; `svc-admin` to
 `admin-users/admin-overview-internal.routes.ts`: `GET /internal/admin/overview/{kyc,user-reports,sanctions-ending-today}` y `POST /internal/admin/user-reports/reported` (reporte → persona reportada, para
 la bitácora). KYC cuenta el último intento de cada verificación de una cuenta viva, para que un reintento reemplace al abandonado; `carriers` son las licencias y `senders` las identidades. `blockRequested`:
 quien reportó además bloqueó al reportado. "Vencen hoy" es el día de Argentina. Lo consume `GET /admin/overview` de `svc-admin`.
+
+### Feedback de TestFlight build 17 — errores de Google visibles en el log
+
+- `google-error.ts` (`readGoogleErrorDetail`): los adapters de Places y Geocoding reciben `app.log` desde la factory y, ante un rechazo, loguean `google_places_error`/`google_geocoding_error` con el status y el mensaje de Google, nunca la URL (Geocoding lleva la key en el query string). El 502 al cliente no cambia.
+- Geocoding: solo `ZERO_RESULTS` es 422 `GEOCODING_ADDRESS_NOT_FOUND`. `REQUEST_DENIED`/`OVER_QUERY_LIMIT` (que Google responde con 200) pasan a 502: antes una key sin facturación parecía una dirección mal cargada.
+- Causa del feedback: el proyecto de Google Cloud de dev (`289071851142`) no tiene facturación activa; Places, Geocoding y Routes rechazan la key. Se arregla en la consola de Google, no en el código.

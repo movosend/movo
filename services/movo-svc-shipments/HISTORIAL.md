@@ -3998,3 +3998,9 @@ Mensajes señalados: ventana móvil de 7 días, porque ni un mensaje moderado ni
 - **Distancia** (DD-062): la lógica no cambia, porque ya comparaba las dos partes. Un rechazo ahora deja un `warn` con la distancia: el código de error no queda en el log de la request y sin esto no se podía diagnosticar.
 - **Panel**: el `label` de los pines del seguimiento es la dirección, y las filas de disputas exponen `pickupAddress`.
 - Pendiente: el barrido de no-retiro sigue fallando con `PAYMENT_PROVIDER_ERROR` en tres envíos de dev del 25/10, dos de ellos todavía `assigned`.
+
+### Feedback de TestFlight build 17 — viaje sin paquetes y errores de Routes
+
+- **Viaje en curso vacío**: `updateStatus` anota los viajes de la oferta aceptada y, al cancelarse el envío o bajarse el transportista, expira en la misma transacción los que quedan `active` sin paquetes vivos (`expireEmptyActiveTrips` en `trip-repository.ts`, mismo `where` que el barrido, que queda como red). Destino `expired` por DD-029/DD-032; un `declared` sigue a cargo de `cancelOverdueDeclared`.
+- **Routes**: `google-routes-provider.ts` recibe `app.log` y loguea `google_routes_error` con el status y el mensaje de Google (mismo helper que `svc-users`).
+- Pendiente: el envío del "Ventana vencida" del feedback (`16d2352c…`, retiro del 25/10) es uno de los `assigned` que el barrido de no-retiro no puede cancelar porque falla la liberación del hold en MP.
