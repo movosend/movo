@@ -28,6 +28,7 @@ import { useLegalAcceptanceEntry } from '../src/hooks/use-legal-acceptance-entry
 import { useRequiredPermissionsGate } from '../src/hooks/use-required-permissions-gate';
 import { useChatUnreadSync } from '../src/hooks/use-chat-unread-sync';
 import { useSupportUnreadSync } from '../src/hooks/use-support-unread-sync';
+import { useTripsSync } from '../src/hooks/use-trips-sync';
 import { usePushNotifications } from '../src/hooks/use-push-notifications';
 import { RegistrationProvider } from '../src/hooks/use-registration';
 import { loadApiOverride } from '../src/lib/api-override';
@@ -58,10 +59,12 @@ function CarrierTrackingCoordinatorMount() {
   return null;
 }
 
-/** MOVO-301: contador de chats sin leer al día (push en foreground y vuelta a primer plano). */
+/** MOVO-301: contador de chats sin leer al día (push en foreground y vuelta a primer plano).
+ * Con el mismo disparador, los viajes de Inicio (`useTripsSync`). */
 function ChatUnreadSyncMount() {
   useChatUnreadSync();
   useSupportUnreadSync();
+  useTripsSync();
   return null;
 }
 
