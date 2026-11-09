@@ -35,7 +35,7 @@ diagramas/*.puml         diagramas UML (PlantUML) · *.py generadores de diagram
 diagramas/graficos_*.py  gráficos de datos y esquemas (SVG) de los tres tomos; primitivas en svg_comun.py
 estilos/print.css        hoja de estilos de impresión (marca Movo aplicada de forma sutil)
 estilos/plantuml-tema.iuml  tema común de todos los diagramas
-plantillas/tomo.html.j2  portada, créditos, ficha, índice, separadores y colofón
+plantillas/tomo.html.j2  portada, créditos, ficha, índice y separadores
 plantillas/_portadas.css.j2  estilos de esas páginas (medidas del diseño en px, convertidas a mm/pt)
 plantillas/tapa.html.j2  tapa dura: contratapa + lomo + tapa a escala real
 herramientas/motivos.py  motivos de puntos (SVG) de las carátulas y las tapas

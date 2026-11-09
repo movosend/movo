@@ -522,8 +522,6 @@ table.caso td.resultado { font-weight: 600; }
 .galeria figcaption b { display: block; color: var(--ink-950); font-weight: 600; }
 .galeria figcaption span { display: block; }
 
-/* Firma / créditos finales */
-.colofon { font-size: 7.6pt; color: var(--ink-600); margin-top: 20mm; }
 
 /* ─────────────────────────────── Paper ─────────────────────────────── */
 .paper-cab { text-align: center; margin: 2mm 0 8mm; padding-bottom: 6mm; border-bottom: .6pt solid var(--ink-200); }

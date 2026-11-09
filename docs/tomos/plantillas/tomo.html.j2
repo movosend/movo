@@ -43,7 +43,7 @@
 {% include '_portadas.css.j2' %}
 {% if edicion == 'digital' %}{% include '_tapa.css.j2' %}{% endif %}
   .pt, .sep, .presentacion, .indice, .ficha, .equipo-pg { break-before: right; }
-  .datos-edicion, .colofon { break-before: left; }
+  .datos-edicion { break-before: left; }
   body { string-set: tomo-corto "Movo · {{ tomo.numero_largo }} · {{ tomo.titulo }}"; }
 </style>
 </head>
@@ -284,15 +284,6 @@
     {% endfor %}
   </div>
   <div class="cierre">{{ p.equipo.cierre }}</div>
-</section>
-
-{# ───────────── Colofón ───────────── #}
-<section class="colofon">
-  <div class="centrado">
-    <img class="marca-fin" src="assets/logos/movo-marca.svg" alt="">
-    <div class="fin">Fin del {{ tomo.numero_largo|replace('Tomo','tomo') }}</div>
-    <div class="lema">{{ p.lema }}. {{ p.software }} es un proyecto independiente de {{ p.carrera }}, {{ p.universidad }}, {{ p.facultad }}. Entrega final: {{ fecha_dia }}.</div>
-  </div>
 </section>
 
 {% if edicion == 'digital' %}

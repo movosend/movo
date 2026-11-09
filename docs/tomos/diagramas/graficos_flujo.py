@@ -54,18 +54,18 @@ def ramas() -> None:
     yf, yd, ym, yh, yx = Y["feature"], Y["develop"], Y["main"], Y["hotfix"], Y["fix"]
     commit(196, yd)
     rama(196, yd, 236, yf)
-    s.append(linea(236, yf, 330, yf, INK, 1.6))
+    s.append(linea(236, yf, 312, yf, INK, 1.6))
     for x in (240, 276, 312):
         commit(x, yf, BLANCO, 4.5)
     merge(312, yf, 362, yd)
     commit(362, yd, LIME, 7)
     chip(276, yf + 24, "PR · pr-checks · 1 revisión", LIME_SUAVE)
     chip(362, yd - 24, "squash")
-    chip(440, yd - 44, "cada merge a develop: ci-dev → deploy a dev", INK1)
+    chip(395, yd - 44, "cada merge a develop: ci-dev → deploy a dev", INK1)
     # fix: sale de develop después de integrar la feature, dos commits, PR con squash
     commit(392, yd)
     rama(392, yd, 426, yx)
-    s.append(linea(426, yx, 466, yx, INK, 1.6))
+    s.append(linea(426, yx, 452, yx, INK, 1.6))
     for x in (424, 452):
         commit(x, yx, BLANCO, 4.5)
     merge(452, yx, 486, yd)
@@ -82,7 +82,7 @@ def ramas() -> None:
     chip(556, ym - 28, "PR develop → main · ci-prod", INK1)
     # hotfix: desde main, vuelve a main y la sincronización lo baja a develop
     rama(606, ym, 636, yh)
-    s.append(linea(636, yh, 656, yh, INK, 1.6))
+    s.append(linea(636, yh, 648, yh, INK, 1.6))
     commit(648, yh, BLANCO, 4.5)
     merge(648, yh, 684, ym)
     commit(684, ym, LIME, 7)

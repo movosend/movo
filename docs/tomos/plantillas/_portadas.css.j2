@@ -58,20 +58,15 @@
 .sep .contenido a::before { content: none; }
 .sep .pie-sep { position: absolute; left: {{ mm(88) }}; right: {{ mm(88) }}; bottom: {{ mm(40) }}; display: flex; justify-content: space-between; font: 600 {{ pt(9) }}/1 "Inter"; letter-spacing: .08em; text-transform: uppercase; color: rgba(10,10,11,.56); }
 
-/* Datos de la edición y colofón: páginas de texto sin encabezado ni pie */
-.datos-edicion, .colofon { page: libro; font-size: 8.6pt; line-height: 1.6; }
+/* Datos de la edición: páginas de texto sin encabezado ni pie */
+.datos-edicion { page: libro; font-size: 8.6pt; line-height: 1.6; }
 .datos-edicion { break-before: page; break-after: page; }
-.colofon { break-before: page; }
-.datos-edicion .eyebrow-c, .colofon .eyebrow-c { margin: 7mm 0 1.6mm; }
-.datos-edicion h2.unnumbered, .colofon h2.unnumbered { border: 0; padding: 0; margin: 0 0 4mm; font-size: 14pt; break-before: auto; }
-.datos-edicion table, .colofon table { font-size: 8.4pt; margin: 0; }
-.datos-edicion td, .datos-edicion th, .colofon td, .colofon th { border: 0; border-bottom: .4pt solid var(--ink-200); padding: 1.3mm 0; background: none; text-align: left; vertical-align: top; }
+.datos-edicion .eyebrow-c { margin: 7mm 0 1.6mm; }
+.datos-edicion h2.unnumbered { border: 0; padding: 0; margin: 0 0 4mm; font-size: 14pt; break-before: auto; }
+.datos-edicion table { font-size: 8.4pt; margin: 0; }
+.datos-edicion td, .datos-edicion th { border: 0; border-bottom: .4pt solid var(--ink-200); padding: 1.3mm 0; background: none; text-align: left; vertical-align: top; }
 .datos-edicion td:first-child { width: 34mm; color: rgba(10,10,11,.56); }
 .datos-edicion .cita { padding: 3.2mm 4mm; background: var(--ink-50); border-left: 2pt solid var(--lime-deep); }
-.colofon .centrado { margin-top: 62mm; }
-.colofon img.marca-fin { width: 14mm; height: 14mm; margin-bottom: 8mm; }
-.colofon .fin { font: 600 20pt/1.1 "Inter"; letter-spacing: -.035em; margin: 0 0 3mm; }
-.colofon .lema { color: rgba(10,10,11,.72); max-width: 120mm; }
 
 /* Tapa y contratapa como páginas de la edición digital */
 .pagina-tapa { page: portada; position: relative; width: 210mm; height: 297mm; overflow: hidden; background: {{ tapa.color }}; color: {{ fg }}; break-after: page; }

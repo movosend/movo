@@ -80,8 +80,11 @@ def main() -> None:
         resto = [x_ for x_ in tareas if not x_[2]]
         for k, (tarea, hu, _) in enumerate(mvp):
             y = y_tar + k * (CH + CG)
-            s.append(f'<rect x="{x}" y="{y}" width="{CW}" height="{CH}" rx="5" fill="#FFFFFF" stroke="{INK}" stroke-width="1"/>')
-            s.append(f'<rect x="{x}" y="{y}" width="3.4" height="{CH}" rx="1.6" fill="{LIME}"/>')
+            s.append(f'<rect x="{x}" y="{y}" width="{CW}" height="{CH}" rx="5" fill="#FFFFFF"/>')
+            cid = f"c{i}_{k}"
+            s.append(f'<clipPath id="{cid}"><rect x="{x}" y="{y}" width="{CW}" height="{CH}" rx="5"/></clipPath>')
+            s.append(f'<rect x="{x}" y="{y}" width="3.4" height="{CH}" fill="{LIME}" clip-path="url(#{cid})"/>')
+            s.append(f'<rect x="{x}" y="{y}" width="{CW}" height="{CH}" rx="5" fill="none" stroke="{INK}" stroke-width="1"/>')
             for j, l in enumerate(partir(tarea)):
                 s.append(t(x + 9, y + 13 + j * 10.6, l, 8.4, 500))
             s.append(t(x + 9, y + CH - 5, hu, 7.2, 600, INK4))
