@@ -25,7 +25,7 @@ import {
 } from "../../../src/hooks/use-profile";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../../src/lib/error-messages";
-import { formatDni } from "../../../src/hooks/use-registration";
+import { formatDni } from "../../../src/lib/dni";
 import { capitalizeName, formatPhoneDisplay } from "../../../src/lib/profile-format";
 
 /** Mismo largo y forma que `patchProfileBody` en `movo-svc-users` (MOVO-133): 1-80
@@ -86,7 +86,11 @@ export default function EditProfileScreen() {
     setBio(profile.bio ?? "");
   }, [profile?.firstName, profile?.lastName, profile?.bio]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const isNameLockedByKyc = profile?.kycStatus === KycStatus.APPROVED;
+  // Aprobada, en revisión o en curso: el nombre es el que lee Didit del documento y no se edita (el backend responde 409).
+  const isNameLockedByKyc =
+    profile?.kycStatus === KycStatus.APPROVED ||
+    profile?.kycStatus === KycStatus.MANUAL_REVIEW ||
+    profile?.kycStatus === KycStatus.PENDING;
 
   function handleBack() {
     // Sin botón Guardar no existen "cambios sin guardar": cada campo ya se persistió

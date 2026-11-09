@@ -8,6 +8,8 @@ const BY_CODE: Record<string, string> = {
     "Este caso ya no está en revisión: otra persona lo resolvió, Didit ya lo tenía resuelto o la verificación cambió. Volvé a la lista para ver el estado actual.",
   KYC_REVIEW_SUPERSEDED:
     "La persona abrió una verificación más nueva, así que este intento ya no se puede decidir.",
+  KYC_REVIEW_IDENTITY_MISSING:
+    "Falta el nombre y el apellido: Didit no los leyó del documento. Escribilos como figuran en el DNI para poder aprobar.",
   KYC_REVIEW_IN_PROGRESS:
     "Otro admin está decidiendo este caso en este momento. Esperá unos segundos y volvé a la lista para ver cómo quedó.",
   ADMIN_CONFLICT_OF_INTEREST:

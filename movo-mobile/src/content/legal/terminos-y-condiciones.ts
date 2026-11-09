@@ -8,7 +8,7 @@
 export const TERMS_MARKDOWN = `# Términos y Condiciones de Uso de MOVO
 
 **Versión**: 0.2 (borrador de trabajo)
-**Última actualización**: 2026-10-11
+**Última actualización**: 2026-11-09
 **Vigencia**: aún no publicada / no vigente
 
 > ## ⚠️ Aviso académico — leer antes de usar este documento
@@ -124,8 +124,12 @@ MOVO sí:
 
 ## 4. Registro de cuenta y verificación de identidad
 
-- El registro requiere datos de identidad (nombre, DNI), contacto (teléfono
-  verificado por OTP, email) y una contraseña.
+- El registro requiere datos de contacto (teléfono verificado por OTP, email)
+  y una contraseña. Tu **nombre, tu número de documento y tu fecha de
+  nacimiento** no los escribís vos: los toma tu documento de identidad cuando
+  Didit lo lee en la verificación de identidad (KYC). Un administrador de MOVO
+  puede corregirlos si se leyeron mal, y una vez aprobada la verificación no se
+  pueden modificar desde la app.
 - Para operar como **Transportista** es obligatorio aprobar un proceso de
   verificación de identidad (KYC) mediante un proveedor externo
   especializado. Ver la [Política de Privacidad](./politica-privacidad.md)

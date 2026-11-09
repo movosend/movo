@@ -31,6 +31,7 @@ interface QueueRow {
   raw_decision: unknown;
   first_name: string;
   last_name: string;
+  email: string;
   photo_url: string | null;
 }
 
@@ -70,7 +71,7 @@ export function createKycReviewService(db: PrismaClient, diditClient: DiditClien
           ORDER BY v.user_id, v.verification_type, v.requested_at DESC, v.id DESC
         )
         SELECT l.id, l.external_session_id, l.user_id, l.verification_type::text AS verification_type,
-               l.requested_at, l.resolved_at, l.raw_decision, u.first_name, u.last_name, u.photo_url
+               l.requested_at, l.resolved_at, l.raw_decision, u.first_name, u.last_name, u.email, u.photo_url
         FROM latest l
         JOIN users.users u ON u.id = l.user_id
         WHERE ${Prisma.join(filters, " AND ")}`;
@@ -86,7 +87,8 @@ export function createKycReviewService(db: PrismaClient, diditClient: DiditClien
       const items: AdminKycReviewRow[] = rows.map((row) => ({
         sessionId: row.external_session_id,
         userId: row.user_id,
-        fullName: fullName({ firstName: row.first_name, lastName: row.last_name }),
+        // Una cuenta que todavía no tiene el nombre del documento (justo lo que esta cola revisa) se muestra por su email.
+        fullName: fullName({ firstName: row.first_name, lastName: row.last_name }) || row.email,
         photoUrl: row.photo_url,
         verificationType: row.verification_type as AdminKycVerificationType,
         reason: describeDecisionWarnings(row.raw_decision),
@@ -125,7 +127,7 @@ export function createKycReviewService(db: PrismaClient, diditClient: DiditClien
       return {
         sessionId: row.externalSessionId,
         userId: row.userId,
-        fullName: fullName(row.user),
+        fullName: fullName(row.user) || row.user.email,
         photoUrl: row.user.photoUrl,
         verificationType: row.verificationType as AdminKycVerificationType,
         reason: describeDecisionWarnings(row.rawDecision),
@@ -135,6 +137,8 @@ export function createKycReviewService(db: PrismaClient, diditClient: DiditClien
         status: row.status,
         resolvedAt: inReview ? null : (row.resolvedAt?.toISOString() ?? null),
         email: row.user.email,
+        firstName: row.user.firstName,
+        lastName: row.user.lastName,
         phone: row.user.phone,
         expirationDate: expirationDateOf(row.rawDecision),
         decidable: inReview && isLatest,

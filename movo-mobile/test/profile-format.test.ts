@@ -104,10 +104,16 @@ describe("profile-format", () => {
       ["   ", ""],
       ["martina zurita", "Martina Zurita"],
       ["MARTINA ZURITA", "Martina Zurita"],
-      ["MaRtInA zUrItA", "Martina Zurita"],
+      ["Julia Del Valle", "Julia Del Valle"],
+      ["Pérez de la Cruz", "Pérez de la Cruz"],
+      ["JULIA DEL VALLE", "Julia del Valle"],
+      ["juan Pérez", "Juan Pérez"],
+      ["MARÍA gonzález", "María González"],
+      ["juan perez de la cruz", "Juan Perez de la Cruz"],
       ["  martina   zurita  ", "Martina Zurita"],
       ["josé maría pérez", "José María Pérez"],
       ["ana-maria lópez", "Ana-Maria López"],
+      ["PÉREZ DE LA CRUZ", "Pérez de la Cruz"],
     ])("capitalizeName(%p) === %p", (input, expected) => {
       expect(capitalizeName(input)).toBe(expected);
     });

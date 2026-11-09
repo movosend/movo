@@ -1403,6 +1403,18 @@ quien escribe es transportista sin una llamada por fila. Aditivo; `svc-admin` to
 la bitácora). KYC cuenta el último intento de cada verificación de una cuenta viva, para que un reintento reemplace al abandonado; `carriers` son las licencias y `senders` las identidades. `blockRequested`:
 quien reportó además bloqueó al reportado. "Vencen hoy" es el día de Argentina. Lo consume `GET /admin/overview` de `svc-admin`.
 
+### Nombre, DNI y fecha de nacimiento desde el documento de Didit (DD-065)
+
+`POST /auth/register` ya no exige nombre, DNI ni dirección: la cuenta nace con `first_name`/`last_name` vacíos (las columnas siguen `NOT NULL`, sin migración) y `fullName()` hace
+`trim`. Los builds anteriores no pueden registrarse (la versión legal nueva da 422 `LEGAL_DOCUMENT_VERSION_MISMATCH`, antes de mirar nada más): `auth.schema.ts` conserva esos campos como opcionales solo para
+que vean ese mensaje y no un 400 de validación; si llegaran a pasar, nombre y DNI se descartan y la dirección se crea como predeterminada solo si viene. Hay una ventana entre el deploy del backend y la build nueva sin registro posible. `kyc.service.ts#extractVerifiedIdentity` lee `decision.id_verifications[0]` (webhook y pull) y `applyTerminalDecision` escribe con
+`UserRepository.setVerifiedIdentity` dentro de la transacción y del gate de idempotencia, solo para identidad aprobada; nombre y apellido salen normalizados (`normalizePersonName`,
+`@movo/shared`), el DNI sin separadores y solo si cumple `^\d{7,8}$`. Sin nombre y apellido legibles la aprobación pasa a `manual_review` con el motivo `NAME_NOT_DETECTED`. Nada de eso entra
+en `raw_decision`. El bloqueo `PROFILE_NAME_LOCKED_BY_KYC` no cambió. Tests: `kyc.push.test.ts`, `kyc.webhook.integration.test.ts`, `kyc.manual-review-reconcile.test.ts`, `auth.register.integration.test.ts`.
+Verificado contra la app sandbox de Didit (09/11/2026): `first_name` trae todos los nombres de pila y `last_name` los apellidos, `date_of_birth` va como `YYYY-MM-DD`, y una aprobación simulada
+sin pasar por el flujo trae `id_verifications: null` (cae en `manual_review`). El workflow live "KYC DNI" ya devuelve esos campos; el número de un pasaporte es alfanumérico y no se guarda como DNI.
+El nombre se guarda apenas Didit lo lee, también en `manual_review`; en revisión no se edita (`PATCH /users/me` 409), no se ve hacia afuera (`displayName` genérico, fuera del buscador de receptores) y al rechazar una identidad que estaba en revisión se borra (`clearVerifiedIdentity`). Revisión manual desde el panel (DD-064): `decideManualReview` aprueba con el nombre que corrigió el admin (`firstName`/`lastName`, los dos o ninguno, solo al aprobar una identidad) o, si no, el que extrajo Didit; nunca el que la cuenta ya tuviera. Sin ninguno, 409 `KYC_REVIEW_IDENTITY_MISSING`, antes de pedirle el cambio a Didit. Si Didit ya tiene la sesión aprobada (cayó en revisión por `NAME_NOT_DETECTED`), se resuelve con el nombre del admin sin pedirle otro cambio. El detalle devuelve `firstName`/`lastName`; la cola, el detalle y el panel de usuarios muestran el email de una cuenta sin nombre.
+Las tildes no se tocan: `normalizePersonName` solo ajusta las mayúsculas. `kyc.identity-extract.test.ts` fija la forma real. Las pruebas de integración no se corrieron en local (sin Postgres ni Redis).
 ### Feedback de TestFlight build 17 — errores de Google visibles en el log
 
 - `google-error.ts` (`readGoogleErrorDetail`): los adapters de Places y Geocoding reciben `app.log` desde la factory y, ante un rechazo, loguean `google_places_error`/`google_geocoding_error` con el status y el mensaje de Google, nunca la URL (Geocoding lleva la key en el query string). El 502 al cliente no cambia.

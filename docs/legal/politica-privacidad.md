@@ -1,7 +1,7 @@
 # Política de Privacidad de MOVO
 
 **Versión**: 0.2 (borrador de trabajo)
-**Última actualización**: 2026-10-21
+**Última actualización**: 2026-11-09
 **Vigencia**: aún no publicada / no vigente
 
 > ## ⚠️ Aviso académico — leer antes de usar este documento
@@ -74,8 +74,8 @@ vive.
 
 | Categoría                            | Datos concretos                                                                                                                                                             | Cuándo se recolecta                                        |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| Identificación                       | Nombre, apellido, DNI (número y fotos del documento)                                                                                                                        | Registro                                                   |
-| Verificación de identidad (KYC)      | Selfie/video de verificación de vida ("liveness"), resultado de validación documental                                                                                       | Registro, antes de operar como Transportista               |
+| Identificación                       | Nombre y apellido, número de documento (DNI) y fecha de nacimiento, **tal como figuran en tu documento y los lee Didit.me**: no los escribís vos. Las fotos del documento las procesa Didit y MOVO no guarda una copia | Verificación de identidad (KYC), una vez aprobada          |
+| Verificación de identidad (KYC)      | Selfie/video de verificación de vida ("liveness"), resultado de validación documental                                                                                       | Después del registro, antes de operar                      |
 | Verificación de licencia de conducir | Foto de la licencia, resultado de validación                                                                                                                                | Alta de perfil de Transportista                            |
 | Contacto                             | Teléfono, email (y verificación por código de un solo uso)                                                                                                                  | Registro y cambios posteriores                             |
 | Cuenta                               | Contraseña, foto de perfil, biografía                                                                                                                                       | Registro y edición de perfil                               |
@@ -116,19 +116,35 @@ Agencia de Acceso a la Información Pública los trata en la práctica con el
 más alto estándar de cuidado, y así los tratamos nosotros también.
 
 - El KYC lo ejecuta **Didit.me**, un proveedor externo especializado, bajo su
-  propia política de privacidad y medidas de seguridad. MOVO recibe de Didit
-  únicamente el **resultado** de la verificación (aprobado/rechazado/en
-  revisión manual) y metadatos asociados (fecha, tipo de verificación) — no
-  almacena una copia propia de las imágenes biométricas más allá de lo que el
-  flujo de verificación requiera de forma transitoria.
+  propia política de privacidad y medidas de seguridad. MOVO recibe de Didit el
+  **resultado** de la verificación (aprobado/rechazado/en revisión manual) y
+  metadatos asociados (fecha, tipo de verificación). Cuando Didit lee tu
+  documento en la verificación de **identidad**, MOVO recibe además y guarda en
+  tu cuenta tres datos que figuran en él: **nombre y apellido, número de
+  documento y fecha de nacimiento**, también si la verificación queda en
+  revisión manual. No los escribís al registrarte: los toma el documento, así
+  el nombre que ven otras personas es el que consta en tu DNI. Un
+  administrador de MOVO puede corregir el nombre si Didit lo leyó mal, al
+  revisar el caso. Si la verificación se rechaza, esos datos se borran de tu
+  cuenta. Mientras está en revisión y una vez aprobada, el nombre no se puede
+  modificar desde la app.
+- MOVO no almacena una copia propia de las imágenes del documento ni de los
+  datos biométricos más allá de lo que el flujo de verificación requiera de
+  forma transitoria. La verificación de la **licencia de conducir** no cambia
+  tu nombre ni tu número de documento: de ella solo guardamos el resultado y
+  la fecha de vencimiento.
 - Tu consentimiento para este tratamiento queda comprendido en la aceptación
   general de esta Política y de los Términos y Condiciones al registrarte
   (checkbox de "Leí y acepto los Términos y la Política de Privacidad" del
-  registro). **Un consentimiento explícito y diferenciado, pedido
+  registro), que es anterior a la verificación. **Un consentimiento explícito y diferenciado, pedido
   puntualmente antes de iniciar el flujo de KYC** (en vez de cubierto por el
   checkbox general de registro), es la implementación deseable dado que se
   trata de un dato sensible — está identificado como trabajo pendiente,
   todavía no implementado en el producto.
+- Si Didit aprueba la verificación pero no puede leer tu nombre y apellido del
+  documento, no la aprobamos automáticamente: pasa a **revisión manual**, y un
+  administrador de MOVO completa el nombre mirando el documento antes de
+  aprobarla.
 - Si tu verificación es rechazada o expira sin completarse, podés reintentarla;
   los intentos previos no exitosos no te habilitan a operar como Transportista
   y son reemplazados por el intento vigente.
@@ -248,9 +264,12 @@ De acuerdo a los Arts. 14 a 20 de la Ley 25.326, tenés derecho a:
 **Cómo ejercerlos**:
 
 - La mayoría de estos derechos ya están disponibles vos mismo/a desde la app,
-  sin necesidad de escribirnos: editar tu perfil (nombre, foto, bio, teléfono,
-  email — Perfil → Editar perfil) y dar de baja tu cuenta (Perfil → Cuenta y
-  seguridad → Eliminar cuenta).
+  sin necesidad de escribirnos: editar tu perfil (foto, bio, teléfono, email —
+  Perfil → Editar perfil) y dar de baja tu cuenta (Perfil → Cuenta y
+  seguridad → Eliminar cuenta). El **nombre, el número de documento y la fecha
+  de nacimiento** salen de tu documento y no se editan desde la app: si hay un
+  error, escribinos a [privacy@mail.movosend.app](mailto:privacy@mail.movosend.app)
+  para rectificarlo.
 - Para cualquier otro pedido (acceso completo a tus datos, oposición a un
   tratamiento puntual, dudas), escribinos a
   [privacy@mail.movosend.app](mailto:privacy@mail.movosend.app). Vamos a responder dentro de los

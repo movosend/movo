@@ -15,6 +15,7 @@ import type {
  * `NaN`, no `0`) y lo renderizaría tal cual.
  */
 
+import { normalizePersonName } from "@movo/shared/dist/utils/person-name";
 /**
  * Reseñas recientes de una pestaña del perfil ("Como transportista" / "Como emisor"; la de emisor incluye
  * las recibidas como receptor). Usa las que el backend ya separa por rol; si no las manda (backend
@@ -92,27 +93,27 @@ export function formatRatingDate(createdAt: string): string {
   return RATING_DATE_FORMATTER.format(new Date(createdAt));
 }
 
-/** Nombre propio o compuesto ("Ana-Maria") a Title Case — nunca se confía en cómo
- * quedó guardado (DNI/formulario pueden traerlo en mayúsculas, minúsculas o mezclado),
- * así que arranca de un `toLocaleLowerCase` antes de capitalizar cada palabra. Único
- * punto de esta lógica — todo lugar de la app que muestra un nombre de usuario pasa
- * por acá, en vez de confiar en el casing que vino de la fuente (input del usuario,
- * import de datos, etc.). */
+/** Nombre para mostrar. El backend guarda el nombre ya normalizado (`normalizePersonName`: nombre y apellido por separado, con las
+ * partículas "de", "del", "la" en minúscula), así que sobre un nombre completo se corrige palabra por palabra, solo lo que
+ * está todo en mayúsculas o todo en minúsculas (cuentas anteriores, tipeadas a mano): una palabra ya bien escrita ("Del" de
+ * "Julia Del Valle", "DiCaprio") se respeta, porque en un nombre completo no se sabe dónde empieza el apellido. */
 export function capitalizeName(name: string | null | undefined): string {
-  return (name ?? "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((word) =>
-      word
-        .split("-")
-        .map((part) =>
-          part ? part.charAt(0).toLocaleUpperCase("es-AR") + part.slice(1).toLocaleLowerCase("es-AR") : part,
-        )
-        .join("-"),
-    )
+  const clean = (name ?? "").trim().replace(/\s+/g, " ");
+  if (!clean) return "";
+  return clean
+    .split(" ")
+    .map((word, index) => {
+      const lower = word.toLocaleLowerCase("es-AR");
+      const isUniform = word === lower || word === word.toLocaleUpperCase("es-AR");
+      if (!isUniform) return word;
+      // Una partícula después de la primera palabra va en minúscula ("de la Cruz").
+      if (index > 0 && PARTICLES.has(lower)) return lower;
+      return normalizePersonName(lower);
+    })
     .join(" ");
 }
+
+const PARTICLES: ReadonlySet<string> = new Set(["de", "del", "la", "las", "los", "y", "e", "da", "das", "do", "dos", "di", "van", "von", "der"]);
 
 const GREETING_DATE_FORMATTER = new Intl.DateTimeFormat("es-AR", {
   weekday: "long",

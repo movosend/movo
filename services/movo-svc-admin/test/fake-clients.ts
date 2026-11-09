@@ -369,7 +369,7 @@ export function createFakeUsersClient(
      * caso `decidable` (409 `KYC_REVIEW_STATUS_CHANGED` si no) y `decideError` simula que Didit rechazó el pedido.
      */
     kycReviews?: AdminKycReviewDetail[];
-    kycDecisions?: Array<{ sessionId: string; decision: string; reason: string; actorId: string }>;
+    kycDecisions?: Array<{ sessionId: string; decision: string; reason: string; actorId: string; firstName?: string; lastName?: string }>;
     kycDecideError?: ApiError;
     /** Detalle de Didit por sesión; sin entrada, `KYC_EVIDENCE_NOT_FOUND`. `kycEvidenceError` simula que Didit no responde. */
     kycEvidence?: Record<string, AdminKycEvidence>;
@@ -608,7 +608,14 @@ export function createFakeUsersClient(
       if (!review) throw new ApiError(404, "KYC_SESSION_NOT_FOUND", "No existe esa verificación.");
       if (!review.decidable) throw new ApiError(409, "KYC_REVIEW_STATUS_CHANGED", "La verificación ya no está en revisión manual.");
       if (data.kycDecideError) throw data.kycDecideError;
-      data.kycDecisions?.push({ sessionId, decision: body.decision, reason: body.reason, actorId });
+      data.kycDecisions?.push({
+        sessionId,
+        decision: body.decision,
+        reason: body.reason,
+        actorId,
+        ...(body.firstName !== undefined ? { firstName: body.firstName } : {}),
+        ...(body.lastName !== undefined ? { lastName: body.lastName } : {}),
+      });
       // Como en svc-users: queda resuelto, así un segundo pedido recibe 409.
       review.decidable = false;
       return { sessionId, userId: review.userId, verificationType: review.verificationType, status: body.decision };

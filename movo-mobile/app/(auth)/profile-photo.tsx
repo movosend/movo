@@ -18,7 +18,7 @@ import { useAuthStore } from "../../src/store/auth-store";
 export default function ProfilePhotoScreen() {
   const colors = useThemeColors();
   const registration = useRegistration();
-  const { fields, resetRegistration, kycStatus } = registration;
+  const { resetRegistration, kycStatus } = registration;
   const authStatus = useAuthStore((state) => state.status);
   // Recién habilitado cuando la sesión está activada (ver `activateSession` abajo) —
   // antes de eso el interceptor de `http-client.ts` no tiene token que adjuntar, y
@@ -29,10 +29,8 @@ export default function ProfilePhotoScreen() {
   const [sessionError, setSessionError] = useState(false);
 
   const displayPhotoUrl = photoUrl ?? profile?.photoUrl ?? null;
-  const fullName =
-    `${fields.firstName} ${fields.lastName}`.trim() ||
-    profile?.fullName ||
-    "Usuario";
+  // El nombre lo completa Didit al aprobar el KYC, que es justo antes de este paso.
+  const fullName = profile?.fullName || "Usuario";
 
   // Dedupea llamados concurrentes/repetidos a la misma activación — `null` habilita un
   // reintento (se limpia en `handleFinish` si la activación no logró autenticar).
@@ -76,7 +74,9 @@ export default function ProfilePhotoScreen() {
               accessToken: savedAccessToken,
               refreshToken: savedRefreshToken,
               userId: savedUserId,
-              fullName,
+              // El nombre real ya lo tiene el backend (lo completó Didit al aprobar); acá no hay
+              // forma barata de leerlo, y Inicio prefiere el del perfil sobre este.
+              fullName: "",
               roles: [UserRole.SENDER, UserRole.CARRIER],
               kycStatus: kycStatus ?? KycStatus.APPROVED,
               expiresIn,
@@ -88,7 +88,7 @@ export default function ProfilePhotoScreen() {
 
     activationPromiseRef.current = promise;
     return promise;
-  }, [fullName, kycStatus]);
+  }, [kycStatus]);
 
   useEffect(() => {
     void activateSession();

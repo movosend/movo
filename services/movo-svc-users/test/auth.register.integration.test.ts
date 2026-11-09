@@ -19,21 +19,12 @@ describe("POST /auth/register", () => {
   let app: FastifyInstance;
   let captor: ReturnType<typeof createCaptorSmsProvider>;
 
+  // Registro simplificado: sin nombre, DNI ni dirección. Nombre y DNI los completa Didit al
+  // aprobar el KYC de identidad; la dirección se carga después desde la libreta.
   const basePayload = {
-    fullName: "Juan Perez",
     email: "juan.perez@example.com",
     phone: "3511234567",
     password: "Password1",
-    dni: "30123456",
-    address: {
-      street: "Av. Colón",
-      number: "1234",
-      city: "Córdoba",
-      province: "Córdoba",
-      zip: "5000",
-      lat: -31.4201,
-      long: -64.1888,
-    },
     termsAccepted: true,
     termsVersion: LEGAL_DOCUMENT_VERSIONS.terms,
     privacyAccepted: true,
@@ -123,7 +114,8 @@ describe("POST /auth/register", () => {
       refreshToken: expect.any(String),
       expiresIn: 3600,
       kycStatus: "not_started",
-      fullName: "Juan Perez",
+      // Hasta que Didit apruebe el KYC de identidad la cuenta no tiene nombre.
+      fullName: "",
       roles: ["sender", "carrier"],
     });
     expect(response.body).not.toContain(basePayload.password);
@@ -132,8 +124,8 @@ describe("POST /auth/register", () => {
     expect(userRow).toMatchObject({
       email: "juan.perez@example.com",
       phone: "+5493511234567",
-      firstName: "Juan",
-      lastName: "Perez",
+      firstName: "",
+      lastName: "",
       kycStatusIdentity: "not_started",
       status: "active",
       phoneVerified: true,
@@ -150,42 +142,37 @@ describe("POST /auth/register", () => {
     expect(roles.map((r) => r.role)).toEqual(["sender", "carrier"]);
   });
 
-  it("persiste el dni y la primera dirección del usuario (MOVO-73, tabla users.address del DER)", async () => {
+  it("no pide DNI ni dirección: la cuenta nace sin DNI, sin dirección y sin nombre", async () => {
     const response = await register();
-    const { userId } = JSON.parse(response.body) as { userId: string };
 
+    expect(response.statusCode).toBe(201);
+    const { userId } = JSON.parse(response.body) as { userId: string };
     const userRow = await app.db.user.findUnique({ where: { id: userId } });
-    expect(userRow?.dni).toBe(basePayload.dni);
+    expect(userRow).toMatchObject({ dni: null, birthdate: null, firstName: "", lastName: "" });
+    expect(await app.db.address.count({ where: { userId } })).toBe(0);
+  });
+
+  it("el esquema todavía acepta los campos de un build anterior (nombre, DNI y dirección): nombre y DNI se descartan y la dirección se crea", async () => {
+    const legacyAddress = {
+      street: "Av. Colón",
+      number: "1234",
+      city: "Córdoba",
+      province: "Córdoba",
+      zip: "5000",
+      lat: -31.4201,
+      long: -64.1888,
+    };
+    const response = await register({ firstName: "Juan", lastName: "Perez", dni: "30123456", address: legacyAddress });
+
+    expect(response.statusCode).toBe(201);
+    const { userId } = JSON.parse(response.body) as { userId: string };
+    const userRow = await app.db.user.findUnique({ where: { id: userId } });
+    // El nombre legal y el DNI salen del documento (Didit), no de lo tipeado.
+    expect(userRow).toMatchObject({ dni: null, firstName: "", lastName: "" });
 
     const addresses = await app.db.address.findMany({ where: { userId } });
     expect(addresses).toHaveLength(1);
-    expect(addresses[0]).toMatchObject({
-      label: null,
-      isDefault: true,
-      street: basePayload.address.street,
-      streetNumber: basePayload.address.number,
-      floorApartment: null,
-      city: basePayload.address.city,
-      province: basePayload.address.province,
-      postalCode: basePayload.address.zip,
-      country: "AR",
-    });
-    expect(Number(addresses[0]?.lat)).toBeCloseTo(basePayload.address.lat);
-    expect(Number(addresses[0]?.long)).toBeCloseTo(basePayload.address.long);
-  });
-
-  it("rechaza el registro sin dni/address con 400 VALIDATION_FAILED", async () => {
-    const phoneVerificationToken = await getPhoneVerificationToken(basePayload.phone, "+5493511234567");
-    const { dni, address, ...payloadWithoutDniAddress } = basePayload;
-
-    const response = await app.inject({
-      method: "POST",
-      url: "/auth/register",
-      payload: { ...payloadWithoutDniAddress, phoneVerificationToken },
-    });
-
-    expect(response.statusCode).toBe(400);
-    expect(JSON.parse(response.body).error.code).toBe("VALIDATION_FAILED");
+    expect(addresses[0]).toMatchObject({ isDefault: true, street: "Av. Colón", streetNumber: "1234", country: "AR" });
   });
 
   it("rechaza el registro sin phoneVerificationToken con 400 VALIDATION_FAILED", async () => {
@@ -344,48 +331,40 @@ describe("POST /auth/register", () => {
     }
   });
 
-  describe("MOVO-340: nombre y apellido por separado", () => {
-    const withoutFullName = () => {
-      const rest: Partial<typeof basePayload> = { ...basePayload };
-      delete rest.fullName;
-      return rest;
-    };
-
+  describe("nombre, apellido y fullName (legado)", () => {
     async function registerWithNames(names: Record<string, unknown>) {
-      const payload = { ...withoutFullName(), ...names };
+      const payload = { ...basePayload, ...names };
       const phoneVerificationToken = await getPhoneVerificationToken(payload.phone, normalizeForTest(payload.phone));
       return app.inject({ method: "POST", url: "/auth/register", payload: { ...payload, phoneVerificationToken } });
     }
 
-    it("guarda un nombre y un apellido compuestos tal como se cargaron", async () => {
+    it("descarta el nombre y el apellido que manda un build viejo", async () => {
       const response = await registerWithNames({ firstName: "Juan  Cruz", lastName: "Bordino Blanche" });
 
       expect(response.statusCode).toBe(201);
       const body = JSON.parse(response.body) as { userId: string; fullName: string };
-      expect(body.fullName).toBe("Juan Cruz Bordino Blanche");
+      expect(body.fullName).toBe("");
       const row = await app.db.user.findUnique({ where: { id: body.userId } });
-      expect(row).toMatchObject({ firstName: "Juan Cruz", lastName: "Bordino Blanche" });
+      expect(row).toMatchObject({ firstName: "", lastName: "" });
     });
 
-    it("un cliente viejo con fullName se sigue registrando (corte en el primer espacio)", async () => {
+    it("un cliente viejo con fullName se sigue registrando, también sin guardar el nombre", async () => {
       const response = await register({ fullName: "Juan Cruz Bordino" });
 
       expect(response.statusCode).toBe(201);
       const { userId } = JSON.parse(response.body) as { userId: string };
       const row = await app.db.user.findUnique({ where: { id: userId } });
-      expect(row).toMatchObject({ firstName: "Juan", lastName: "Cruz Bordino" });
+      expect(row).toMatchObject({ firstName: "", lastName: "" });
     });
 
     it.each([
-      [{}],
-      [{ firstName: "Juan Cruz" }],
       [{ firstName: "   ", lastName: "Bordino" }],
       [{ firstName: "a".repeat(81), lastName: "Bordino" }],
-    ])("rechaza %j con 400 VALIDATION_FAILED", async (names) => {
+    ])("sigue rechazando un nombre mal formado %j con 400 VALIDATION_FAILED", async (names) => {
       const response = await app.inject({
         method: "POST",
         url: "/auth/register",
-        payload: { ...withoutFullName(), ...names, phoneVerificationToken: "irrelevante" },
+        payload: { ...basePayload, ...names, phoneVerificationToken: "irrelevante" },
       });
 
       expect(response.statusCode).toBe(400);

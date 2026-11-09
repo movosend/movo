@@ -6,6 +6,9 @@ import {
   parseUserRole,
   parseKycStatus,
   parseAccountStatus,
+  displayName,
+  fullName,
+  UNNAMED_USER_DISPLAY_NAME,
   InvalidEnumValueError,
   UserRow,
 } from "../src/models/user";
@@ -156,5 +159,18 @@ describe("toPublicUser", () => {
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     });
+  });
+});
+
+describe("fullName y displayName (cuenta sin el nombre del documento)", () => {
+  it("fullName une nombre y apellido, y una cuenta sin nombre es una cadena vacía, no un espacio", () => {
+    expect(fullName({ firstName: "Julia María", lastName: "Pérez Gómez" })).toBe("Julia María Pérez Gómez");
+    expect(fullName({ firstName: "", lastName: "" })).toBe("");
+  });
+
+  it("displayName, lo que ven otras personas, usa un texto genérico si no hay nombre", () => {
+    expect(displayName({ firstName: "Julia", lastName: "Pérez" })).toBe("Julia Pérez");
+    expect(displayName({ firstName: "", lastName: "" })).toBe(UNNAMED_USER_DISPLAY_NAME);
+    expect(UNNAMED_USER_DISPLAY_NAME).toBe("Usuario de Movo");
   });
 });

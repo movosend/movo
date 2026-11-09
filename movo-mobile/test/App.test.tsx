@@ -30,7 +30,6 @@ jest.mock("../src/api/auth-client", () => ({
     sendOtp: jest.fn(),
     verifyOtp: jest.fn(),
     resendOtp: jest.fn(),
-    geocodeAddress: jest.fn(),
     createKycSession: jest.fn(),
     getKycStatus: jest.fn(),
   },

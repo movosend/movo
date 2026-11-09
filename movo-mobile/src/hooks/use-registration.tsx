@@ -13,66 +13,24 @@ import {
 } from "react";
 import { authClient } from "../api/auth-client";
 import { friendlyErrorMessage } from "../lib/error-messages";
-import { formatDni, isDniValid } from "../lib/dni";
 import { isPasswordValid } from "../lib/password-policy";
 import { SECURE_STORE_KEYS, deletePendingRegistrationKeys, secureStore } from "../lib/secure-store";
 import { useAuthStore } from "../store/auth-store";
 
-export const PROVINCES = [
-  "Buenos Aires",
-  "CABA",
-  "Catamarca",
-  "Chaco",
-  "Chubut",
-  "Córdoba",
-  "Corrientes",
-  "Entre Ríos",
-  "Formosa",
-  "Jujuy",
-  "La Pampa",
-  "La Rioja",
-  "Mendoza",
-  "Misiones",
-  "Neuquén",
-  "Río Negro",
-  "Salta",
-  "San Juan",
-  "San Luis",
-  "Santa Cruz",
-  "Santa Fe",
-  "Santiago del Estero",
-  "Tierra del Fuego",
-  "Tucumán",
-];
-
+/**
+ * El registro pide solo lo que no puede darnos el documento: email, teléfono y contraseña.
+ * El nombre legal y el DNI los completa Didit al aprobar la verificación de identidad.
+ */
 export interface RegistrationFields {
-  firstName: string;
-  lastName: string;
   email: string;
   phone: string;
-  dni: string;
-  street: string;
-  number: string;
-  floor: string;
-  city: string;
-  province: string;
-  zip: string;
   password: string;
   passwordConfirm: string;
 }
 
 const EMPTY_FIELDS: RegistrationFields = {
-  firstName: "",
-  lastName: "",
   email: "",
   phone: "",
-  dni: "",
-  street: "",
-  number: "",
-  floor: "",
-  city: "",
-  province: "",
-  zip: "",
   password: "",
   passwordConfirm: "",
 };
@@ -123,44 +81,14 @@ export function toE164Phone(localPhone: string): string {
 export { isPasswordValid };
 
 
-/** Re-export de `src/lib/dni.ts` (extraído ahí en MOVO-101 para reusarlo en el alta de tarjeta). */
-export { formatDni, isDniValid };
-
-export function isZipValid(v: string): boolean {
-  return /^\d{4}$/.test(v.trim());
-}
-
-export function formatZip(v: string): string {
-  // El autocompletado de direcciones puede entregar el CPA argentino
-  // completo (ej: "X5000ABC") en vez del CP numérico de 4 dígitos que
-  // usamos acá — nos quedamos solo con los dígitos.
-  return v.replace(/\D/g, "").slice(0, 4);
-}
-
 export function getFieldError(name: FieldName, fields: RegistrationFields): string {
   switch (name) {
-    case "firstName":
-      return fields.firstName.trim() ? "" : "Ingresá tu nombre";
-    case "lastName":
-      return fields.lastName.trim() ? "" : "Ingresá tu apellido";
     case "email":
       if (!fields.email.trim()) return "Ingresá tu email";
       return isEmailValid(fields.email) ? "" : "Ingresá un email válido";
     case "phone":
       if (!fields.phone.trim()) return "Ingresá tu teléfono";
       return isPhoneValid(fields.phone) ? "" : "Ingresá un teléfono válido";
-    case "dni":
-      return isDniValid(fields.dni) ? "" : "Ingresá un DNI válido (7 u 8 dígitos)";
-    case "street":
-      return fields.street.trim() ? "" : "Ingresá tu calle";
-    case "number":
-      return fields.number.trim() ? "" : "Ingresá el número";
-    case "city":
-      return fields.city.trim() ? "" : "Ingresá tu ciudad";
-    case "province":
-      return fields.province ? "" : "Elegí una provincia";
-    case "zip":
-      return isZipValid(fields.zip) ? "" : "Código postal de 4 dígitos";
     case "password":
       return isPasswordValid(fields.password)
         ? ""
@@ -172,26 +100,10 @@ export function getFieldError(name: FieldName, fields: RegistrationFields): stri
   }
 }
 
-export function isStepValid(step: 0 | 1 | 2 | 3, fields: RegistrationFields): boolean {
+/** Paso 0: email y teléfono. Paso 1: contraseña y su repetición. */
+export function isStepValid(step: 0 | 1, fields: RegistrationFields): boolean {
   if (step === 0) {
-    return (
-      !getFieldError("firstName", fields) &&
-      !getFieldError("lastName", fields) &&
-      !getFieldError("email", fields) &&
-      !getFieldError("phone", fields)
-    );
-  }
-  if (step === 1) {
-    return !getFieldError("dni", fields);
-  }
-  if (step === 2) {
-    return (
-      !getFieldError("street", fields) &&
-      !getFieldError("number", fields) &&
-      !getFieldError("city", fields) &&
-      !getFieldError("province", fields) &&
-      !getFieldError("zip", fields)
-    );
+    return !getFieldError("email", fields) && !getFieldError("phone", fields);
   }
   return !getFieldError("password", fields) && !getFieldError("passwordConfirm", fields);
 }
@@ -211,11 +123,6 @@ interface RegistrationContextValue {
    * saltear el paso de OTP en `goNext`/`goBack` sin volver a pedir un código. */
   phoneVerificationToken: string | null;
 
-  /** Pin del paso de mapa (MOVO-73) — null hasta que `geocodeAddress` lo centra por
-   * primera vez o el usuario lo arrastra vía `confirmLocation`. */
-  latitude: number | null;
-  longitude: number | null;
-
   loading: boolean;
   errorBanner: string | null;
   clearErrorBanner: () => void;
@@ -233,11 +140,6 @@ interface RegistrationContextValue {
   sendOtp: () => Promise<{ ok: boolean; cooldownSeconds: number }>;
   verifyPhoneOtp: (code: string) => Promise<{ ok: boolean }>;
   resendOtp: () => Promise<{ ok: boolean; cooldownSeconds: number }>;
-  /** Geocodifica la dirección cargada en `fields` para centrar el pin inicial del
-   * paso de mapa. */
-  geocodeAddress: () => Promise<{ ok: boolean }>;
-  /** Guarda el lat/long final que el usuario confirmó (después de arrastrar el pin). */
-  confirmLocation: (lat: number, long: number) => void;
   submitRegistration: () => Promise<{ ok: boolean }>;
   createKycSession: () => Promise<{ ok: boolean; sessionToken?: string }>;
   refreshKycStatus: () => Promise<void>;
@@ -269,8 +171,6 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
   // la verificación sigue siendo válida para el teléfono actual del formulario, o si
   // quedó obsoleta porque el usuario volvió atrás y lo cambió.
   const [verifiedPhone, setVerifiedPhone] = useState<string | null>(null);
-  const [latitude, setLatitude] = useState<number | null>(null);
-  const [longitude, setLongitude] = useState<number | null>(null);
   const [acceptedLegal, setAcceptedLegal] = useState(false);
   // Tokens de sesión que emite `register()` (PR #51 de MOVO-72) — necesarios para el
   // header `Authorization` de /kyc/session y /kyc/status, protegidas desde ese mismo
@@ -356,10 +256,6 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
   const clearErrorBanner = useCallback(() => setErrorBanner(null), []);
 
   const submitRegistration = useCallback(async (): Promise<{ ok: boolean }> => {
-    if (latitude === null || longitude === null) {
-      setErrorBanner("Confirmá la ubicación en el mapa antes de continuar.");
-      return { ok: false };
-    }
     // Defensa en profundidad: el botón de `register.tsx` ya queda deshabilitado sin
     // esto tildado, pero `submitRegistration` es parte de la API pública del contexto
     // y no debería poder crear una cuenta sin la aceptación explícita bajo ninguna
@@ -372,22 +268,9 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
     setErrorBanner(null);
     try {
       const response = await authClient.register({
-        firstName: fields.firstName.trim(),
-        lastName: fields.lastName.trim(),
         email: fields.email.trim().toLowerCase(),
         phone: toE164Phone(fields.phone),
         password: fields.password,
-        dni: fields.dni.replace(/\D/g, ""),
-        address: {
-          street: fields.street,
-          number: fields.number,
-          floor: fields.floor || undefined,
-          city: fields.city,
-          province: fields.province,
-          zip: fields.zip,
-          lat: latitude,
-          long: longitude,
-        },
         termsAccepted: true,
         termsVersion: LEGAL_DOCUMENT_VERSIONS.terms,
         privacyAccepted: true,
@@ -425,7 +308,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [fields, phoneVerificationToken, latitude, longitude, acceptedLegal]);
+  }, [fields, phoneVerificationToken, acceptedLegal]);
 
   const sendOtp = useCallback(async (): Promise<{ ok: boolean; cooldownSeconds: number }> => {
     setLoading(true);
@@ -474,36 +357,6 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       return { ok: false, cooldownSeconds: 0 };
     }
   }, [otpId]);
-
-  // Paso de mapa (MOVO-73): geocodifica la dirección ya cargada para centrar el pin
-  // inicial. Público en el backend — se llama antes de crear la cuenta.
-  const geocodeAddress = useCallback(async (): Promise<{ ok: boolean }> => {
-    setLoading(true);
-    setErrorBanner(null);
-    try {
-      const response = await authClient.geocodeAddress({
-        street: fields.street,
-        number: fields.number,
-        floor: fields.floor || undefined,
-        city: fields.city,
-        province: fields.province,
-        zip: fields.zip,
-      });
-      setLatitude(response.lat);
-      setLongitude(response.long);
-      return { ok: true };
-    } catch (err) {
-      setErrorBanner(friendlyErrorMessage(err, "No pudimos ubicar tu dirección en el mapa. Intentá de nuevo."));
-      return { ok: false };
-    } finally {
-      setLoading(false);
-    }
-  }, [fields.street, fields.number, fields.floor, fields.city, fields.province, fields.zip]);
-
-  const confirmLocation = useCallback((lat: number, long: number) => {
-    setLatitude(lat);
-    setLongitude(long);
-  }, []);
 
   const createKycSession = useCallback(async (): Promise<{ ok: boolean; sessionToken?: string }> => {
     const authState = useAuthStore.getState();
@@ -568,8 +421,6 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
     setPhoneVerificationToken(null);
     setPhoneVerifiedAt(null);
     setVerifiedPhone(null);
-    setLatitude(null);
-    setLongitude(null);
     setAccessToken(null);
     setErrorBanner(null);
     setAcceptedLegal(false);
@@ -597,8 +448,6 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       manualReviewReason,
       phoneVerifiedAt,
       phoneVerificationToken,
-      latitude,
-      longitude,
       loading,
       errorBanner,
       clearErrorBanner,
@@ -609,8 +458,6 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       sendOtp,
       verifyPhoneOtp,
       resendOtp,
-      geocodeAddress,
-      confirmLocation,
       submitRegistration,
       createKycSession,
       refreshKycStatus,
@@ -628,8 +475,6 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       manualReviewReason,
       phoneVerifiedAt,
       phoneVerificationToken,
-      latitude,
-      longitude,
       loading,
       errorBanner,
       clearErrorBanner,
@@ -638,8 +483,6 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       sendOtp,
       verifyPhoneOtp,
       resendOtp,
-      geocodeAddress,
-      confirmLocation,
       submitRegistration,
       createKycSession,
       refreshKycStatus,

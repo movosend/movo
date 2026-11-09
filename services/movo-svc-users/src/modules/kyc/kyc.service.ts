@@ -152,6 +152,18 @@ export function extractDecisionWarnings(decision: unknown): DecisionWarning[] {
 }
 
 /**
+ * Primer documento leído de la decisión de Didit (`decision.id_verifications[0]`), o `null` si falta. Mismo shape en el
+ * webhook y en el pull; lo leen `extractDocumentExpirationDate` y `extractVerifiedIdentity`.
+ */
+function firstIdVerification(decision: unknown): Record<string, unknown> | null {
+  if (!decision || typeof decision !== "object") return null;
+  const idVerifications = (decision as Record<string, unknown>)["id_verifications"];
+  if (!Array.isArray(idVerifications) || idVerifications.length === 0) return null;
+  const first = idVerifications[0];
+  return first && typeof first === "object" ? (first as Record<string, unknown>) : null;
+}
+
+/**
  * Fecha de vencimiento impresa en el documento (MOVO-15, `users.drivers_license.
  * expiration_date`) — campo de nivel superior del feature "ID Verification" de Didit
  * (misma categoría que `document_number`/`document_type`, confirmado por el equipo que
@@ -163,19 +175,55 @@ export function extractDecisionWarnings(decision: unknown): DecisionWarning[] {
  * `null` en vez de inventar una fecha.
  */
 function extractDocumentExpirationDate(decision: unknown): string | null {
-  if (!decision || typeof decision !== "object") {
-    return null;
-  }
-  const idVerifications = (decision as Record<string, unknown>)["id_verifications"];
-  if (!Array.isArray(idVerifications) || idVerifications.length === 0) {
-    return null;
-  }
-  const first = idVerifications[0];
-  if (!first || typeof first !== "object") {
-    return null;
-  }
-  const value = (first as Record<string, unknown>)["expiration_date"];
+  const doc = firstIdVerification(decision);
+  const value = doc?.["expiration_date"];
   return typeof value === "string" ? value : null;
+}
+
+/**
+ * Identidad leída del documento por Didit (`decision.id_verifications[0]`): nombre de pila y
+ * apellidos tal como figuran en el documento (la normalización a "Nombre Apellido" la hace
+ * `UserRepository.setVerifiedIdentity`), número de documento y fecha de nacimiento.
+ * `dni` y `birthdate` son `null` si el campo falta o no es válido; el nombre es obligatorio:
+ * sin nombre y apellido la función devuelve `null` y la aprobación pasa a revisión manual.
+ *
+ * Es PII: va directo a las columnas de `users` y nunca a `raw_decision` (AC9, ver
+ * `buildRedactedRawDecision`). Mismo shape en el webhook y en el pull. Nunca tira.
+ */
+export interface VerifiedDocumentIdentity {
+  firstName: string;
+  lastName: string;
+  dni: string | null;
+  birthdate: Date | null;
+}
+
+const DNI_PATTERN = /^\d{7,8}$/;
+
+function readString(source: Record<string, unknown>, key: string): string | null {
+  const value = source[key];
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function extractVerifiedIdentity(decision: unknown): VerifiedDocumentIdentity | null {
+  const doc = firstIdVerification(decision);
+  if (!doc) return null;
+
+  const firstName = readString(doc, "first_name");
+  const lastName = readString(doc, "last_name");
+  if (!firstName || !lastName) return null;
+
+  const documentNumber = readString(doc, "document_number")?.replace(/[.\s-]/g, "") ?? null;
+  const dateOfBirth = readString(doc, "date_of_birth");
+  const birthdate = dateOfBirth ? new Date(`${dateOfBirth}T00:00:00.000Z`) : null;
+
+  return {
+    firstName,
+    lastName,
+    dni: documentNumber && DNI_PATTERN.test(documentNumber) ? documentNumber : null,
+    birthdate: birthdate && !Number.isNaN(birthdate.getTime()) ? birthdate : null,
+  };
 }
 
 /**
@@ -329,26 +377,85 @@ export function createKycService(
   async function applyTerminalDecision(
     externalSessionId: string,
     targetStatus: KycStatus,
-    rawDecision: Record<string, unknown>
+    rawDecision: Record<string, unknown>,
+    identity: VerifiedDocumentIdentity | null
   ): Promise<KycVerification | null> {
-    const fromStatus =
-      targetStatus === KycStatus.MANUAL_REVIEW
-        ? [KycStatus.PENDING]
-        : [KycStatus.PENDING, KycStatus.MANUAL_REVIEW];
-
     return db.$transaction(async (tx) => {
       const txKycVerificationRepository = createKycVerificationRepository(tx);
+
+      // Una identidad aprobada sin nombre legible no se aprueba sola: el nombre de la cuenta sale
+      // del documento, así que sin él se manda a revisión manual (con el motivo a la vista).
+      // Solo aplica a la verificación de identidad; la de licencia no toca el nombre.
+      let effectiveStatus = targetStatus;
+      let effectiveRawDecision = rawDecision;
+      if (targetStatus === KycStatus.APPROVED && !identity) {
+        const attempt = await txKycVerificationRepository.findByExternalSessionId(externalSessionId);
+        if (attempt?.verificationType === "identity") {
+          effectiveStatus = KycStatus.MANUAL_REVIEW;
+          const previous = Array.isArray(rawDecision["warnings"]) ? (rawDecision["warnings"] as unknown[]) : [];
+          effectiveRawDecision = {
+            ...rawDecision,
+            warnings: [
+              ...previous,
+              {
+                feature: "ID_VERIFICATION",
+                risk: "NAME_NOT_DETECTED",
+                description: "No se pudo leer el nombre del documento.",
+              },
+            ],
+          };
+          logger.warn(
+            { externalSessionId, event: "kyc_identity_without_name" },
+            "identidad aprobada por Didit sin nombre legible: pasa a revisión manual"
+          );
+        }
+      }
+
+      const fromStatus =
+        effectiveStatus === KycStatus.MANUAL_REVIEW
+          ? [KycStatus.PENDING]
+          : [KycStatus.PENDING, KycStatus.MANUAL_REVIEW];
+
+      // Si se rechaza una identidad que estaba en revisión, el nombre del documento que se guardó al entrar a revisión se
+      // borra: un documento rechazado (por ejemplo, de otra persona) no deja sus datos en la cuenta.
+      const wasInReview =
+        effectiveStatus === KycStatus.REJECTED
+          ? (await txKycVerificationRepository.findByExternalSessionId(externalSessionId))?.status === KycStatus.MANUAL_REVIEW
+          : false;
+
       const result = await txKycVerificationRepository.resolveByExternalSessionId({
         externalSessionId,
         fromStatus,
-        toStatus: targetStatus,
-        rawDecision,
+        toStatus: effectiveStatus,
+        rawDecision: effectiveRawDecision,
       });
       if (result) {
         const txUserRepository = createUserRepository(tx);
-        await updateUserKycStatus(txUserRepository, result.userId, result.verificationType, targetStatus);
+        await updateUserKycStatus(txUserRepository, result.userId, result.verificationType, effectiveStatus);
 
-        if (result.verificationType === "license" && targetStatus === KycStatus.APPROVED) {
+        if (result.verificationType === "identity" && wasInReview) {
+          await txUserRepository.clearVerifiedIdentity(result.userId);
+        }
+
+        // El nombre se guarda apenas Didit lo lee, también si la verificación queda en revisión manual: así la cuenta ya
+        // lo tiene mientras alguien decide, y aprobar solo lo confirma (o el admin lo corrige). Al rechazar se borra (arriba).
+        if (
+          result.verificationType === "identity" &&
+          identity &&
+          (effectiveStatus === KycStatus.APPROVED || effectiveStatus === KycStatus.MANUAL_REVIEW)
+        ) {
+          // Una sola vez por transición: está dentro del gate de idempotencia de arriba.
+          await txUserRepository.setVerifiedIdentity(result.userId, {
+            firstName: identity.firstName,
+            lastName: identity.lastName,
+            // El documento manda: un número que no es un DNI (o una fecha ilegible) deja el dato en `null` en vez de
+            // conservar el de otro documento (por ejemplo, el que tipeó una cuenta vieja).
+            dni: identity.dni,
+            birthdate: identity.birthdate,
+          });
+        }
+
+        if (result.verificationType === "license" && effectiveStatus === KycStatus.APPROVED) {
           const expirationDateStr =
             typeof (result.rawDecision as { expiration_date?: unknown } | null)?.expiration_date === "string"
               ? ((result.rawDecision as { expiration_date: string }).expiration_date as string)
@@ -432,10 +539,23 @@ export function createKycService(
       return currentStatus;
     }
 
+    const pulledIdentity = extractVerifiedIdentity(decision.decision);
+    if (
+      targetStatus === KycStatus.APPROVED &&
+      currentStatus === KycStatus.MANUAL_REVIEW &&
+      verificationType === "identity" &&
+      !pulledIdentity
+    ) {
+      // Movo lo tiene en revisión justamente porque Didit aprobó sin nombre legible (`NAME_NOT_DETECTED`): volver a aplicar
+      // esa aprobación solo repetiría la bajada a revisión en cada "actualizar estado". Lo resuelve el panel, con el nombre.
+      return currentStatus;
+    }
+
     const resolved = await applyTerminalDecision(
       latest.externalSessionId,
       targetStatus,
-      buildRedactedPulledDecision(decision)
+      buildRedactedPulledDecision(decision),
+      pulledIdentity
     );
 
     if (!resolved) {
@@ -451,14 +571,14 @@ export function createKycService(
         externalSessionId: latest.externalSessionId,
         verificationType,
         previousStatus: currentStatus,
-        newStatus: targetStatus,
+        newStatus: resolved.status,
         event: "kyc_reconciled",
       },
       "kyc status transition (reconciliada por pull, no por webhook)"
     );
 
-    await notifyDecision(resolved, targetStatus);
-    return targetStatus;
+    await notifyDecision(resolved, resolved.status);
+    return resolved.status;
   }
 
   return {
@@ -481,6 +601,8 @@ export function createKycService(
       externalSessionId: string;
       decision: KycStatus.APPROVED | KycStatus.REJECTED;
       reason: string;
+      /** Nombre y apellido corregidos por el admin al aprobar una identidad; pisan los que leyó Didit. */
+      name?: { firstName: string; lastName: string };
     }): Promise<KycVerification> {
       const attempt = await kycVerificationRepository.findByExternalSessionId(input.externalSessionId);
       if (!attempt) {
@@ -493,6 +615,9 @@ export function createKycService(
       if (!latest || latest.id !== attempt.id) {
         throw new ApiError(409, "KYC_REVIEW_SUPERSEDED", "El usuario ya abrió una verificación más reciente.");
       }
+      if (input.name && attempt.verificationType !== "identity") {
+        throw new ApiError(400, "VALIDATION_FAILED", "El nombre solo se corrige en una verificación de identidad.");
+      }
 
       // Antes de pedir el cambio, lo que Didit ya tiene: la sesión pudo resolverse en su consola, o en un pedido anterior
       // que quedó sin confirmar (`KYC_PROVIDER_UNCONFIRMED`). Si ya está resuelta, se aplica esa decisión acá y no se le
@@ -500,8 +625,17 @@ export function createKycService(
       // cambió nada: el `KYC_PROVIDER_ERROR` de esta lectura es un rechazo seguro.
       const current = await diditClient.getSessionDecision(attempt.externalSessionId);
       const already = current ? mapDiditStatusToKycStatus(current.rawStatus) : null;
-      if (current && already !== null && already !== KycStatus.MANUAL_REVIEW) {
-        const reconciled = await applyTerminalDecision(attempt.externalSessionId, already, buildRedactedPulledDecision(current));
+      // Caso aparte: Didit aprobó pero sin nombre legible, y por eso Movo lo tiene en revisión (`NAME_NOT_DETECTED`). Volver a
+      // aplicar esa aprobación solo lo bajaría otra vez a revisión sin resolver nada: lo decide el admin, con el nombre.
+      const approvedWithoutName =
+        already === KycStatus.APPROVED && attempt.verificationType === "identity" && !extractVerifiedIdentity(current?.decision);
+      if (current && already !== null && already !== KycStatus.MANUAL_REVIEW && !approvedWithoutName) {
+        const reconciled = await applyTerminalDecision(
+          attempt.externalSessionId,
+          already,
+          buildRedactedPulledDecision(current),
+          extractVerifiedIdentity(current.decision)
+        );
         if (reconciled) {
           logger.info(
             { externalSessionId: attempt.externalSessionId, newStatus: already, event: "kyc_reconciled_before_decision" },
@@ -515,11 +649,42 @@ export function createKycService(
       }
 
       const approved = input.decision === KycStatus.APPROVED;
-      await diditClient.updateSessionStatus({
-        sessionId: attempt.externalSessionId,
-        newStatus: approved ? "Approved" : "Declined",
-        comment: input.reason,
-      });
+
+      // Aprobar una identidad confirma el nombre, el DNI y la fecha de nacimiento de la cuenta (DD-065). El nombre sale de lo que
+      // corrigió el admin o, si no, de lo que Didit extrajo del documento: nunca de lo que la cuenta tuviera guardado de antes
+      // (podría ser un nombre tipeado por la persona). Sin ninguno no hay con qué completarlo: se corta ANTES de pedirle el
+      // cambio a Didit, así Movo y Didit no quedan en estados distintos, y el admin tiene que escribirlo.
+      let identity: VerifiedDocumentIdentity | null = null;
+      if (approved && attempt.verificationType === "identity") {
+        const extracted = extractVerifiedIdentity(current?.decision);
+        const stored = await userRepository.findById(attempt.userId);
+        const firstName = input.name?.firstName.trim() || extracted?.firstName || "";
+        const lastName = input.name?.lastName.trim() || extracted?.lastName || "";
+        if (!firstName || !lastName) {
+          throw new ApiError(
+            409,
+            "KYC_REVIEW_IDENTITY_MISSING",
+            "Falta el nombre y el apellido: Didit no los leyó del documento. Escribilos para poder aprobar."
+          );
+        }
+        // Sin lectura de Didit, el DNI y la fecha que la cuenta ya tenía (guardados cuando pasó a revisión) se conservan.
+        identity = {
+          firstName,
+          lastName,
+          dni: extracted ? extracted.dni : (stored?.dni ?? null),
+          birthdate: extracted ? extracted.birthdate : (stored?.birthdate ?? null),
+        };
+      }
+
+      // Si Didit ya tiene el estado que se pide (aprobó sin nombre y el admin ahora aprueba con el nombre), no se le pide otro
+      // cambio: aplicar el mismo estado podría rechazarse allá y no cambiaría nada.
+      if (already !== input.decision) {
+        await diditClient.updateSessionStatus({
+          sessionId: attempt.externalSessionId,
+          newStatus: approved ? "Approved" : "Declined",
+          comment: input.reason,
+        });
+      }
 
       // Se conservan los `warnings` y el vencimiento ya redactados; el motivo del admin no se
       // copia acá (vive en la bitácora de svc-admin, y puede mencionar datos de la persona).
@@ -527,11 +692,16 @@ export function createKycService(
         string,
         unknown
       >;
-      const resolved = await applyTerminalDecision(attempt.externalSessionId, input.decision, {
-        ...previous,
-        status: approved ? "Approved" : "Declined",
-        reviewed_by_admin: true,
-      });
+      const resolved = await applyTerminalDecision(
+        attempt.externalSessionId,
+        input.decision,
+        {
+          ...previous,
+          status: approved ? "Approved" : "Declined",
+          reviewed_by_admin: true,
+        },
+        identity
+      );
 
       if (!resolved) {
         // Otra ruta (webhook de Didit o pull) lo resolvió entre la lectura y la escritura.
@@ -655,7 +825,12 @@ export function createKycService(
       // la reconciliación por pull (ver `reconcilePendingAttempt`), a propósito. No
       // hace falta saber el `verificationType` acá: `applyTerminalDecision` lo lee de
       // la fila resuelta y dispatcha solo (MOVO-15).
-      const resolved = await applyTerminalDecision(externalSessionId, targetStatus, rawDecision);
+      const resolved = await applyTerminalDecision(
+        externalSessionId,
+        targetStatus,
+        rawDecision,
+        extractVerifiedIdentity(payload.decision)
+      );
 
       if (!resolved) {
         logger.info({ externalSessionId, rawStatus }, "kyc webhook ignorado: duplicado o sesión desconocida (AC7)");
@@ -670,12 +845,12 @@ export function createKycService(
           userId: resolved.userId,
           verificationType: resolved.verificationType,
           externalSessionId,
-          newStatus: targetStatus,
+          newStatus: resolved.status,
         },
         "kyc status transition"
       );
 
-      await notifyDecision(resolved, targetStatus);
+      await notifyDecision(resolved, resolved.status);
     },
 
     async getStatus(userId: string, verificationType: VerificationType): Promise<KycStatusResult> {

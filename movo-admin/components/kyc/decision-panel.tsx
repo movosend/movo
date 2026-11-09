@@ -5,10 +5,12 @@ import { Check, X } from "lucide-react"
 import {
   ADMIN_KYC_DECISION_REASON_MAX_LENGTH,
   ADMIN_KYC_DECISION_REASON_MIN_LENGTH,
+  ADMIN_KYC_NAME_MAX_LENGTH,
   type AdminKycDecision,
 } from "@movo/shared/src/types/admin-kyc"
 import { decideKyc } from "@/app/kyc/actions"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogBody,
@@ -29,6 +31,9 @@ import { StatusPill } from "@/components/users/ui"
 type Props = {
   sessionId: string
   fullName: string
+  /** Nombre y apellido que la cuenta tiene hoy (los que leyó Didit); vacíos si Didit no los leyó. */
+  firstName?: string
+  lastName?: string
   verificationType: "identity" | "license"
 }
 
@@ -136,6 +141,8 @@ export function DecisionPanel({ decidable, ...props }: Props & { decidable: bool
 function DecisionForm({
   sessionId,
   fullName,
+  firstName: initialFirstName = "",
+  lastName: initialLastName = "",
   verificationType,
   decision,
   onDecided,
@@ -148,15 +155,32 @@ function DecisionForm({
   const approve = decision === "approved"
   const what = KYC_TYPE_LABEL[verificationType].toLowerCase()
   const [reason, setReason] = useState("")
+  const [firstName, setFirstName] = useState(initialFirstName)
+  const [lastName, setLastName] = useState(initialLastName)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
   const [pending, start] = useTransition()
-  const valid = reason.trim().length >= ADMIN_KYC_DECISION_REASON_MIN_LENGTH
+  // El nombre de la cuenta sale del documento: al aprobar una identidad el admin lo confirma o lo corrige.
+  const editsName = approve && verificationType === "identity"
+  const nameMissing = initialFirstName.trim() === "" || initialLastName.trim() === ""
+  const cleanFirst = firstName.trim().replace(/\s+/g, " ")
+  const cleanLast = lastName.trim().replace(/\s+/g, " ")
+  const nameValid = !editsName || (cleanFirst !== "" && cleanLast !== "")
+  const nameChanged =
+    editsName &&
+    (cleanFirst !== initialFirstName.trim() || cleanLast !== initialLastName.trim())
+  const valid =
+    reason.trim().length >= ADMIN_KYC_DECISION_REASON_MIN_LENGTH && nameValid
 
   const submit = () =>
     start(async () => {
       setError(null)
-      const result = await decideKyc(sessionId, decision, reason)
+      const result = nameChanged
+        ? await decideKyc(sessionId, decision, reason, {
+            firstName: cleanFirst,
+            lastName: cleanLast,
+          })
+        : await decideKyc(sessionId, decision, reason)
       if (!result.ok) return setError(result.error)
       setDone(true)
       onDecided(decision)
@@ -213,6 +237,44 @@ function DecisionForm({
                 ]
           }
         />
+        {editsName && (
+          <fieldset className="flex flex-col gap-2" disabled={pending}>
+            <legend className="text-[13px] font-medium">Nombre en la cuenta</legend>
+            <p className="text-xs text-muted-foreground">
+              {nameMissing
+                ? "Didit no pudo leerlo del documento. Escribilo como figura en el DNI."
+                : "Lo leyó Didit del documento. Corregilo si hace falta: después la persona no puede cambiarlo."}
+            </p>
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="kyc-first-name" className="text-xs text-fg2">
+                  Nombre
+                </label>
+                <Input
+                  id="kyc-first-name"
+                  value={firstName}
+                  maxLength={ADMIN_KYC_NAME_MAX_LENGTH}
+                  autoComplete="off"
+                  aria-invalid={cleanFirst === ""}
+                  onChange={(event) => setFirstName(event.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="kyc-last-name" className="text-xs text-fg2">
+                  Apellido
+                </label>
+                <Input
+                  id="kyc-last-name"
+                  value={lastName}
+                  maxLength={ADMIN_KYC_NAME_MAX_LENGTH}
+                  autoComplete="off"
+                  aria-invalid={cleanLast === ""}
+                  onChange={(event) => setLastName(event.target.value)}
+                />
+              </div>
+            </div>
+          </fieldset>
+        )}
         <ReasonField
           id="kyc-reason"
           value={reason}
@@ -234,7 +296,9 @@ function DecisionForm({
         {!valid && !pending && (
           // Por qué el botón está apagado, a la vista y no solo en un tooltip.
           <span className="mr-auto self-center text-xs text-muted-foreground">
-            Escribí el motivo para {approve ? "aprobar" : "rechazar"}
+            {!nameValid
+              ? "Completá el nombre y el apellido para aprobar"
+              : `Escribí el motivo para ${approve ? "aprobar" : "rechazar"}`}
           </span>
         )}
         <Button type="button" variant="outline" onClick={onClose}>

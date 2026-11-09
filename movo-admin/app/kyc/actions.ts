@@ -4,6 +4,7 @@ import { ApiError } from "@movo/shared/src/errors/api-error"
 import {
   ADMIN_KYC_DECISION_REASON_MAX_LENGTH,
   ADMIN_KYC_DECISION_REASON_MIN_LENGTH,
+  ADMIN_KYC_NAME_MAX_LENGTH,
   type AdminKycDecision,
   type AdminKycDecisionResponse,
 } from "@movo/shared/src/types/admin-kyc"
@@ -30,7 +31,8 @@ const invalid = (error: string): ActionResult<never> => ({
 export async function decideKyc(
   sessionId: string,
   decision: AdminKycDecision,
-  reason: string
+  reason: string,
+  name?: { firstName: string; lastName: string }
 ): Promise<ActionResult<AdminKycDecisionResponse>> {
   await assertOrigin()
   if (!SESSION_ID.test(String(sessionId ?? "")))
@@ -45,6 +47,21 @@ export async function decideKyc(
     return invalid(
       `El motivo tiene que tener entre ${ADMIN_KYC_DECISION_REASON_MIN_LENGTH} y ${ADMIN_KYC_DECISION_REASON_MAX_LENGTH} caracteres.`
     )
+  // Nombre y apellido corregidos: solo al aprobar, y los dos con contenido.
+  let cleanName: { firstName: string; lastName: string } | undefined
+  if (name !== undefined) {
+    const firstName = String(name.firstName ?? "").trim().replace(/\s+/g, " ")
+    const lastName = String(name.lastName ?? "").trim().replace(/\s+/g, " ")
+    if (
+      decision !== "approved" ||
+      !firstName ||
+      !lastName ||
+      firstName.length > ADMIN_KYC_NAME_MAX_LENGTH ||
+      lastName.length > ADMIN_KYC_NAME_MAX_LENGTH
+    )
+      return invalid("Revisá el nombre y el apellido e intentá de nuevo.")
+    cleanName = { firstName, lastName }
+  }
   try {
     await requireAdmin(true)
   } catch (error) {
@@ -53,7 +70,11 @@ export async function decideKyc(
     throw error
   }
   try {
-    const data = await decideKycReview(sessionId, { decision, reason: clean })
+    const data = await decideKycReview(sessionId, {
+      decision,
+      reason: clean,
+      ...(cleanName ?? {}),
+    })
     revalidatePath("/kyc")
     revalidatePath(`/kyc/${sessionId}`)
     return { ok: true, data }

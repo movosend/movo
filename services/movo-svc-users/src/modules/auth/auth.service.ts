@@ -31,10 +31,11 @@ const ARGON2ID = 2;
 export const DUMMY_HASH = "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$RkJWb2lMNzJ2ZzBvV0RzTE4xQ3pndw";
 
 export interface RegisterUserInput {
-  /** MOVO-340: el cliente actual manda nombre y apellido por separado. */
+  /** Legado: los builds anteriores al registro simplificado todavía mandan nombre, apellido y DNI.
+   * Se aceptan y se descartan: el nombre legal y el DNI los completa Didit al aprobar el KYC de
+   * identidad (`kyc.service.ts`). */
   firstName?: string;
   lastName?: string;
-  /** Legado (builds anteriores a MOVO-340), ver `registerNames`. */
   fullName?: string;
   email: string;
   phone: string;
@@ -43,10 +44,9 @@ export interface RegisterUserInput {
   // antes de crear la cuenta para setear phoneVerified=true (AC2 de MOVO-72 depende de
   // este flag, que hasta esta US nunca se seteaba).
   phoneVerificationToken: string;
-  // MOVO-73: DNI y primera dirección (con lat/long ya confirmados por el paso de mapa
-  // del wizard) -- ver auth.schema.ts#registerBody.
-  dni: string;
-  address: CreateUserAddressInput;
+  dni?: string;
+  /** Solo la mandan los builds viejos; el registro actual no la pide. */
+  address?: CreateUserAddressInput;
   // MOVO-228: "firma electrónica" — el schema (`auth.schema.ts`) ya exige que los dos
   // `*Accepted` sean literalmente `true`; acá se valida que la versión aceptada sea
   // la vigente (`LEGAL_DOCUMENT_VERSIONS`) antes de tocar la DB.
@@ -116,40 +116,6 @@ export function parseRefreshToken(refreshToken: string): { userId: string; token
  */
 export function hashRefreshSecret(secret: string): string {
   return createHash("sha256").update(secret).digest("hex");
-}
-
-/**
- * Separa `fullName` en nombre/apellido para las columnas `first_name`/
- * `last_name` de la migración de MOVO-66 (que no tiene un único campo
- * `full_name`). El schema de la ruta exige al menos dos palabras, así que
- * `lastName` siempre queda no vacío.
- */
-export function splitFullName(fullName: string): { firstName: string; lastName: string } {
-  const [firstName, ...rest] = fullName.trim().replace(/\s+/g, " ").split(" ");
-  if (!firstName || rest.length === 0) {
-    throw new Error("fullName debe tener al menos nombre y apellido");
-  }
-  return { firstName, lastName: rest.join(" ") };
-}
-
-/**
- * MOVO-340: nombre y apellido a guardar. Con `firstName`/`lastName` se respetan tal cual
- * (solo se colapsan espacios), así un nombre compuesto no se corre al apellido; el
- * `fullName` de los builds viejos se sigue cortando en el primer espacio.
- */
-export function registerNames(input: Pick<RegisterUserInput, "firstName" | "lastName" | "fullName">): {
-  firstName: string;
-  lastName: string;
-} {
-  if (input.firstName !== undefined && input.lastName !== undefined) {
-    return { firstName: collapseSpaces(input.firstName), lastName: collapseSpaces(input.lastName) };
-  }
-  if (input.fullName !== undefined) return splitFullName(input.fullName);
-  throw new Error("Faltan nombre y apellido");
-}
-
-function collapseSpaces(value: string): string {
-  return value.trim().replace(/\s+/g, " ");
 }
 
 /**
@@ -311,7 +277,6 @@ export function createAuthService(
 
       const email = input.email.trim().toLowerCase();
       const phone = normalizePhoneToE164Ar(input.phone);
-      const { firstName, lastName } = registerNames(input);
 
       // Valida y consume el token ANTES de crear el usuario (single-use, AC6 de
       // MOVO-71): si el token es inválido/expirado/ya usado, tira ApiError(401,
@@ -331,17 +296,17 @@ export function createAuthService(
         user = await repository.create({
           email,
           phone,
-          firstName,
-          lastName,
+          // Vacíos hasta que Didit apruebe el KYC de identidad (ver `setVerifiedIdentity`).
+          firstName: "",
+          lastName: "",
           passwordHash,
-          dni: input.dni,
           termsAcceptedAt: new Date(),
           termsVersion: input.termsVersion,
           privacyAcceptedAt: new Date(),
           privacyVersion: input.privacyVersion,
           phoneVerified: true,
           roles: DEFAULT_USER_ROLES,
-          address: input.address,
+          ...(input.address ? { address: input.address } : {}),
         });
       } catch (err) {
         // El token ya se consumió arriba; si el registro no prospera se libera para que
