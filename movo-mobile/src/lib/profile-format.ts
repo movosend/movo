@@ -9,6 +9,8 @@
  * `NaN`, no `0`) y lo renderizaría tal cual.
  */
 
+import { normalizePersonName } from "@movo/shared/dist/utils/person-name";
+
 function isMissing(value: number | null | undefined): boolean {
   return value === null || value === undefined || Number.isNaN(value);
 }
@@ -64,19 +66,7 @@ export function formatRatingDate(createdAt: string): string {
  * por acá, en vez de confiar en el casing que vino de la fuente (input del usuario,
  * import de datos, etc.). */
 export function capitalizeName(name: string | null | undefined): string {
-  return (name ?? "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((word) =>
-      word
-        .split("-")
-        .map((part) =>
-          part ? part.charAt(0).toLocaleUpperCase("es-AR") + part.slice(1).toLocaleLowerCase("es-AR") : part,
-        )
-        .join("-"),
-    )
-    .join(" ");
+  return normalizePersonName(name);
 }
 
 const GREETING_DATE_FORMATTER = new Intl.DateTimeFormat("es-AR", {

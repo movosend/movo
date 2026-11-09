@@ -106,6 +106,7 @@ describe("profile-format", () => {
       ["  martina   zurita  ", "Martina Zurita"],
       ["josé maría pérez", "José María Pérez"],
       ["ana-maria lópez", "Ana-Maria López"],
+      ["PÉREZ DE LA CRUZ", "Pérez de la Cruz"],
     ])("capitalizeName(%p) === %p", (input, expected) => {
       expect(capitalizeName(input)).toBe(expected);
     });

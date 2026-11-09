@@ -297,6 +297,7 @@ export {
   toArgentinaCalendarDateString,
   toArgentinaTimeOfDayString,
 } from "./utils/argentina-date";
+export { normalizePersonName } from "./utils/person-name";
 
 // notification preferences (MOVO-239)
 export {
