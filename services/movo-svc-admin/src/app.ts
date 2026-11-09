@@ -20,6 +20,7 @@ import supportRoutes, { SupportRoutesOptions } from "./modules/support/support.r
 import sanctionsRoutes from "./modules/sanctions/sanctions.routes";
 import overviewRoutes from "./modules/overview/overview.routes";
 import reportsRoutes from "./modules/reports/reports.routes";
+import kycRoutes from "./modules/kyc/kyc.routes";
 
 export type BuildAppOptions = InternalClientsOptions & {
   /** Overrides solo para tests del WebSocket de soporte (MOVO-322): duración máxima y espera del lector. */
@@ -91,6 +92,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(sanctionsRoutes, { prefix: "/admin" });
   app.register(overviewRoutes, { prefix: "/admin" });
   app.register(reportsRoutes, { prefix: "/admin", ...(opts.reportsExportMaxRows ? { exportMaxRows: opts.reportsExportMaxRows } : {}) });
+  app.register(kycRoutes, { prefix: "/admin" });
 
   return app;
 }

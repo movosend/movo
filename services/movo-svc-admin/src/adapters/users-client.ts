@@ -5,6 +5,12 @@ import {
   AdminContactUpdateBody,
   AdminContactUpdateResult,
   AdminKycCard,
+  AdminKycDecision,
+  AdminKycDecisionResponse,
+  AdminKycEvidence,
+  AdminKycReviewDetail,
+  AdminKycReviewPage,
+  AdminKycVerificationType,
   AdminSessionsRevokeResult,
   AdminShipmentPartyCard,
   AdminSummary,
@@ -88,6 +94,30 @@ export interface UsersClient extends InternalClient {
    * comprobó que el usuario existe al leer el historial.
    */
   liftSanction(userId: string, sanctionId: string, reason: string, actorId: string, ctx: RequestContext): Promise<AccountSanction>;
+  // Cola de revisión manual de KYC (`/internal/admin/kyc/reviews`). Solo lista los intentos en `manual_review`.
+  listKycReviews(
+    query: { type?: AdminKycVerificationType | undefined; q: string; page: number; pageSize: number },
+    ctx: RequestContext,
+  ): Promise<AdminKycReviewPage>;
+  /** 404 `KYC_SESSION_NOT_FOUND`. También devuelve un intento ya resuelto, con `decidable: false`. */
+  getKycReview(sessionId: string, ctx: RequestContext): Promise<AdminKycReviewDetail>;
+  /**
+   * Lo que tiene Didit de la sesión (datos del documento, puntuaciones, IP, alertas e imágenes como links temporales). Didit
+   * lo entrega cada vez y Movo no lo guarda. 404 `KYC_SESSION_NOT_FOUND`; 422 `KYC_EVIDENCE_NOT_FOUND` (Didit no conoce la sesión); 502 `KYC_PROVIDER_ERROR`
+   * si Didit no responde.
+   */
+  getKycEvidence(sessionId: string, ctx: RequestContext): Promise<AdminKycEvidence>;
+  /**
+   * Aprueba o rechaza un intento en revisión: `svc-users` se lo pide a Didit y aplica el resultado. 404
+   * `KYC_SESSION_NOT_FOUND`; 409 `KYC_REVIEW_STATUS_CHANGED` / `KYC_REVIEW_SUPERSEDED`; 502 `KYC_PROVIDER_ERROR`
+   * (Didit rechazó el pedido: no se aplicó nada, a diferencia de `USERS_SERVICE_UNAVAILABLE`).
+   */
+  decideKycReview(
+    sessionId: string,
+    body: { decision: AdminKycDecision; reason: string },
+    actorId: string,
+    ctx: RequestContext,
+  ): Promise<AdminKycDecisionResponse>;
   // MOVO-332 (DD-055): segundo factor por acción del cambio de estado de un envío.
   /** `POST /internal/admin/step-up/request`: manda el código al email del admin, atado a (envío, destino). */
   requestStepUp(adminId: string, body: StepUpRequest, ctx: RequestContext): Promise<StepUpChallenge>;
@@ -158,6 +188,33 @@ const isStepUpChallenge = (body: unknown): body is StepUpChallenge =>
   isNumber(body.expiresInSeconds);
 const isStepUpToken = (body: unknown): body is StepUpToken =>
   isRecord(body) && isString(body.stepUpToken) && isNumber(body.expiresInSeconds);
+const isReviewRow = (value: unknown): value is AdminKycReviewPage["items"][number] =>
+  isRecord(value) &&
+  isString(value.sessionId) &&
+  isString(value.userId) &&
+  isString(value.fullName) &&
+  isNullableString(value.photoUrl) &&
+  isString(value.verificationType) &&
+  isNullableString(value.reason) &&
+  isString(value.requestedAt);
+const isReviewPage = (body: unknown): body is AdminKycReviewPage =>
+  isRecord(body) && isArrayOf(body.items, isReviewRow) && isNumber(body.page) && isNumber(body.pageSize) && isNumber(body.total);
+const isReviewDetail = (body: unknown): body is AdminKycReviewDetail =>
+  isReviewRow(body) &&
+  isString((body as unknown as Record<string, unknown>).email) &&
+  isString((body as unknown as Record<string, unknown>).phone) &&
+  isNullableString((body as unknown as Record<string, unknown>).expirationDate) &&
+  isBoolean((body as unknown as Record<string, unknown>).decidable) &&
+  Array.isArray((body as unknown as Record<string, unknown>).history);
+const isEvidence = (body: unknown): body is AdminKycEvidence =>
+  isRecord(body) &&
+  isString(body.fetchedAt) &&
+  isString(body.imagesExpireAt) &&
+  isRecord(body.images) &&
+  Array.isArray(body.warnings) &&
+  Array.isArray(body.reviews);
+const isDecisionResponse = (body: unknown): body is AdminKycDecisionResponse =>
+  isRecord(body) && isString(body.sessionId) && isString(body.userId) && isString(body.verificationType) && isString(body.status);
 const isRevokeResult = (body: unknown): body is AdminSessionsRevokeResult => isRecord(body) && isNumber(body.revokedRefreshTokens);
 
 /** Además del resultado público, qué falló después del cambio ya aplicado (solo para la bitácora). */
@@ -420,6 +477,51 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
       return orNotFound(result, "USER_NOT_FOUND", USER_NOT_FOUND_MESSAGE);
     },
 
+    async listKycReviews(query, ctx) {
+      const params = new URLSearchParams({ q: query.q, page: String(query.page), pageSize: String(query.pageSize) });
+      if (query.type) params.set("type", query.type);
+      const result = await client.request(`${KYC_REVIEWS_PATH}?${params.toString()}`, ctx, {
+        isValid: isReviewPage,
+        notFoundCodes: [],
+      });
+      // Sin `notFoundCodes`, un 404 ya se informó como "no tiene este endpoint": acá no hay objetivo que pueda no existir.
+      if (result === null) throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "El servicio de usuarios devolvió una respuesta inválida.");
+      return result;
+    },
+
+    async getKycReview(sessionId, ctx) {
+      const result = await client.request(`${KYC_REVIEWS_PATH}/${encodeURIComponent(sessionId)}`, ctx, {
+        isValid: isReviewDetail,
+        notFoundCodes: ["KYC_SESSION_NOT_FOUND"],
+      });
+      return orKycSessionNotFound(result);
+    },
+
+    async getKycEvidence(sessionId, ctx) {
+      const result = await client.request(`${KYC_REVIEWS_PATH}/${encodeURIComponent(sessionId)}/evidence`, ctx, {
+        isValid: isEvidence,
+        notFoundCodes: ["KYC_SESSION_NOT_FOUND"],
+        // Didit tarda más que una lectura interna: se le pide la decisión completa antes de responder.
+        timeoutMs: 15000,
+        relayServerErrorCodes: ["KYC_PROVIDER_ERROR"],
+      });
+      return orKycSessionNotFound(result);
+    },
+
+    async decideKycReview(sessionId, body, actorId, ctx) {
+      const result = await client.request(`${KYC_REVIEWS_PATH}/${encodeURIComponent(sessionId)}/decision`, ctx, {
+        method: "POST",
+        body,
+        actorId,
+        // Didit tarda más que una lectura interna: el pedido le pega a su API antes de responder.
+        timeoutMs: 15000,
+        isValid: isDecisionResponse,
+        notFoundCodes: ["KYC_SESSION_NOT_FOUND"],
+        relayServerErrorCodes: ["KYC_PROVIDER_ERROR"],
+      });
+      return orKycSessionNotFound(result);
+    },
+
     async liftSanction(userId, sanctionId, reason, actorId, ctx) {
       const result = await client.request(`${sanctionsPath(userId)}/${encodeURIComponent(sanctionId)}/lift`, ctx, {
         method: "POST",
@@ -440,5 +542,10 @@ export function createUsersClient(config: { USERS_SERVICE_URL: string }): UsersC
 }
 
 const USER_NOT_FOUND_MESSAGE = "Usuario no encontrado.";
+const KYC_REVIEWS_PATH = "/internal/admin/kyc/reviews";
+function orKycSessionNotFound<T>(result: T | null): T {
+  if (result === null) throw new ApiError(404, "KYC_SESSION_NOT_FOUND", "No existe esa verificación.");
+  return result;
+}
 const userPath = (userId: string) => `/internal/admin/users/${encodeURIComponent(userId)}`;
 const sanctionsPath = (userId: string) => `/internal/users/${encodeURIComponent(userId)}/sanctions`;
