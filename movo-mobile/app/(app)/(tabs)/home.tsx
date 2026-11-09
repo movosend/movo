@@ -72,8 +72,9 @@ export default function AuthenticatedHomeScreen() {
   const colors = useThemeColors();
   const sendingQuery = useSendingShipments();
   const sending = sendingQuery.data;
-  // Un envío con la ventana vencida se ve el día del retiro y el siguiente; después, en "Mis envíos".
-  const visibleSending = useMemo(() => (sending ?? []).filter((s) => !isStaleActiveShipment(s)), [sending]);
+  // Un envío con la ventana vencida se ve el día del retiro y el siguiente; después, en "Mis envíos". El que espera el
+  // pago del emisor se queda: le pide una acción.
+  const visibleSending = useMemo(() => (sending ?? []).filter((s) => !isStaleActiveShipment(s, undefined, "sender")), [sending]);
   const receivingQuery = useReceivingShipments();
   const receiving = receivingQuery.data;
   const visibleReceiving = useMemo(() => (receiving ?? []).filter((s) => !isStaleActiveShipment(s)), [receiving]);
