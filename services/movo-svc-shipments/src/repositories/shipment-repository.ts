@@ -22,6 +22,7 @@ import {
 } from "./dispute-repository";
 import { transition as offerTransition } from "../domain/offer-state-machine";
 import { toArgentinaCalendarDate } from "../domain/pickup-window";
+import { expireEmptyActiveTrips } from "./trip-repository";
 import {
   Shipment,
   ShipmentEvent,
@@ -1374,6 +1375,21 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           },
         });
 
+        // El envío suelta su viaje cuando se cancela o cuando el transportista se baja: se anotan
+        // los viajes de la oferta aceptada antes de cerrarla, para expirar al final los que se
+        // queden `active` sin paquetes (ver `expireEmptyActiveTrips`).
+        const releasedTripIds =
+          to === ShipmentStatus.CANCELLED || revertsAssignment
+            ? (
+                await tx.offer.findMany({
+                  where: { shipmentId: id, status: OfferStatus.ACCEPTED },
+                  select: { tripId: true },
+                })
+              )
+                .map((offer) => offer.tripId)
+                .filter((tripId): tripId is string => tripId !== null)
+            : [];
+
         // MOVO-334: el expediente nace con la transición. El índice único parcial
         // (`disputes_shipment_open_key`) es la red de seguridad de "una abierta por envío".
         if (options.dispute) {
@@ -1480,6 +1496,12 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             },
             data: { status: OfferStatus.SHIPMENT_CANCELLED },
           });
+        }
+
+        // Feedback de TestFlight (build 17): sin esto el viaje seguía "en curso" con 0 paquetes
+        // hasta la próxima corrida del barrido (`trip-expiry-sweep.ts`, que queda como red).
+        if (releasedTripIds.length > 0) {
+          await expireEmptyActiveTrips(tx, releasedTripIds);
         }
 
         // `updateMany` no devuelve la fila actualizada (a diferencia de
