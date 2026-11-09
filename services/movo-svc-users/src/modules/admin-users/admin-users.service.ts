@@ -121,9 +121,10 @@ interface SearchRow {
 
 /**
  * Condición de cada criterio del buscador y el `matchedBy` resultante. Sin `q` ninguno aplica y
- * se listan todas las cuentas (incluidas las dadas de baja).
+ * se listan todas las cuentas (incluidas las dadas de baja). Espera la tabla de usuarios con el alias `u`; también la
+ * usa la cola de KYC del panel.
  */
-function buildMatchExpression(rawQuery: string): Prisma.Sql | null {
+export function buildMatchExpression(rawQuery: string): Prisma.Sql | null {
   const query = rawQuery.trim().replace(/\s+/g, " ");
   if (!query) return null;
 

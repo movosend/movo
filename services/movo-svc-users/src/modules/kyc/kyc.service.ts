@@ -469,6 +469,8 @@ export function createKycService(
      * Didit: si llega después, la fila ya está resuelta, `applyTerminalDecision` devuelve
      * `null` y no hay un segundo push.
      *
+     * Dos admins a la vez no llegan acá: la ruta toma un lock por sesión antes (ver `kyc-review-internal.routes.ts`).
+     *
      * Solo se puede decidir el último intento del usuario: `createSession` deja vivo un
      * `manual_review` viejo si el usuario abre una sesión nueva, y decidirlo pisaría el
      * estado de la sesión más reciente. Si Didit responde 2xx pero la escritura local falla,
@@ -490,6 +492,26 @@ export function createKycService(
       const latest = await kycVerificationRepository.findLatestByUserId(attempt.userId, attempt.verificationType);
       if (!latest || latest.id !== attempt.id) {
         throw new ApiError(409, "KYC_REVIEW_SUPERSEDED", "El usuario ya abrió una verificación más reciente.");
+      }
+
+      // Antes de pedir el cambio, lo que Didit ya tiene: la sesión pudo resolverse en su consola, o en un pedido anterior
+      // que quedó sin confirmar (`KYC_PROVIDER_UNCONFIRMED`). Si ya está resuelta, se aplica esa decisión acá y no se le
+      // pide otra a Didit (pisarla dejaría a Movo y a Didit en estados distintos). Si Didit no responde, todavía no se
+      // cambió nada: el `KYC_PROVIDER_ERROR` de esta lectura es un rechazo seguro.
+      const current = await diditClient.getSessionDecision(attempt.externalSessionId);
+      const already = current ? mapDiditStatusToKycStatus(current.rawStatus) : null;
+      if (current && already !== null && already !== KycStatus.MANUAL_REVIEW) {
+        const reconciled = await applyTerminalDecision(attempt.externalSessionId, already, buildRedactedPulledDecision(current));
+        if (reconciled) {
+          logger.info(
+            { externalSessionId: attempt.externalSessionId, newStatus: already, event: "kyc_reconciled_before_decision" },
+            "kyc status transition (Didit ya la tenía resuelta al decidir desde el panel)"
+          );
+          await notifyDecision(reconciled, already);
+        }
+        throw new ApiError(409, "KYC_REVIEW_STATUS_CHANGED", "Didit ya tenía resuelta esta verificación: se aplicó su decisión.", {
+          status: already,
+        });
       }
 
       const approved = input.decision === KycStatus.APPROVED;

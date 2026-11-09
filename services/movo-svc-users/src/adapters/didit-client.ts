@@ -55,9 +55,10 @@ export interface DiditClient {
    * que hace un operador en la consola de Didit, pero disparado desde el panel de admin.
    * Siempre se manda `send_email: false`: el aviso al usuario lo da Movo (push), no Didit.
    *
-   * Tira `ApiError` 404 `KYC_SESSION_NOT_FOUND` si Didit no conoce la sesión, y 502
-   * `KYC_PROVIDER_ERROR` ante cualquier otro fallo (red, 5xx, credenciales sin permiso de
-   * escritura).
+   * Tira `ApiError` 404 `KYC_SESSION_NOT_FOUND` si Didit no conoce la sesión; 502
+   * `KYC_PROVIDER_ERROR` si Didit rechazó el pedido (4xx: no se aplicó nada); y 502
+   * `KYC_PROVIDER_UNCONFIRMED` si no se sabe (red caída, timeout de 10 s o 5xx): el cambio pudo
+   * haberse aplicado.
    */
   updateSessionStatus(input: UpdateDiditSessionStatusInput): Promise<void>;
 }

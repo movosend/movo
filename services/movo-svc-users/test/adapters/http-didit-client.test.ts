@@ -151,7 +151,16 @@ describe("HTTP Didit Client (adapter concreto, MOVO-72)", () => {
     });
   });
 
-  it("updateSessionStatus() mapea 404 a KYC_SESSION_NOT_FOUND y cualquier otro fallo a 502 KYC_PROVIDER_ERROR", async () => {
+  it("updateSessionStatus() manda un timeout menor a los 15 s de svc-admin", async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    const client = createHttpDiditClient({ baseUrl: "https://verification.didit.me", apiKey: "k", workflowIds: { identity: "w", license: "w2" } });
+
+    await client.updateSessionStatus({ sessionId: "x", newStatus: "Approved" });
+
+    expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("updateSessionStatus(): 404 es KYC_SESSION_NOT_FOUND y un 4xx es un rechazo (KYC_PROVIDER_ERROR, no se aplicó nada)", async () => {
     const client = createHttpDiditClient({ baseUrl: "https://verification.didit.me", apiKey: "k", workflowIds: { identity: "w", license: "w2" } });
 
     fetchMock.mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({}) });
@@ -165,11 +174,25 @@ describe("HTTP Didit Client (adapter concreto, MOVO-72)", () => {
       statusCode: 502,
       code: "KYC_PROVIDER_ERROR",
     });
+  });
+
+  it("updateSessionStatus(): red caída, timeout o 5xx no dicen si se aplicó (KYC_PROVIDER_UNCONFIRMED)", async () => {
+    const client = createHttpDiditClient({ baseUrl: "https://verification.didit.me", apiKey: "k", workflowIds: { identity: "w", license: "w2" } });
 
     fetchMock.mockRejectedValueOnce(new Error("network error"));
-    await expect(client.updateSessionStatus({ sessionId: "x", newStatus: "Declined" })).rejects.toMatchObject({
+    await expect(client.updateSessionStatus({ sessionId: "x", newStatus: "Approved" })).rejects.toMatchObject({
       statusCode: 502,
-      code: "KYC_PROVIDER_ERROR",
+      code: "KYC_PROVIDER_UNCONFIRMED",
+    });
+
+    fetchMock.mockRejectedValueOnce(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+    await expect(client.updateSessionStatus({ sessionId: "x", newStatus: "Approved" })).rejects.toMatchObject({
+      code: "KYC_PROVIDER_UNCONFIRMED",
+    });
+
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({}) });
+    await expect(client.updateSessionStatus({ sessionId: "x", newStatus: "Approved" })).rejects.toMatchObject({
+      code: "KYC_PROVIDER_UNCONFIRMED",
     });
   });
 });

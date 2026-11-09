@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
 import {
   ADMIN_KYC_DECISION_REASON_MAX_LENGTH,
@@ -6,6 +7,7 @@ import {
   ADMIN_KYC_REVIEW_MAX_PAGE_SIZE,
   AdminKycDecisionResponse,
   AdminKycVerificationType,
+  ApiError,
   KycStatus,
 } from "@movo/shared";
 import { createDiditClient, DiditClient } from "../../adapters/didit-client";
@@ -21,6 +23,15 @@ export interface KycReviewInternalRoutesOptions extends FastifyPluginOptions {
   pushProvider?: PushNotificationProvider;
 }
 
+/**
+ * Lock por sesión mientras se decide. Más largo que el timeout del pedido a Didit (10 s) más la escritura local, así no
+ * vence en medio de una decisión.
+ */
+export const KYC_DECISION_LOCK_TTL_MS = 30_000;
+export const kycDecisionLockKey = (sessionId: string) => `kyc:decision-lock:${sessionId}`;
+/** Borra el lock solo si sigue siendo el nuestro (no el de otro pedido que lo tomó después de que venció). */
+const RELEASE_LOCK = `if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end`;
+
 const nullableString = { type: ["string", "null"] } as const;
 const verificationType = { type: "string", enum: ["identity", "license"] } as const;
 
@@ -31,7 +42,13 @@ const errorResponse = {
     error: {
       type: "object",
       required: ["code", "message", "statusCode"],
-      properties: { code: { type: "string" }, message: { type: "string" }, statusCode: { type: "integer" } },
+      properties: {
+        code: { type: "string" },
+        message: { type: "string" },
+        statusCode: { type: "integer" },
+        // Sin declararlo, Fastify recorta `details` (el 409 de una sesión que Didit ya tenía resuelta trae `status`).
+        details: { type: "object", additionalProperties: true },
+      },
     },
     requestId: { type: "string" },
   },
@@ -46,8 +63,9 @@ const rowProperties = {
   verificationType,
   reason: nullableString,
   requestedAt: { type: "string" },
+  inReviewSince: nullableString,
 } as const;
-const rowRequired = ["sessionId", "userId", "fullName", "photoUrl", "verificationType", "reason", "requestedAt"];
+const rowRequired = ["sessionId", "userId", "fullName", "photoUrl", "verificationType", "reason", "requestedAt", "inReviewSince"];
 
 const sessionParam = {
   type: "object",
@@ -158,9 +176,11 @@ const schemas = {
     response: {
       200: {
         type: "object",
-        required: [...rowRequired, "email", "phone", "expirationDate", "decidable", "history"],
+        required: [...rowRequired, "status", "resolvedAt", "email", "phone", "expirationDate", "decidable", "history"],
         properties: {
           ...rowProperties,
+          status: { type: "string" },
+          resolvedAt: nullableString,
           email: { type: "string" },
           phone: { type: "string" },
           expirationDate: nullableString,
@@ -261,11 +281,37 @@ export default async function kycReviewInternalRoutes(app: FastifyInstance, opts
     async (request: FastifyRequest): Promise<AdminKycDecisionResponse> => {
       const adminId = requireUserIdFromHeader(request);
       const { decision, reason } = request.body as { decision: "approved" | "rejected"; reason: string };
-      const resolved = await kycService.decideManualReview({
-        externalSessionId: sessionIdOf(request),
-        decision: decision === "approved" ? KycStatus.APPROVED : KycStatus.REJECTED,
-        reason,
-      });
+      const sessionId = sessionIdOf(request);
+
+      // Dos admins decidiendo a la vez el mismo caso pasarían los dos el chequeo de `manual_review` y los dos le pedirían el
+      // cambio a Didit (gana la última llamada allá y la primera escritura acá). Con el lock, el segundo recibe 409 sin
+      // llamar a Didit.
+      const lockKey = kycDecisionLockKey(sessionId);
+      const token = randomUUID();
+      const acquired = await app.redis.set(lockKey, token, "PX", KYC_DECISION_LOCK_TTL_MS, "NX");
+      if (acquired !== "OK") {
+        throw new ApiError(409, "KYC_REVIEW_IN_PROGRESS", "Otro admin está decidiendo este caso en este momento.");
+      }
+      let keepLock = false;
+      let resolved;
+      try {
+        resolved = await kycService.decideManualReview({
+          externalSessionId: sessionId,
+          decision: decision === "approved" ? KycStatus.APPROVED : KycStatus.REJECTED,
+          reason,
+        });
+      } catch (error) {
+        // Sin confirmación de Didit el cambio pudo quedar aplicado allá: el lock se deja vencer solo, así nadie manda la
+        // decisión contraria enseguida. El próximo intento le pregunta primero a Didit qué tiene (`decideManualReview`).
+        keepLock = error instanceof ApiError && error.code === "KYC_PROVIDER_UNCONFIRMED";
+        throw error;
+      } finally {
+        if (!keepLock) {
+          await app.redis.eval(RELEASE_LOCK, 1, lockKey, token).catch((err: unknown) => {
+            app.log.warn({ err, event: "kyc_decision_lock_release_failed" }, "no se pudo liberar el lock; vence solo");
+          });
+        }
+      }
       app.log.info(
         { adminId, externalSessionId: resolved.externalSessionId, decision, event: "kyc_review_decided_by_admin" },
         "decisión de KYC tomada desde el panel"

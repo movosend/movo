@@ -3,6 +3,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import { ApiError } from "@movo/shared";
 import { buildApp } from "../src/app";
+import { kycDecisionLockKey } from "../src/modules/kyc/kyc-review-internal.routes";
 import { DiditClient, UpdateDiditSessionStatusInput } from "../src/adapters/didit-client";
 
 const ADMIN_ID = randomUUID();
@@ -12,6 +13,7 @@ function createFakeDiditClient() {
   const updates: UpdateDiditSessionStatusInput[] = [];
   let failWith: Error | null = null;
   let decisionBody: unknown | null = null;
+  let decisionRawStatus = "In Review";
   let decisionError: Error | null = null;
   const client: DiditClient = {
     async createSession() {
@@ -19,7 +21,7 @@ function createFakeDiditClient() {
     },
     async getSessionDecision(sessionId: string) {
       if (decisionError) throw decisionError;
-      return decisionBody === null ? null : { sessionId, rawStatus: "In Review", decision: decisionBody };
+      return decisionBody === null ? null : { sessionId, rawStatus: decisionRawStatus, decision: decisionBody };
     },
     async updateSessionStatus(input) {
       if (failWith) throw failWith;
@@ -32,8 +34,9 @@ function createFakeDiditClient() {
     failWith(error: Error | null) {
       failWith = error;
     },
-    setDecision(body: unknown | null) {
+    setDecision(body: unknown | null, rawStatus = "In Review") {
       decisionBody = body;
+      decisionRawStatus = rawStatus;
     },
     failDecision(error: Error | null) {
       decisionError = error;
@@ -66,13 +69,13 @@ describe("Cola de revisión manual de KYC (rutas internas del panel)", () => {
     await app.db.$executeRawUnsafe("TRUNCATE TABLE users.users RESTART IDENTITY CASCADE");
   });
 
-  async function createUser(firstName = "Juan") {
+  async function createUser(firstName = "Juan", lastName = "Perez") {
     return app.db.user.create({
       data: {
         email: `${randomUUID()}@example.com`,
         phone: `+549351${Math.floor(1000000 + Math.random() * 8999999)}`,
         firstName,
-        lastName: "Perez",
+        lastName,
         passwordHash: "hash",
         phoneVerified: true,
       },
@@ -82,7 +85,7 @@ describe("Cola de revisión manual de KYC (rutas internas del panel)", () => {
   async function createAttempt(
     userId: string,
     status: "manual_review" | "approved" | "rejected" | "pending" | "expired",
-    opts: { type?: "identity" | "license"; requestedAt?: Date; rawDecision?: object } = {}
+    opts: { type?: "identity" | "license"; requestedAt?: Date; resolvedAt?: Date; rawDecision?: object } = {}
   ) {
     const externalSessionId = `sess-${randomUUID()}`;
     await app.db.kycVerification.create({
@@ -93,6 +96,7 @@ describe("Cola de revisión manual de KYC (rutas internas del panel)", () => {
         externalSessionId,
         status,
         requestedAt: opts.requestedAt ?? new Date(),
+        ...(opts.resolvedAt ? { resolvedAt: opts.resolvedAt } : {}),
         ...(opts.rawDecision ? { rawDecision: opts.rawDecision } : {}),
       },
     });
@@ -155,6 +159,43 @@ describe("Cola de revisión manual de KYC (rutas internas del panel)", () => {
       expect((await list("?q=nadie")).json().total).toBe(0);
     });
 
+    it("ordena por cuándo pasó a revisión, no por cuándo se abrió la sesión", async () => {
+      const early = await createUser("Temprano");
+      const late = await createUser("Tarde");
+      // Abrió la sesión primero pero terminó la verificación (entró a revisión) después.
+      const opened = await createAttempt(early.id, "manual_review", {
+        requestedAt: new Date("2026-11-01T08:00:00Z"),
+        resolvedAt: new Date("2026-11-03T08:00:00Z"),
+      });
+      const waiting = await createAttempt(late.id, "manual_review", {
+        requestedAt: new Date("2026-11-02T08:00:00Z"),
+        resolvedAt: new Date("2026-11-02T09:00:00Z"),
+      });
+
+      const body = (await list()).json();
+
+      expect(body.items.map((item: { sessionId: string }) => item.sessionId)).toEqual([waiting, opened]);
+      expect(body.items[1]).toMatchObject({ requestedAt: "2026-11-01T08:00:00.000Z", inReviewSince: "2026-11-03T08:00:00.000Z" });
+    });
+
+    it("busca por nombre completo y sin acentos, como el buscador de usuarios", async () => {
+      const ana = await createUser("Ana", "Gómez");
+      await createAttempt(ana.id, "manual_review");
+      await createAttempt((await createUser("Beto", "Ruiz")).id, "manual_review");
+
+      expect((await list(`?q=${encodeURIComponent("Ana Gomez")}`)).json().total).toBe(1);
+      expect((await list(`?q=${encodeURIComponent("gomez ana")}`)).json().total).toBe(1);
+      expect((await list(`?q=${encodeURIComponent("GÓMEZ")}`)).json().total).toBe(1);
+    });
+
+    it("no lista cuentas dadas de baja", async () => {
+      const gone = await createUser("Baja");
+      await createAttempt(gone.id, "manual_review");
+      await app.db.user.update({ where: { id: gone.id }, data: { deletedAt: new Date() } });
+
+      expect((await list()).json().total).toBe(0);
+    });
+
     it("pagina", async () => {
       for (let i = 0; i < 3; i += 1) {
         const user = await createUser(`U${i}`);
@@ -200,7 +241,7 @@ describe("Cola de revisión manual de KYC (rutas internas del panel)", () => {
       const user = await createUser();
       const session = await createAttempt(user.id, "approved");
       const resolved = await app.inject({ method: "GET", url: `/internal/admin/kyc/reviews/${session}` });
-      expect(resolved.json().decidable).toBe(false);
+      expect(resolved.json()).toMatchObject({ decidable: false, status: "approved", inReviewSince: null });
     });
   });
 
@@ -306,6 +347,67 @@ describe("Cola de revisión manual de KYC (rutas internas del panel)", () => {
 
       expect(response.statusCode).toBeGreaterThanOrEqual(400);
       expect(didit.updates).toHaveLength(0);
+    });
+
+    it("si otro admin está decidiendo el mismo caso, 409 KYC_REVIEW_IN_PROGRESS sin llamar a Didit", async () => {
+      const user = await createUser();
+      const session = await createAttempt(user.id, "manual_review");
+      await app.redis.set(kycDecisionLockKey(session), "otro-pedido", "PX", 30_000);
+
+      const response = await decide(session, { decision: "approved", reason: "Motivo suficiente" });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error.code).toBe("KYC_REVIEW_IN_PROGRESS");
+      expect(didit.updates).toHaveLength(0);
+      await app.redis.del(kycDecisionLockKey(session));
+    });
+
+    it("al terminar libera el lock (otro admin puede intentar enseguida) y no toca el de otro pedido", async () => {
+      const user = await createUser();
+      const session = await createAttempt(user.id, "manual_review");
+
+      await decide(session, { decision: "approved", reason: "Motivo suficiente" });
+
+      expect(await app.redis.get(kycDecisionLockKey(session))).toBeNull();
+    });
+
+    it("si Didit ya tenía resuelta la sesión, aplica esa decisión en Movo, responde 409 y no le pide otro cambio", async () => {
+      const user = await createUser();
+      const session = await createAttempt(user.id, "manual_review");
+      await app.db.user.update({ where: { id: user.id }, data: { kycStatusIdentity: "manual_review" } });
+      didit.setDecision({ status: "Declined", id_verifications: [] }, "Declined");
+
+      const response = await decide(session, { decision: "approved", reason: "Motivo suficiente" });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error).toMatchObject({ code: "KYC_REVIEW_STATUS_CHANGED", details: { status: "rejected" } });
+      expect(didit.updates).toHaveLength(0);
+      expect((await app.db.user.findUnique({ where: { id: user.id } }))?.kycStatusIdentity).toBe("rejected");
+    });
+
+    it("si Didit no confirma (red o timeout), 502 KYC_PROVIDER_UNCONFIRMED, no cambia nada acá y el lock se deja vencer", async () => {
+      const user = await createUser();
+      const session = await createAttempt(user.id, "manual_review");
+      didit.failWith(new ApiError(502, "KYC_PROVIDER_UNCONFIRMED", "sin confirmar"));
+
+      const response = await decide(session, { decision: "approved", reason: "Motivo suficiente" });
+
+      expect(response.statusCode).toBe(502);
+      expect(response.json().error.code).toBe("KYC_PROVIDER_UNCONFIRMED");
+      expect((await app.db.kycVerification.findUnique({ where: { externalSessionId: session } }))?.status).toBe("manual_review");
+      // Nadie puede mandar la decisión contraria enseguida: el lock sigue tomado hasta que vence.
+      expect(await app.redis.get(kycDecisionLockKey(session))).not.toBeNull();
+      await app.redis.del(kycDecisionLockKey(session));
+    });
+
+    it("si Didit rechaza el pedido (KYC_PROVIDER_ERROR) libera el lock: se puede reintentar", async () => {
+      const user = await createUser();
+      const session = await createAttempt(user.id, "manual_review");
+      didit.failWith(new ApiError(502, "KYC_PROVIDER_ERROR", "rechazado"));
+
+      await decide(session, { decision: "approved", reason: "Motivo suficiente" });
+
+      expect(await app.redis.get(kycDecisionLockKey(session))).toBeNull();
     });
 
     it("el webhook de Didit que llega después no vuelve a transicionar ni a avisar", async () => {
