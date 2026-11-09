@@ -64,6 +64,8 @@ import { SuspendedScreenGate } from "../../../../components/account/suspended-sc
  * de la fecha pedida por el emisor (y desde hoy, DD-060) -- mismo límite que valida el backend
  * (`OFFER_DATE_MAX_FORWARD_OFFSET_DAYS`, `offer-repository.ts`). */
 const MAX_ALT_DAY_OFFSET = 3;
+/** Días antes de la fecha pedida que se muestran como chip (DD-060 permite desde hoy). */
+const MAX_ALT_DAY_BACKWARD_OFFSET = 3;
 
 const TIME_SLOTS = [
   { start: "08:00", end: "12:00" },
@@ -578,7 +580,7 @@ function CreateOfferScreenContent() {
     );
 
   const dayOptions = useMemo(
-    () => (shipment ? offerDayOffsets(shipment.pickupDate, MAX_ALT_DAY_OFFSET) : []),
+    () => (shipment ? offerDayOffsets(shipment.pickupDate, MAX_ALT_DAY_OFFSET, MAX_ALT_DAY_BACKWARD_OFFSET) : []),
     [shipment],
   );
 
@@ -592,9 +594,26 @@ function CreateOfferScreenContent() {
 
   const isPickupSlotEnded = (index: number) =>
     effectivePickupDate !== null && isTimeWindowEnded(effectivePickupDate, TIME_SLOTS[index].end);
-  // Al cambiar de día, una franja elegida que ya terminó ese día deja de contar.
+  // Una franja elegida que terminó mientras la pantalla estaba abierta deja de contar.
   const activePickupSlotIndex =
     pickupSlotIndex !== null && !isPickupSlotEnded(pickupSlotIndex) ? pickupSlotIndex : null;
+
+  // Al cambiar de día se descarta la franja elegida si ya terminó ese día, para que no vuelva a
+  // aparecer seleccionada al regresar a un día donde sí está disponible.
+  const selectPickupDay = (offset: number) => {
+    setDayOffset(offset);
+    if (!shipment || pickupSlotIndex === null) return;
+    const date = toDateOnlyString(addDays(parseDateOnly(shipment.pickupDate), offset));
+    if (isTimeWindowEnded(date, TIME_SLOTS[pickupSlotIndex].end)) setPickupSlotIndex(null);
+  };
+
+  // DD-060: la franja que pidió el emisor puede haber terminado (envío creado con la franja ya
+  // empezada). Entonces solo queda proponer otra; el backend la rechazaría con 422.
+  const requestedWindowEnded =
+    !!shipment && isTimeWindowEnded(shipment.pickupDate, shipment.pickupTimeWindowEnd);
+  useEffect(() => {
+    if (requestedWindowEnded && dateMode === "requested") setDateMode("other");
+  }, [requestedWindowEnded, dateMode]);
 
   const pickupSummary =
     dateMode === "requested"
@@ -618,7 +637,7 @@ function CreateOfferScreenContent() {
   const canContinueToPickup = netArs > 0;
   const canSubmit =
     netArs > 0 &&
-    (dateMode === "requested" || activePickupSlotIndex !== null) &&
+    (dateMode === "requested" ? !requestedWindowEnded : activePickupSlotIndex !== null) &&
     deliverySlotIndex !== null;
 
   const handleBack = () => {
@@ -1060,7 +1079,8 @@ function CreateOfferScreenContent() {
                   <Pressable
                     testID="create-offer-date-requested"
                     onPress={() => setDateMode("requested")}
-                    className={`flex-row gap-3 rounded-md border-[1.5px] p-3.5 ${dateMode === "requested" ? "border-fg bg-bg-mute" : "border-border"}`}
+                    disabled={requestedWindowEnded}
+                    className={`flex-row gap-3 rounded-md border-[1.5px] p-3.5 ${dateMode === "requested" ? "border-fg bg-bg-mute" : "border-border"} ${requestedWindowEnded ? "opacity-50" : ""}`}
                   >
                     <View
                       className={`mt-0.5 h-5 w-5 items-center justify-center rounded-full border-[1.5px] ${dateMode === "requested" ? "border-fg bg-fg" : "border-border-strong"}`}
@@ -1080,6 +1100,14 @@ function CreateOfferScreenContent() {
                           shipment.pickupTimeWindowEnd,
                         )}
                       </Text>
+                      {requestedWindowEnded ? (
+                        <Text
+                          testID="create-offer-date-requested-ended"
+                          className="mt-0.5 font-sans text-small text-fg-2"
+                        >
+                          Esta franja ya terminó: proponé otro día u horario.
+                        </Text>
+                      ) : null}
                     </View>
                   </Pressable>
                   <Pressable
@@ -1123,7 +1151,7 @@ function CreateOfferScreenContent() {
                             addDays(parseDateOnly(shipment.pickupDate), offset),
                           )}
                           selected={dayOffset === offset}
-                          onPress={() => setDayOffset(offset)}
+                          onPress={() => selectPickupDay(offset)}
                         />
                       ))}
                     </ScrollView>

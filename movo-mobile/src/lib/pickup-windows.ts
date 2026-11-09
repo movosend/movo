@@ -48,12 +48,21 @@ export function isTimeWindowEnded(date: string, end: string, now: Date = new Dat
 
 /**
  * DD-060: días que se pueden proponer en una oferta, como corrimiento desde la fecha pedida:
- * desde hoy (si la fecha pedida es futura) hasta `maxForwardDays` después de la pedida. Mismo
- * rango que `isWithinOfferDateRange` (`offer-repository.ts`).
+ * desde hoy (nunca un día pasado) hasta `maxForwardDays` después de la pedida, el mismo rango que
+ * `isWithinOfferDateRange` (`offer-repository.ts`). Hacia atrás la lista se corta en
+ * `maxBackwardDays` antes de la pedida: con un retiro lejano, el backend acepta cualquier día desde
+ * hoy, pero una fila de 30 chips no se puede usar.
  */
-export function offerDayOffsets(pickupDate: string, maxForwardDays: number, now: Date = new Date()): number[] {
+export function offerDayOffsets(
+  pickupDate: string,
+  maxForwardDays: number,
+  maxBackwardDays: number,
+  now: Date = new Date(),
+): number[] {
   const toDay = (date: string) => Date.parse(`${date}T00:00:00.000Z`);
-  const earliest = Math.min(0, Math.round((toDay(todayInArgentina(now)) - toDay(pickupDate)) / DAY_MS));
+  const todayOffset = Math.round((toDay(todayInArgentina(now)) - toDay(pickupDate)) / DAY_MS);
+  const earliest = Math.max(todayOffset, -maxBackwardDays);
+  if (earliest > maxForwardDays) return [];
   return Array.from({ length: maxForwardDays - earliest + 1 }, (_, i) => earliest + i);
 }
 

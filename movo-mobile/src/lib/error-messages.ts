@@ -1,4 +1,5 @@
 import { ApiError, type ApiErrorCode } from "@movo/shared/dist/errors/api-error";
+import { TRIP_START_MAX_DAYS_EARLY } from "@movo/shared/dist/config/trip-start";
 
 /**
  * Traduce códigos de error estables de la API a mensajes en español,
@@ -109,7 +110,7 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   TRIP_NOT_AVAILABLE: "Este viaje ya no está disponible.",
   TRIP_NO_PACKAGES: "Este viaje no tiene paquetes asignados, así que no se puede iniciar.",
   // MOVO-277: el caso con fecha lo arma `formatTripStartErrorMessage` (trip-format.ts).
-  TRIP_START_TOO_EARLY: "Todavía no podés iniciar este viaje: se habilita 3 días antes de la salida.",
+  TRIP_START_TOO_EARLY: `Todavía no podés iniciar este viaje: se habilita ${TRIP_START_MAX_DAYS_EARLY} días antes de la salida.`,
   TRIP_PACKAGES_NOT_READY:
     "Tus paquetes todavía esperan la confirmación del pago. Vas a poder iniciar el viaje cuando estén listos para retirar.",
   // Calificaciones post-entrega (MOVO-153 / backend MOVO-146).

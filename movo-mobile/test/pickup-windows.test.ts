@@ -52,15 +52,23 @@ describe("offerDayOffsets (DD-060)", () => {
   const now = at("2026-10-24T15:00:00.000Z"); // 12:00 del 24
 
   it("con la fecha pedida hoy, va de hoy a 3 días después", () => {
-    expect(offerDayOffsets("2026-10-24", 3, now)).toEqual([0, 1, 2, 3]);
+    expect(offerDayOffsets("2026-10-24", 3, 3, now)).toEqual([0, 1, 2, 3]);
   });
 
   it("con la fecha pedida más adelante, empieza hoy", () => {
-    expect(offerDayOffsets("2026-10-26", 3, now)).toEqual([-2, -1, 0, 1, 2, 3]);
+    expect(offerDayOffsets("2026-10-26", 3, 3, now)).toEqual([-2, -1, 0, 1, 2, 3]);
   });
 
-  it("con la fecha pedida ya pasada, empieza en la fecha pedida", () => {
-    expect(offerDayOffsets("2026-10-22", 3, now)).toEqual([0, 1, 2, 3]);
+  it("con la fecha pedida lejana, corta en maxBackwardDays antes de la pedida", () => {
+    expect(offerDayOffsets("2026-11-18", 3, 3, now)).toEqual([-3, -2, -1, 0, 1, 2, 3]);
+  });
+
+  it("con la fecha pedida ya pasada, empieza hoy y no ofrece días pasados", () => {
+    expect(offerDayOffsets("2026-10-22", 3, 3, now)).toEqual([2, 3]);
+  });
+
+  it("con la fecha pedida pasada hace más de maxForwardDays, no hay días", () => {
+    expect(offerDayOffsets("2026-10-18", 3, 3, now)).toEqual([]);
   });
 });
 
