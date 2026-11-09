@@ -10,6 +10,7 @@ import {
   MutualConnections,
   OwnAccountSanction,
   RecentRatingComment,
+  RecentRatingCommentsByRole,
   ProfileRatingRole,
   VehicleProfile as SharedVehicleProfile,
 } from "@movo/shared";
@@ -291,29 +292,6 @@ export function createUsersService(
     return rows.map((row) => ({ ...row, raterName: names.get(row.raterId) ?? "Usuario de Movo" }));
   }
 
-  /** MOVO-152 AC2: solo se llama al componer un perfil completo (`getPublicProfile`),
-   * nunca desde `searchUsers` -- ver el comentario de `PublicProfile.recentRatingComments`
-   * en `@movo/shared`. Mismo criterio de "nunca lanza" que `resolveReputationSummary`.
-   * MOVO-170 sumó `raterName` acá, y una variante paginada (`GET /users/:id/ratings`,
-   * "ver todas las calificaciones") para cuando el caller manda `cursor`. */
-  async function resolveRecentRatingComments(
-    userId: string,
-    limit: number = RECENT_RATING_COMMENTS_LIMIT,
-    cursor?: string,
-    role?: ProfileRatingRole,
-  ): Promise<{ items: RecentRatingComment[]; nextCursor: string | null }> {
-    try {
-      const { items, nextCursor } = await shipmentsClient.findRecentRatingComments(userId, limit, cursor, role);
-      return { items: await enrichWithRaterNames(items), nextCursor };
-    } catch (error) {
-      logger.warn(
-        { userId, role, event: "reputation_recent_comments_fetch_failed", error: (error as Error).message },
-        "No se pudieron obtener las calificaciones recientes de svc-shipments"
-      );
-      return { items: [], nextCursor: null };
-    }
-  }
-
   /** MOVO-300: motivo y plazo de la sanción vigente, para el aviso de la app. `user.status`
    * ya es el efectivo (`effectiveAccountStatus`): una suspensión vencida que el barrido
    * todavía no cerró llega como `active` y no se consulta. */
@@ -346,30 +324,47 @@ export function createUsersService(
     );
   }
 
+  /** Las últimas del perfil público, todas y por pestaña, en una sola llamada a `svc-shipments` y un solo lookup de
+   * nombres. Si falla, no hay listas por rol (`byRole: undefined`): el cliente cae a la general, que también queda
+   * vacía, en vez de mostrar una pestaña vacía como si no hubiera reseñas. */
+  async function resolveProfileRatingComments(
+    userId: string
+  ): Promise<{ all: RecentRatingComment[]; byRole: RecentRatingCommentsByRole | undefined }> {
+    try {
+      const { all, asSender, asCarrier } = await shipmentsClient.findRecentRatingCommentsByRole(
+        userId,
+        RECENT_RATING_COMMENTS_LIMIT
+      );
+      const named = new Map((await enrichWithRaterNames([...all, ...asSender, ...asCarrier])).map((c) => [c.id, c]));
+      const withName = (rows: RawRecentRatingComment[]) => rows.map((row) => named.get(row.id) ?? { ...row, raterName: "Usuario de Movo" });
+      return { all: withName(all), byRole: { asSender: withName(asSender), asCarrier: withName(asCarrier) } };
+    } catch (error) {
+      logger.warn(
+        { userId, event: "reputation_recent_comments_fetch_failed", error: (error as Error).message },
+        "No se pudieron obtener las calificaciones recientes de svc-shipments"
+      );
+      return { all: [], byRole: undefined };
+    }
+  }
+
   async function composePublicProfile(user: User, includeComments: boolean): Promise<PublicProfile> {
-    const noComments = Promise.resolve<{ items: RecentRatingComment[]; nextCursor: string | null }>({ items: [], nextCursor: null });
-    // Las de cada pestaña del perfil se piden aparte (feedback de TestFlight, build 17): filtrar las 10 últimas
-    // generales dejaba una pestaña vacía aunque ese rol tuviera reseñas más viejas.
-    const [summary, recentRatingCommentsPage, senderCommentsPage, carrierCommentsPage, vehicle] = await Promise.all([
+    const [summary, comments, vehicle] = await Promise.all([
       resolveReputationSummary(user.id),
-      includeComments ? resolveRecentRatingComments(user.id) : noComments,
-      includeComments ? resolveRecentRatingComments(user.id, undefined, undefined, "sender") : noComments,
-      includeComments ? resolveRecentRatingComments(user.id, undefined, undefined, "carrier") : noComments,
+      includeComments ? resolveProfileRatingComments(user.id) : Promise.resolve({ all: [], byRole: undefined }),
       // MOVO-172: se resuelve siempre, incluso para `searchUsers` (donde el schema de
       // `GET /users/search` termina descartando el campo) -- mismo trade-off ya
       // aceptado para `bio` en MOVO-171, se prioriza consistencia con ese patrón
       // sobre evitar esta query extra.
       vehicleProfileRepository.findByUserId(user.id),
     ]);
-    const recentRatingComments = recentRatingCommentsPage.items;
     const reputation = summary ?? { ...NO_REPUTATION, asSender: NO_REPUTATION, asCarrier: NO_REPUTATION };
     return toPublicProfile(
       user,
       reputation,
       summary?.transactionCounts ?? NO_TRANSACTION_COUNTS,
-      recentRatingComments,
+      comments.all,
       vehicle ? toSharedVehicleProfile(vehicle) : null,
-      includeComments ? { asSender: senderCommentsPage.items, asCarrier: carrierCommentsPage.items } : undefined
+      comments.byRole
     );
   }
 

@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
-import { ApiError } from "@movo/shared";
+import { ApiError, ProfileRatingRole } from "@movo/shared";
 import {
   AcceptLegalDocumentsInput,
   createUsersService,
@@ -485,7 +485,7 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
     async (request: FastifyRequest) => {
       requireUserIdFromHeader(request);
       const { id } = request.params as { id: string };
-      const { limit, cursor, role } = request.query as { limit: number; cursor?: string; role?: "sender" | "carrier" };
+      const { limit, cursor, role } = request.query as { limit: number; cursor?: string; role?: ProfileRatingRole };
       return service.listUserRatings(id, limit, cursor, role);
     },
   );

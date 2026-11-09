@@ -23,6 +23,7 @@ function createFakeShipmentsClient() {
   const reputationResponses = new Map<string, UserReputationSummary>();
   const commentsResponses = new Map<string, RawRecentRatingComment[]>();
   const failingReputationUserIds = new Set<string>();
+  const failingCommentsUserIds = new Set<string>();
   let reputationCallCount = 0;
   let commentsCallCount = 0;
 
@@ -51,6 +52,17 @@ function createFakeShipmentsClient() {
       const key = role ? `${userId}:${role}` : userId;
       return { items: commentsResponses.get(key) ?? [], nextCursor: null };
     },
+    async findRecentRatingCommentsByRole(userId: string) {
+      commentsCallCount += 1;
+      if (failingCommentsUserIds.has(userId)) {
+        throw new Error("svc-shipments caído (simulado)");
+      }
+      return {
+        all: commentsResponses.get(userId) ?? [],
+        asSender: commentsResponses.get(`${userId}:sender`) ?? [],
+        asCarrier: commentsResponses.get(`${userId}:carrier`) ?? [],
+      };
+    },
     // MOVO-202: esta suite no ejercita baja de cuenta.
     async deleteCarrierPositions() {
       return 0;
@@ -75,6 +87,9 @@ function createFakeShipmentsClient() {
     },
     setFailing(userId: string) {
       failingReputationUserIds.add(userId);
+    },
+    setCommentsFailing(userId: string) {
+      failingCommentsUserIds.add(userId);
     },
     getReputationCallCount: () => reputationCallCount,
     getCommentsCallCount: () => commentsCallCount,
@@ -212,6 +227,22 @@ describe("Reputación real en el perfil (MOVO-152)", () => {
       expect(body.recentRatingCommentsByRole.asCarrier).toHaveLength(1);
       expect(body.recentRatingCommentsByRole.asCarrier[0]).toMatchObject({ id: asCarrier.id, comment: "Se frenó a tomar un café" });
       expect(body.recentRatingCommentsByRole.asSender).toEqual([]);
+    });
+
+    it("pide las reseñas en una sola llamada, y si falla no manda las listas por rol (el cliente cae a la general)", async () => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput());
+      fake.setReputation(target.id, buildSummary());
+      fake.setCommentsFailing(target.id);
+      const callsBefore = fake.getCommentsCallCount();
+
+      const response = await app.inject({ method: "GET", url: `/users/${target.id}`, headers: { "x-user-id": caller.id } });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(fake.getCommentsCallCount()).toBe(callsBefore + 1);
+      expect(body.recentRatingComments).toEqual([]);
+      expect(body).not.toHaveProperty("recentRatingCommentsByRole");
     });
 
     it("MOVO-173: `categories` de cada rol calculadas en svc-shipments llegan al cliente", async () => {

@@ -172,9 +172,32 @@ export async function internalRatingsRoutes(app: FastifyInstance, _opts: Fastify
     },
     async (request: FastifyRequest) => {
       const { userId } = request.params as { userId: string };
-      const { limit, cursor, role } = request.query as { limit: number; cursor?: string; role?: RatingRole };
-      const { items, nextCursor } = await service.listRecentRatingsForUser(userId, limit, cursor, role);
+      const { limit, cursor, role } = request.query as { limit: number; cursor?: string; role?: string };
+      // `role` es una lista separada por comas (el schema ya validó cada valor).
+      const roles = role ? (role.split(",") as RatingRole[]) : undefined;
+      const { items, nextCursor } = await service.listRecentRatingsForUser(userId, limit, cursor, roles);
       return { items: items.map(toRatingDto), nextCursor };
+    },
+  );
+
+  app.get(
+    "/users/:userId/ratings/recent-by-role",
+    {
+      schema: {
+        hide: true,
+        description:
+          "Perfil público: las últimas calificaciones recibidas, todas y por pestaña (emisor, transportista), en una " +
+          "sola llamada. Único consumidor: `svc-users` al componer `GET /users/:id`.",
+        params: ratingsSchemas.userIdParam,
+        querystring: ratingsSchemas.recentRatingsByRoleQuery,
+        response: { 200: ratingsSchemas.recentRatingsByRoleResponse },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const { userId } = request.params as { userId: string };
+      const { limit } = request.query as { limit: number };
+      const { all, asSender, asCarrier } = await service.listRecentRatingsByRoleForUser(userId, limit);
+      return { all: all.map(toRatingDto), asSender: asSender.map(toRatingDto), asCarrier: asCarrier.map(toRatingDto) };
     },
   );
 

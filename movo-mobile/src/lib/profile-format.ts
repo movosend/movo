@@ -16,9 +16,10 @@ import type {
  */
 
 /**
- * Reseñas recientes de una pestaña del perfil ("Como transportista" / "Como emisor"). Usa las que el
- * backend ya separa por rol; con un backend anterior que no las manda, cae a la lista general (que
- * mezcla los dos roles, como antes). Feedback de TestFlight, build 17.
+ * Reseñas recientes de una pestaña del perfil ("Como transportista" / "Como emisor"; la de emisor incluye
+ * las recibidas como receptor). Usa las que el backend ya separa por rol; si no las manda (backend
+ * anterior, o falló la consulta), cae a la lista general, que mezcla todo, como antes. Feedback de
+ * TestFlight, build 17.
  */
 export function ratingCommentsForRole(
   profile: { recentRatingComments: RecentRatingComment[]; recentRatingCommentsByRole?: RecentRatingCommentsByRole },

@@ -77,6 +77,9 @@ type ServiceLogger =
 
 /** AC1: rol del usuario dentro de ESTE envío en particular. `null` si no es ninguna de
  * las tres partes -- el caller decide qué `ApiError` corresponde. */
+/** Roles que entran en la pestaña "Como emisor" del perfil: lo recibido como receptor también es del lado cliente. */
+export const PROFILE_SENDER_RATING_ROLES: readonly RatingRole[] = [RatingRole.sender, RatingRole.receiver];
+
 function resolveShipmentRole(shipment: Shipment, userId: string): RatingRole | null {
   if (userId === shipment.senderId) {
     return RatingRole.sender;
@@ -372,9 +375,26 @@ export function createRatingsService(
       userId: string,
       limit: number,
       cursor?: string,
-      role?: RatingRole,
+      roles?: readonly RatingRole[],
     ): Promise<{ items: Rating[]; nextCursor: string | null }> {
-      return ratingRepository.listRecentByRateePaginated(userId, limit, cursor, role);
+      return ratingRepository.listRecentByRateePaginated(userId, limit, cursor, roles);
+    },
+
+    /**
+     * Las últimas `limit` del perfil público: todas y las de cada pestaña por separado, en una sola llamada de
+     * `svc-users`. Filtrar las generales por rol dejaba vacía una pestaña con reseñas más viejas. La de emisor suma las
+     * recibidas como receptor (`PROFILE_SENDER_RATING_ROLES`): no tienen pestaña propia.
+     */
+    async listRecentRatingsByRoleForUser(
+      userId: string,
+      limit: number,
+    ): Promise<{ all: Rating[]; asSender: Rating[]; asCarrier: Rating[] }> {
+      const [all, asSender, asCarrier] = await Promise.all([
+        ratingRepository.listRecentByRateePaginated(userId, limit),
+        ratingRepository.listRecentByRateePaginated(userId, limit, undefined, PROFILE_SENDER_RATING_ROLES),
+        ratingRepository.listRecentByRateePaginated(userId, limit, undefined, [RatingRole.carrier]),
+      ]);
+      return { all: all.items, asSender: asSender.items, asCarrier: asCarrier.items };
     },
 
     /**

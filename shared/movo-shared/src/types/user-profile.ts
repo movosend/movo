@@ -70,6 +70,18 @@ export interface UsageStats {
 }
 
 /**
+ * Pestaña del perfil en que se muestra una calificación recibida. La de emisor incluye las recibidas como receptor
+ * (`role=receiver` en `svc-shipments`), que no tienen pestaña propia.
+ */
+export type ProfileRatingRole = "sender" | "carrier";
+
+/** Las últimas calificaciones de cada pestaña del perfil, pedidas por separado (feedback de TestFlight, build 17). */
+export interface RecentRatingCommentsByRole {
+  asSender: RecentRatingComment[];
+  asCarrier: RecentRatingComment[];
+}
+
+/**
  * MOVO-152 AC2: una de las últimas 10 calificaciones recibidas por el usuario, leídas
  * de `GET /internal/users/:id/ratings/recent` (`svc-shipments`, MOVO-146 AC10) al
  * componer un perfil completo. `raterId` viaja crudo -- resolverlo a un perfil (nombre/
@@ -82,14 +94,6 @@ export interface UsageStats {
  * lookup local, `raterId` es siempre un usuario del propio servicio). Cae a un label
  * genérico si la cuenta del calificador ya no existe (derecho de supresión, MOVO-39).
  */
-/** Rol del calificado con pestaña propia en el perfil. */
-export type ProfileRatingRole = "sender" | "carrier";
-
-export interface RecentRatingCommentsByRole {
-  asSender: RecentRatingComment[];
-  asCarrier: RecentRatingComment[];
-}
-
 export interface RecentRatingComment {
   id: string;
   raterId: string;
