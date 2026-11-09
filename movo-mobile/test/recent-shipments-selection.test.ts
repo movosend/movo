@@ -89,9 +89,11 @@ describe("selectRecentShipments (MOVO-184)", () => {
   });
 
   describe("AC2: se ve el día en que se cerró o venció y el siguiente (días calendario)", () => {
-    // Fechas locales: la regla es por día del calendario del dispositivo, no por 48 h corridas.
-    const LOCAL_NOW = new Date(2026, 9, 2, 10, 0); // vie 02/10 10:00
-    const at = (day: number, hour: number) => new Date(2026, 9, day, hour, 0).toISOString();
+    // Hora argentina (UTC-3): la regla es por día del calendario argentino, no por 48 h corridas ni por el
+    // calendario del dispositivo (CI corre en UTC).
+    const argentina = (day: number, hour: number) => new Date(Date.UTC(2026, 9, day, hour + 3, 0));
+    const LOCAL_NOW = argentina(2, 10); // vie 02/10 10:00
+    const at = (day: number, hour: number) => argentina(day, hour).toISOString();
 
     it("un cancelado se ve el día del cierre y el siguiente, aunque pasen más de 24 h", () => {
       const today = createShipment("today", at(2, 1), ShipmentStatus.CANCELLED);
@@ -125,7 +127,7 @@ describe("selectRecentShipments (MOVO-184)", () => {
     it("un envío vencido que todavía pide una acción se queda", () => {
       const rejected = createShipment("rej", at(1, 9), ShipmentStatus.REJECTED_BY_RECEIVER, {
         pickupDate: "2026-09-25",
-        receiverRedesignationDeadline: new Date(2026, 9, 3, 9, 0).toISOString(), // plazo vivo para el emisor
+        receiverRedesignationDeadline: at(3, 9), // plazo vivo para el emisor
       });
 
       expect(selectRecentShipments([rejected], USER_1, { now: LOCAL_NOW }).map((s) => s.id)).toEqual(["rej"]);
