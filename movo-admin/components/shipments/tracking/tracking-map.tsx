@@ -138,7 +138,9 @@ export default function TrackingMap({ tracking, follow, theme }: Props) {
       // Las opciones tipadas del plugin no incluyen `attribution`, pero Leaflet la lee de `options`.
       layer.options.attribution = TILE_ATTRIBUTION
       tilesRef.current = layer.addTo(map)
+      // Un error tardío de la capa del tema anterior no tiene que pisar el aviso de la actual.
       layer.getMaplibreMap()?.on("error", ({ error }: { error: unknown }) => {
+        if (tilesRef.current !== layer) return
         if (isBasemapRejected(error)) setBasemapProblem("rejected")
       })
     }
