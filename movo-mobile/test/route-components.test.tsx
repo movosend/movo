@@ -178,7 +178,7 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       expect(onSelectStop).toHaveBeenCalledWith(sampleRoute.stops[1]);
     });
 
-    it("con otra parada seleccionada, la ancla es esa: 'Ver envío' y 'Navegar' pero sin CTA de retiro/entrega", async () => {
+    it("con otra parada seleccionada, la ancla es esa: 'Ver detalle' y 'Navegar' pero sin CTA de retiro/entrega", async () => {
       const onPressShipment = jest.fn();
       const { getByTestId, queryByTestId } = await render(
         <StopList
