@@ -1,6 +1,7 @@
 import { ApiError } from "@movo/shared";
 import { createMockRoutesProvider } from "./mock-routes-provider";
 import { createGoogleRoutesProvider } from "./google-routes-provider";
+import type { ProviderLogger } from "./google-error";
 
 export interface RouteLatLng {
   lat: number;
@@ -104,12 +105,12 @@ export interface RoutesProviderConfig {
  * depender de una API key de Google para levantar el servicio en dev/test/CI. Falla
  * rápido al arrancar si se pide "google" sin la key.
  */
-export function createRoutesProvider(config: RoutesProviderConfig): RoutesProvider {
+export function createRoutesProvider(config: RoutesProviderConfig, log?: ProviderLogger): RoutesProvider {
   if (config.ROUTES_PROVIDER === "google") {
     if (!config.GOOGLE_MAPS_API_KEY) {
       throw new Error("ROUTES_PROVIDER=google requiere GOOGLE_MAPS_API_KEY");
     }
-    return createGoogleRoutesProvider({ apiKey: config.GOOGLE_MAPS_API_KEY });
+    return createGoogleRoutesProvider({ apiKey: config.GOOGLE_MAPS_API_KEY, log });
   }
   return createMockRoutesProvider();
 }

@@ -115,7 +115,7 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
     redis: app.redis,
     routeStore: createPlannedRouteStore({
       redis: app.redis,
-      routesProvider: opts.routesProvider ?? createRoutesProvider(app.config),
+      routesProvider: opts.routesProvider ?? createRoutesProvider(app.config, app.log),
       provider: app.config.ROUTES_PROVIDER,
       logger: app.log,
     }),

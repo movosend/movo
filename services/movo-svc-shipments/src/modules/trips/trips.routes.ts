@@ -92,7 +92,7 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
     });
   const defaultMaxDetourKm = app.config.TRIP_DEFAULT_MAX_DETOUR_KM ?? 15;
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
-  const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config);
+  const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config, app.log);
 
   const service =
     opts.service ??
