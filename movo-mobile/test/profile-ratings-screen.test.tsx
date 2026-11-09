@@ -9,9 +9,11 @@ jest.mock("expo-router", () => ({
 }));
 
 const mockUsePublicProfile = jest.fn();
+const mockUseUserRatings = jest.fn();
 
 jest.mock("../src/hooks/use-profile", () => ({
   usePublicProfile: () => mockUsePublicProfile(),
+  useUserRatings: (...args: unknown[]) => mockUseUserRatings(...args),
 }));
 
 jest.mock("../src/store/auth-store", () => ({
@@ -22,6 +24,10 @@ jest.mock("../src/store/auth-store", () => ({
 // "Ver todas" de la card de reputación del perfil propio (MOVO-154, rediseño
 // post-feedback) — reusa la misma query de `usePublicProfile`, ya cacheada.
 describe("ProfileRatingsScreen", () => {
+  beforeEach(() => {
+    mockUseUserRatings.mockReturnValue({ data: undefined, hasNextPage: false });
+  });
+
   afterEach(() => {
     jest.clearAllMocks();
     mockParams = {};
@@ -106,5 +112,22 @@ describe("ProfileRatingsScreen", () => {
 
     fireEvent(getByTestId("profile-ratings-back"), "touchEnd");
     expect(router.back).toHaveBeenCalled();
+  });
+  it("pagina con GET /users/:id/ratings del rol elegido y 'Cargar más' pide la página siguiente", async () => {
+    mockParams = { role: "sender" };
+    const fetchNextPage = jest.fn();
+    const older = { id: "s9", raterId: "u9", raterName: "Ana", score: 4, comment: "Vieja", createdAt: "2026-01-02T00:00:00.000Z" };
+    mockUsePublicProfile.mockReturnValue({
+      isLoading: false,
+      data: { id: "user-1", reputationScore: 4, ratingCount: 30, isNewProfile: false, recentRatingComments: [], recentRatingCommentsByRole: { asCarrier: [], asSender: [] } },
+    });
+    mockUseUserRatings.mockReturnValue({ data: { pages: [{ items: [older], nextCursor: "c" }] }, hasNextPage: true, isFetchingNextPage: false, fetchNextPage });
+
+    const { getByTestId } = await render(<ProfileRatingsScreen />);
+
+    expect(mockUseUserRatings).toHaveBeenCalledWith("user-1", "sender");
+    expect(getByTestId("profile-ratings-comment-s9")).toBeTruthy();
+    await fireEvent.press(getByTestId("profile-ratings-more"));
+    expect(fetchNextPage).toHaveBeenCalled();
   });
 });

@@ -1,5 +1,11 @@
 import type { TourId, TourOutcome, UserTourRecord } from "@movo/shared/dist/config/tours";
-import type { MutualConnections, PrivateProfile, PublicProfile } from "@movo/shared/dist/types/user-profile";
+import type {
+  MutualConnections,
+  PrivateProfile,
+  ProfileRatingRole,
+  PublicProfile,
+  RecentRatingComment,
+} from "@movo/shared/dist/types/user-profile";
 import { httpClient } from "./http-client";
 import type { SessionResponse } from "./session-types";
 import { uploadBlobToPresignedUrl } from "../lib/s3-upload";
@@ -100,6 +106,18 @@ export const usersClient = {
    * la card de receptor/transportista del detalle de envío (MOVO-127). */
   getPublicProfile(id: string): Promise<PublicProfile> {
     return httpClient.get<PublicProfile>(`/users/${id}`);
+  },
+
+  /** "Ver todas" las calificaciones recibidas (`GET /users/:id/ratings`, MOVO-170), paginado por cursor y, con
+   * `role`, solo las de esa pestaña del perfil. */
+  listRatings(
+    id: string,
+    params: { role?: ProfileRatingRole; cursor?: string; limit?: number } = {},
+  ): Promise<{ items: RecentRatingComment[]; nextCursor: string | null }> {
+    const query: Record<string, string> = { limit: String(params.limit ?? 20) };
+    if (params.role) query.role = params.role;
+    if (params.cursor) query.cursor = params.cursor;
+    return httpClient.get(`/users/${id}/ratings`, query);
   },
 
   /** Búsqueda de receptor para el wizard de envíos (MOVO-83) — `GET /users/search`
