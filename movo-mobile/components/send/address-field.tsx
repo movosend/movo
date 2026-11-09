@@ -39,7 +39,8 @@ export function AddressField({ label, dotColor, value, onChange, testID }: Addre
   const handlePinMoved = async (lat: number, lng: number) => {
     const request = ++pinRequestRef.current;
     setSaved(false);
-    onChange({ address: PIN_ADDRESS_FALLBACK, lat, lng, source: "map-pin" });
+    // Provisoria: con `resolving` no se puede guardar ni avanzar hasta que llegue la dirección del punto nuevo.
+    onChange({ address: PIN_ADDRESS_FALLBACK, lat, lng, source: "map-pin", resolving: true });
     const address = await resolvePinAddress(lat, lng);
     if (request !== pinRequestRef.current) return;
     onChange({ address, lat, lng, source: "map-pin" });
@@ -54,7 +55,7 @@ export function AddressField({ label, dotColor, value, onChange, testID }: Addre
   };
 
   const handleSaveAddress = async () => {
-    if (!value) return;
+    if (!value || value.resolving) return;
     setSaveError(null);
     try {
       await createAddress.mutateAsync(addressSelectionToCreateInput(value));
@@ -78,7 +79,7 @@ export function AddressField({ label, dotColor, value, onChange, testID }: Addre
             className={`font-sans-medium text-[15px] ${value ? "text-fg" : "text-fg-3"}`}
             numberOfLines={1}
           >
-            {value?.address || "Tocá para buscar la dirección"}
+            {value?.resolving ? "Buscando la dirección…" : value?.address || "Tocá para buscar la dirección"}
           </Text>
         </View>
         {value ? (
@@ -99,7 +100,7 @@ export function AddressField({ label, dotColor, value, onChange, testID }: Addre
           <Pressable
             testID={testID ? `${testID}-save-address` : undefined}
             onPress={() => void handleSaveAddress()}
-            disabled={saved || createAddress.isPending}
+            disabled={saved || createAddress.isPending || !!value.resolving}
             hitSlop={8}
             className="flex-row items-center gap-1.5 self-start rounded-full px-1 py-2"
           >

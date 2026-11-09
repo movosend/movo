@@ -11,4 +11,23 @@ export interface AddressSelection {
   lat: number;
   lng: number;
   source: AddressSource;
+  /**
+   * `true` mientras se busca la dirección de un pin recién movido: `address` todavía es provisoria y la selección no
+   * se puede guardar ni usar para avanzar (`isAddressSelectionReady`).
+   */
+  resolving?: boolean;
+}
+
+/** Selección completa y definitiva: con texto, coordenadas válidas y sin una búsqueda de dirección pendiente. */
+export function isAddressSelectionReady(selection: AddressSelection | null | undefined): selection is AddressSelection {
+  if (!selection || selection.resolving) return false;
+  return (
+    selection.address.trim().length > 0 &&
+    Number.isFinite(selection.lat) &&
+    selection.lat >= -90 &&
+    selection.lat <= 90 &&
+    Number.isFinite(selection.lng) &&
+    selection.lng >= -180 &&
+    selection.lng <= 180
+  );
 }

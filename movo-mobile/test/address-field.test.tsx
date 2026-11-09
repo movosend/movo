@@ -227,10 +227,20 @@ describe("AddressField", () => {
       await Promise.resolve();
     });
 
-    expect(onChange).toHaveBeenCalledWith({ address: "Ubicación en el mapa", lat: -31.38, lng: -64.22, source: "map-pin" });
+    // Provisoria mientras busca: marcada `resolving` para que no se pueda guardar ni avanzar.
+    expect(onChange).toHaveBeenCalledWith({ address: "Ubicación en el mapa", lat: -31.38, lng: -64.22, source: "map-pin", resolving: true });
     await waitFor(() =>
       expect(onChange).toHaveBeenLastCalledWith({ address: "Av. Colón 6051, Córdoba", lat: -31.38, lng: -64.22, source: "map-pin" }),
     );
     expect(onChange).not.toHaveBeenCalledWith(expect.objectContaining({ address: "Ubicación actual", lat: -31.38 }));
+  });
+  it("con la dirección del pin todavía buscándose no deja guardarla", async () => {
+    const value = { address: "Ubicación en el mapa", lat: -31.38, lng: -64.22, source: "map-pin" as const, resolving: true };
+    const { getByTestId, getByText } = await render(
+      <AddressField testID="dropoff" label="Entrega" dotColor="#000" value={value} onChange={jest.fn()} />,
+    );
+
+    expect(getByText("Buscando la dirección…")).toBeTruthy();
+    expect(getByTestId("dropoff-save-address").props.accessibilityState?.disabled).toBe(true);
   });
 });

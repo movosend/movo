@@ -43,6 +43,10 @@ describe("isAddressStepValid — retiro y entrega no pueden ser la misma ubicaci
   it("acepta retiro y entrega a más de 100m entre sí", () => {
     expect(isAddressStepValid({ pickup: CORDOBA, delivery: FAR_AWAY, ...VALID_WINDOW })).toBe(true);
   });
+
+  it("no deja avanzar mientras se busca la dirección de un pin recién movido", () => {
+    expect(isAddressStepValid({ pickup: CORDOBA, delivery: { ...FAR_AWAY, resolving: true }, ...VALID_WINDOW })).toBe(false);
+  });
 });
 
 describe("AddressStep — error inline de ubicaciones muy cercanas", () => {

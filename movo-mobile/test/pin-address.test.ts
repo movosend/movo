@@ -36,4 +36,15 @@ describe("resolvePinAddress", () => {
       PIN_ADDRESS_FALLBACK,
     );
   });
+  it("si Google no responde a tiempo usa el texto genérico (no deja el guardado bloqueado)", async () => {
+    jest.useFakeTimers();
+    try {
+      mockReverseGeocode.mockReturnValue(new Promise(() => {}));
+      const pending = resolvePinAddress(-31.4, -64.2, 1000);
+      jest.advanceTimersByTime(1000);
+      await expect(pending).resolves.toBe(PIN_ADDRESS_FALLBACK);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
