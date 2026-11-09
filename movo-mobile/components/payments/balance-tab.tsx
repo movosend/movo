@@ -1,7 +1,7 @@
 import type { UserLedgerEntry } from "@movo/shared/dist/types/user-ledger";
 import { router } from "expo-router";
 import { ChevronRight } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, InteractionManager, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useBalance } from "../../src/hooks/use-balance";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
@@ -75,16 +75,20 @@ export function BalanceTab({ openPay, onPayOpened }: { openPay?: boolean; onPayO
   const page = balance.data?.pages[0];
   const amount = page?.balanceArs ?? 0;
   const entries = (balance.data?.pages.flatMap((p) => p.items) ?? []).filter(isOpenDebt);
-  // Desde un atajo (`?pay=1`) la hoja se abre después de que termina la transición de la pantalla.
+  // Desde un atajo (`?pay=1`) la hoja se abre después de que termina la transición de la pantalla. El param se limpia
+  // recién al abrir: limpiarlo antes cambia `openPay` y el cleanup cancelaba la tarea antes de que corriera. El callback
+  // va por ref para que una arrow inline del padre no vuelva a disparar el efecto en cada render.
+  const onPayOpenedRef = useRef(onPayOpened);
+  onPayOpenedRef.current = onPayOpened;
   useEffect(() => {
     if (!openPay) return;
-    onPayOpened?.();
     const task = InteractionManager.runAfterInteractions(() => {
       setPayKey((key) => key + 1);
       setPayOpen(true);
+      onPayOpenedRef.current?.();
     });
     return () => task.cancel();
-  }, [openPay, onPayOpened]);
+  }, [openPay]);
   // El endpoint pagina todos los movimientos. Si la página visible solo contiene pagos o
   // deudas cerradas, avanzar hasta encontrar una deuda o agotar las páginas.
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react-native";
+import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import { BalanceTab } from "../components/payments/balance-tab";
 
 const mockFetchNextPage = jest.fn();
@@ -119,5 +119,14 @@ describe("BalanceTab (MOVO-315)", () => {
     await fireEvent.press(screen.getByTestId("balance-pay-button"));
     expect(mockSheetMounts.length).toBe(mountsAfterFirst + 1);
     expect(mockSheetMounts.at(-1)).toEqual({ visible: true });
+  });
+  it("el atajo ?pay=1 abre la hoja aunque el padre limpie el param al abrirla", async () => {
+    const onPayOpened = jest.fn();
+    const screen = await render(<BalanceTab openPay onPayOpened={onPayOpened} />);
+    await waitFor(() => expect(onPayOpened).toHaveBeenCalledTimes(1));
+    // El padre limpia `?pay=1`: el re-render con `openPay=false` no debe cancelar la apertura ya hecha.
+    await screen.rerender(<BalanceTab openPay={false} onPayOpened={onPayOpened} />);
+    expect(mockSheetMounts.at(-1)?.visible).toBe(true);
+    expect(onPayOpened).toHaveBeenCalledTimes(1);
   });
 });
