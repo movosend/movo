@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react-native";
 import { getCurrentLocation } from "../src/lib/location";
 import { shipmentsClient } from "../src/api/shipments-client";
 import { clearOptimizedRouteCache, useOptimizedRoute } from "../src/hooks/use-optimized-route";
+import { useAuthStore } from "../src/store/auth-store";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
 
 const mockStopWatching = jest.fn();
@@ -80,6 +81,43 @@ describe("useOptimizedRoute (MOVO-207)", () => {
       expect(second.result.current.isLoading).toBe(false);
       expect(second.result.current.route).toEqual(mockRoute);
       await second.unmount();
+    });
+
+    it("otra cuenta en el mismo teléfono no ve la ruta guardada de la anterior", async () => {
+      (getCurrentLocation as jest.Mock).mockResolvedValue(mockCarrierLocation);
+      (shipmentsClient.getMyRoute as jest.Mock).mockResolvedValue(mockRoute);
+      useAuthStore.setState({ user: { userId: "carrier-a" } as never });
+      const first = await renderHook(() => useOptimizedRoute());
+      await waitFor(() => expect(first.result.current.route).toEqual(mockRoute));
+      await first.unmount();
+
+      useAuthStore.setState({ user: { userId: "carrier-b" } as never });
+      (shipmentsClient.getMyRoute as jest.Mock).mockReturnValue(new Promise(() => undefined));
+      const second = await renderHook(() => useOptimizedRoute());
+      expect(second.result.current.isLoading).toBe(true);
+      expect(second.result.current.route).toBeNull();
+      await second.unmount();
+      useAuthStore.setState({ user: null });
+    });
+
+    it("si el pedido falla, la ruta que vino solo del cache no queda en pantalla", async () => {
+      (getCurrentLocation as jest.Mock).mockResolvedValue(mockCarrierLocation);
+      (shipmentsClient.getMyRoute as jest.Mock).mockResolvedValue(mockRoute);
+      const first = await renderHook(() => useOptimizedRoute("trip-1"));
+      await waitFor(() => expect(first.result.current.route).toEqual(mockRoute));
+      await first.unmount();
+
+      (shipmentsClient.getMyRoute as jest.Mock).mockRejectedValue(new Error("viaje terminado"));
+      const second = await renderHook(() => useOptimizedRoute("trip-1"));
+      await waitFor(() => expect(second.result.current.error).not.toBeNull());
+      expect(second.result.current.route).toBeNull();
+      await second.unmount();
+
+      // Y no vuelve a aparecer en la próxima entrada.
+      (shipmentsClient.getMyRoute as jest.Mock).mockReturnValue(new Promise(() => undefined));
+      const third = await renderHook(() => useOptimizedRoute("trip-1"));
+      expect(third.result.current.route).toBeNull();
+      await third.unmount();
     });
 
     it("con la pantalla enfocada, la posición del transportista sigue al GPS y se corta al salir", async () => {

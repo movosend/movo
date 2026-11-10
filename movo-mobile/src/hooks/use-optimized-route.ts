@@ -3,6 +3,7 @@ import { useFocusEffect } from "expo-router";
 import { getCurrentLocation, watchForegroundLocation } from "../lib/location";
 import { shipmentsClient, type CarrierRoute } from "../api/shipments-client";
 import { friendlyErrorMessage } from "../lib/error-messages";
+import { useAuthStore } from "../store/auth-store";
 
 export interface UseOptimizedRouteResult {
   route: CarrierRoute | null;
@@ -33,7 +34,8 @@ export interface UseOptimizedRouteResult {
  */
 type LatLng = { lat: number; lng: number };
 
-/** Última ruta por viaje (`""` = la ruta del día sin viaje), para no volver a la pantalla de carga. */
+/** Última ruta por usuario y viaje (viaje `""` = la ruta del día), para no volver a la pantalla de carga.
+ * Va con el usuario en la clave: otra cuenta en el mismo teléfono no ve las paradas de la anterior. */
 const lastRouteByTrip = new Map<string, { route: CarrierRoute; location: LatLng }>();
 
 /** Solo para tests: el cache es del módulo y sobrevive entre casos. */
@@ -42,7 +44,8 @@ export function clearOptimizedRouteCache(): void {
 }
 
 export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
-  const cacheKey = tripId ?? "";
+  const userId = useAuthStore((s) => s.user?.userId ?? "");
+  const cacheKey = `${userId}:${tripId ?? ""}`;
   const cached = lastRouteByTrip.get(cacheKey);
   const [route, setRoute] = useState<CarrierRoute | null>(cached?.route ?? null);
   const [carrierLocation, setCarrierLocation] = useState<LatLng | null>(cached?.location ?? null);
@@ -51,6 +54,9 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
   const [gpsPermissionDenied, setGpsPermissionDenied] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const requestSeqRef = useRef<number>(0);
+  // Si la ruta en pantalla salió de este montaje o solo del cache: un error sobre una del cache no la
+  // sostiene (el viaje pudo terminar o cancelarse desde la última visita).
+  const fetchedRef = useRef<boolean>(false);
 
   const fetchRoute = useCallback(async (isRefresh = false) => {
     const requestId = ++requestSeqRef.current;
@@ -81,11 +87,14 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
         : await shipmentsClient.getMyRoute(coords);
       if (requestId !== requestSeqRef.current) return;
       setRoute(result);
-      lastRouteByTrip.set(tripId ?? "", { route: result, location: coords });
+      fetchedRef.current = true;
+      lastRouteByTrip.set(cacheKey, { route: result, location: coords });
     } catch (err: unknown) {
       if (requestId !== requestSeqRef.current) return;
-      // En un refresh en background, preservar la ruta existente para no dejar la pantalla vacía
-      if (!isRefresh) setRoute(null);
+      lastRouteByTrip.delete(cacheKey);
+      // En un refresh en background, preservar la ruta ya confirmada en esta visita para no dejar la
+      // pantalla vacía; la que vino solo del cache se descarta.
+      if (!isRefresh || !fetchedRef.current) setRoute(null);
       setError(friendlyErrorMessage(err, "No pudimos calcular tu ruta optimizada. Intentá de nuevo."));
     } finally {
       if (requestId === requestSeqRef.current) {
@@ -93,7 +102,7 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
         setIsRefreshing(false);
       }
     }
-  }, [tripId]);
+  }, [tripId, cacheKey]);
 
   // AC7: Refrescar la ruta automáticamente al ganar foco (ej: al volver de completar una parada).
   // isRefresh=true: el primer render ya inicia con isLoading=true; los refrescos por foco son silenciosos.
