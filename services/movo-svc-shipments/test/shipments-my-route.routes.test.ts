@@ -99,9 +99,7 @@ describe("GET /shipments/my-route (HTTP Routes & ACs)", () => {
     expect(mockService.getMyRoute).toHaveBeenCalledWith(
       CARRIER_ID,
       { lat: -31.4167, lng: -64.1833 },
-      undefined,
-      [],
-      undefined,
+      { callerRoles: [] },
     );
     const body = JSON.parse(res.body);
     expect(body).toEqual(sampleRoute);
@@ -119,9 +117,7 @@ describe("GET /shipments/my-route (HTTP Routes & ACs)", () => {
     expect(mockService.getMyRoute).toHaveBeenCalledWith(
       CARRIER_ID,
       { lat: -31.4167, lng: -64.1833 },
-      undefined,
-      [],
-      undefined,
+      { callerRoles: [] },
     );
   });
 
@@ -137,9 +133,7 @@ describe("GET /shipments/my-route (HTTP Routes & ACs)", () => {
     expect(mockService.getMyRoute).toHaveBeenCalledWith(
       CARRIER_ID,
       { lat: -31.4167, lng: -64.1833 },
-      tripId,
-      [],
-      undefined,
+      { tripId, callerRoles: [] },
     );
   });
 
@@ -155,9 +149,7 @@ describe("GET /shipments/my-route (HTTP Routes & ACs)", () => {
     expect(mockService.getMyRoute).toHaveBeenCalledWith(
       CARRIER_ID,
       { lat: -31.4167, lng: -64.1833 },
-      tripId,
-      ["admin"],
-      undefined,
+      { tripId, callerRoles: ["admin"] },
     );
   });
 
@@ -172,9 +164,7 @@ describe("GET /shipments/my-route (HTTP Routes & ACs)", () => {
     expect(mockService.getMyRoute).toHaveBeenCalledWith(
       CARRIER_ID,
       { lat: -31.4167, lng: -64.1833 },
-      undefined,
-      [],
-      270,
+      { callerRoles: [], heading: 270 },
     );
   });
 

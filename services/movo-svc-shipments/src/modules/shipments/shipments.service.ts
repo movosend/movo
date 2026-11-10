@@ -3356,11 +3356,14 @@ export function createShipmentsService(
     async getMyRoute(
       carrierId: string,
       location: { lat: number; lng: number },
-      tripId?: string,
-      callerRoles: UserRole[] = [],
-      /** MOVO-357: rumbo del auto, solo para la línea por calles (el optimizador no lo usa). */
-      heading?: number,
+      options: {
+        tripId?: string;
+        callerRoles?: UserRole[];
+        /** MOVO-357: rumbo del auto, solo para la línea por calles (el optimizador no lo usa). */
+        heading?: number;
+      } = {},
     ): Promise<CarrierRoute> {
+      const { tripId, callerRoles = [], heading } = options;
       if (tripId) {
         if (!tripRepository) {
           throw new Error("getMyRoute requiere tripRepository (ShipmentsServiceOptions) para validar tripId.");

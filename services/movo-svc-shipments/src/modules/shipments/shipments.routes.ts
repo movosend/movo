@@ -457,7 +457,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         tripId?: string;
         heading?: number;
       };
-      return service.getMyRoute(carrierId, { lat, lng }, tripId, callerRoles, heading);
+      return service.getMyRoute(carrierId, { lat, lng }, { tripId, callerRoles, heading });
     }
   );
 
