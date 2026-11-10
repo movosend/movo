@@ -91,6 +91,15 @@ export function RouteTrackingChatCard({
                 })}
               </View>
             </View>
+          ) : readOnlyCopy ? (
+            // Sin franja del transportista, el porqué del solo lectura va al lado del botón, en la misma
+            // fila (feedback 10/11: abajo quedaba un hueco vacío y el texto en otra fila).
+            <Text
+              testID={`${chatTestID}-readonly-copy`}
+              className="flex-1 pr-3 font-sans text-small text-fg-3"
+            >
+              {readOnlyCopy}
+            </Text>
           ) : (
             <View className="flex-1" />
           )}
@@ -126,7 +135,7 @@ export function RouteTrackingChatCard({
           ) : null}
         </View>
       ) : null}
-      {readOnlyCopy ? (
+      {readOnlyCopy && sharing !== null ? (
         <Text testID={`${chatTestID}-readonly-copy`} className="border-t border-border bg-bg px-4 py-2.5 font-sans text-small text-fg-3">
           {readOnlyCopy}
         </Text>
