@@ -255,6 +255,102 @@ describe("RouteMapCard", () => {
     });
   });
 
+  describe("MOVO-359: la ruta del transportista al retiro", () => {
+    const P = (latitude: number, longitude: number) => ({ latitude, longitude });
+    // Sobre un meridiano: el vehículo al sur del retiro, la entrega al norte.
+    const APPROACH = [P(-31.45, -64.2), P(-31.43, -64.2), P(-31.4, -64.2)];
+    const PLANNED = [P(-31.4, -64.2), P(-31.35, -64.2), P(-31.3, -64.2)];
+    const live = (over: Record<string, unknown> = {}) => ({
+      position: { lat: -31.45, lng: -64.2 },
+      stale: false,
+      trace: [],
+      planned: PLANNED,
+      approach: APPROACH,
+      phase: "pickup" as const,
+      ...over,
+    });
+
+    it("antes del retiro dibuja una sola línea gris: del vehículo al retiro y de ahí a la entrega", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      const { getByTestId, queryByTestId } = await render(
+        <RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} live={live()} />,
+      );
+
+      const remaining = getByTestId("map-remaining").props.coordinates as unknown[];
+      expect(remaining[0]).toEqual(P(-31.45, -64.2));
+      // Una sola línea: el tramo al retiro y, a continuación, la planificada entera.
+      expect(remaining.slice(-PLANNED.length)).toEqual(PLANNED);
+      expect(remaining.slice(0, -PLANNED.length)).toContainEqual(APPROACH[2]);
+      expect(queryByTestId("map-trace")).toBeNull();
+    });
+
+    it("sin la ruta al retiro dibuja la planificada entera, como antes", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      const { getByTestId } = await render(
+        <RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} live={live({ approach: [] })} />,
+      );
+
+      expect(getByTestId("map-remaining").props.coordinates).toEqual(PLANNED);
+    });
+
+    it("la llegada estimada al retiro mide la ruta por calle", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      let estimate: { kind: string; km?: number; target?: string } | undefined;
+      const { getByTestId } = await render(
+        <RouteMapCard
+          testID="map"
+          pickup={PICKUP}
+          delivery={DELIVERY}
+          live={live({ viewer: "sender" })}
+          renderFullscreenSheet={(ctx) => {
+            estimate = ctx.estimate;
+            return null;
+          }}
+        />,
+      );
+      await fireEvent.press(getByTestId("map-frame-expand"));
+
+      // 5,6 km del vehículo al retiro sobre el meridiano.
+      expect(estimate).toEqual(expect.objectContaining({ kind: "eta", target: "pickup", km: 5.6 }));
+    });
+
+    it("al pasar a la entrega el tramo se reinicia: el índice del tramo al retiro no se usa sobre la planificada", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      const screen = await render(
+        <RouteMapCard
+          testID="map"
+          pickup={PICKUP}
+          delivery={DELIVERY}
+          live={live({ position: { lat: -31.41, lng: -64.2 } })}
+        />,
+      );
+      // El auto ya está en el segundo tramo de la ruta al retiro.
+      await screen.rerender(
+        <RouteMapCard
+          testID="map"
+          pickup={PICKUP}
+          delivery={DELIVERY}
+          live={live({ position: { lat: -31.4, lng: -64.2 } })}
+        />,
+      );
+      // Retiró el paquete: sale por el primer tramo de la planificada. Mismas rutas (mismas referencias):
+      // solo cambia la etapa, que es lo que tiene que reiniciar el tramo.
+      await screen.rerender(
+        <RouteMapCard
+          testID="map"
+          pickup={PICKUP}
+          delivery={DELIVERY}
+          live={live({ position: { lat: -31.39, lng: -64.2 }, phase: "delivery" })}
+        />,
+      );
+
+      const remaining = screen.getByTestId("map-remaining").props.coordinates as unknown[];
+      // Vehículo, su proyección en el primer tramo y los dos puntos que faltan. Con el índice viejo (1) se
+      // saltaba el primer tramo y faltaba un punto.
+      expect(remaining).toHaveLength(4);
+    });
+  });
+
   describe("MOVO-361: un solo mapa, a pantalla completa con el seguimiento", () => {
     const CARRIER = { lat: -31.415, lng: -64.185 };
     const LIVE = { position: CARRIER, stale: false, trace: [], planned: [] };

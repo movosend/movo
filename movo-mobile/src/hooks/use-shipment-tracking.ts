@@ -57,5 +57,19 @@ export function useShipmentTracking(
     () => (data?.trace ?? []).map((p) => ({ latitude: p.lat, longitude: p.lng })),
     [data?.trace],
   );
-  return { ...query, data, planned, trace };
+  // MOVO-359: ruta del vehículo al retiro (antes del retiro). Como la planificada, la última no vacía se
+  // conserva si un pedido la trae `null` (el proveedor falló y el backend lo cachea un minuto): sin ella
+  // la línea saltaría de golpe a la ruta entera.
+  const approachPolyline = data?.approachRoute?.polyline ?? null;
+  const lastApproach = useRef<{ shipmentId: string | undefined; points: RoutePoint[] }>({ shipmentId, points: [] });
+  const approach = useMemo<RoutePoint[]>(() => {
+    if (approachPolyline) {
+      const points = decodePolyline(approachPolyline);
+      lastApproach.current = { shipmentId, points };
+      return points;
+    }
+    if (!enabled) return [];
+    return lastApproach.current.shipmentId === shipmentId ? lastApproach.current.points : [];
+  }, [approachPolyline, shipmentId, enabled]);
+  return { ...query, data, planned, trace, approach };
 }

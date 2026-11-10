@@ -88,6 +88,7 @@ import {
 import { formatTimeOfDay, formatTimeRange } from "../../../src/lib/time-format";
 import { useLivePosition } from "../../../src/hooks/use-live-position";
 import { useShipmentTracking } from "../../../src/hooks/use-shipment-tracking";
+import { useApproachRefresh } from "../../../src/hooks/use-approach-refresh";
 import { CashCancellationNote } from "../../../components/shipments/cash-cancellation-note";
 import { carrierPriceBreakdown, isCashShipment } from "../../../src/lib/payment-method";
 import { fundingProcessingPollInterval, fundsStatusVariant } from "../../../src/lib/funds-status-format";
@@ -399,6 +400,15 @@ export default function ShipmentDetailScreen() {
     enabled: liveEnabled,
   });
   const partyTracking = useShipmentTracking(shipment?.id, { enabled: liveEnabled, status: shipment?.status });
+  // MOVO-359: antes del retiro el mapa dibuja la ruta del transportista al punto de retiro. Se pide una vez y
+  // solo se renueva si el auto se aleja de esa línea.
+  const isPickupPhase = shipment?.status !== ShipmentStatus.IN_TRANSIT;
+  useApproachRefresh({
+    active: liveEnabled && isPickupPhase,
+    approach: partyTracking.approach,
+    position: livePosition ? { lat: livePosition.lat, lng: livePosition.lng } : null,
+    refetch: partyTracking.refetch,
+  });
   const routeLive: RouteMapLive | null = liveEnabled
     ? {
         position: livePosition ? { lat: livePosition.lat, lng: livePosition.lng } : null,
@@ -406,7 +416,8 @@ export default function ShipmentDetailScreen() {
         lastSignalLabel: livePosition ? `Última señal ${formatTimeOfDay(livePosition.capturedAt)}` : undefined,
         trace: partyTracking.trace,
         planned: partyTracking.planned,
-        phase: shipment?.status === ShipmentStatus.IN_TRANSIT ? "delivery" : "pickup",
+        approach: partyTracking.approach,
+        phase: isPickupPhase ? "pickup" : "delivery",
         viewer: seesReceiverView ? "receiver" : "sender",
       }
     : null;
