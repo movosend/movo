@@ -82,6 +82,14 @@ export interface TransactionListItem {
    * `breakdown`). `null` si no hubo deuda de por medio.
    */
   debtAmountArs: number | null;
+  /**
+   * Solo con `role=carrier`: lo que le quedó al transportista. Con la liquidación acreditada, el neto real; con el hold
+   * reservado o capturado sin acreditar, un estimado (`receivedIsEstimate`); en efectivo, el precio menos la comisión
+   * de Movo. `null` si no aplica (pago liberado, reembolsado, en disputa) o si el backend es anterior al campo.
+   */
+  receivedArs?: number | null;
+  /** `true` si `receivedArs` es un estimado (comisión de MP todavía sin confirmar). */
+  receivedIsEstimate?: boolean;
   /** Solo con `role=sender`; `null` si el hold no tiene datos de tarjeta. */
   card?: TransactionCard | null;
 }

@@ -54,6 +54,9 @@ const listItemProperties = {
   refundedAmountArs: { type: ["number", "null"] },
   // MOVO-311: parte del monto que es deuda de la cuenta corriente (recargo del emisor / descuento del transportista).
   debtAmountArs: { type: ["number", "null"] },
+  // Solo con role=carrier: lo que le quedó (neto real, estimado o efectivo menos comisión).
+  receivedArs: { type: ["number", "null"] },
+  receivedIsEstimate: { type: "boolean" },
   card,
 } as const;
 

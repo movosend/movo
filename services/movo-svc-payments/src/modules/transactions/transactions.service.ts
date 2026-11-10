@@ -1,5 +1,6 @@
 import {
   ApiError,
+  estimateReceivedArs,
   ARGENTINA_UTC_OFFSET_HOURS,
   TRANSACTION_STATUSES,
   TRANSACTIONS_DEFAULT_LIMIT,
@@ -117,6 +118,28 @@ function debtAmount(row: TransactionRow, role: TransactionRole, status: Transact
   return amount > 0 ? amount : null;
 }
 
+/**
+ * Lo que le quedó al transportista (feedback de TestFlight build 18: la fila mostraba el precio que pagó el
+ * emisor). Acreditado: el neto real de la liquidación. Reservado o capturado sin acreditar: precio menos la
+ * comisión del hold menos el estimado de MP. Efectivo: precio menos comisión (lo arma la query). Sin cobro
+ * (liberado, reembolsado, en disputa): `null`, la app cae al precio.
+ */
+function receivedAmount(
+  row: TransactionRow,
+  status: TransactionStatus,
+): { receivedArs: number | null; receivedIsEstimate: boolean } {
+  if (row.kind === "balance_payment") return { receivedArs: null, receivedIsEstimate: false };
+  if (row.kind === "cash_shipment") return { receivedArs: row.netAmountArs, receivedIsEstimate: false };
+  if (row.settlementStatus === "credited" && row.netAmountArs !== null) {
+    return { receivedArs: row.netAmountArs, receivedIsEstimate: false };
+  }
+  if ((status === "reserved" || status === "completed") && row.holdCommissionArs !== null) {
+    const net = Math.round((row.baseAmountArs - row.holdCommissionArs) * 100) / 100;
+    return { receivedArs: estimateReceivedArs(net, row.baseAmountArs), receivedIsEstimate: true };
+  }
+  return { receivedArs: null, receivedIsEstimate: false };
+}
+
 function toListItem(row: TransactionRow, role: TransactionRole): TransactionListItem {
   const status = deriveTransactionStatus({
     kind: row.kind,
@@ -136,6 +159,7 @@ function toListItem(row: TransactionRow, role: TransactionRole): TransactionList
     refundedAmountArs: row.hasRefund ? visibleAmount(row.refundedAmountArs, row, role) : null,
     debtAmountArs: debtAmount(row, role, status),
   };
+  if (role === "carrier") Object.assign(item, receivedAmount(row, status));
   // La tarjeta es del emisor: con `role=carrier` la clave ni viaja.
   if (role === "sender") {
     item.card = row.cardBrand

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { FastifyInstance } from "fastify";
+import { estimateReceivedArs } from "@movo/shared";
 import { buildApp } from "../src/app";
 
 // Integración contra Postgres y Redis reales (convención del repo). Las filas se insertan
@@ -161,6 +162,38 @@ describe("/payments/transactions (MOVO-303)", () => {
     it("un hold sin datos de tarjeta devuelve card null", async () => {
       await createHold({ cardBrand: null, cardLast4: null });
       expect((await list("role=sender")).json().items[0].card).toBeNull();
+    });
+  });
+
+  describe("lo que le quedó al transportista (receivedArs)", () => {
+    type CarrierItem = { id: string; amountArs: number; receivedArs: number | null; receivedIsEstimate: boolean };
+    const carrierItems = async () => (await list("role=carrier", CARRIER)).json().items as CarrierItem[];
+
+    it("acreditado: el neto real; reservado: precio menos comisión menos el estimado de MP", async () => {
+      const credited = await createHold({ status: "captured" });
+      await settle(credited, "credited");
+      const reserved = await createHold({ status: "authorized" });
+
+      const byId = new Map((await carrierItems()).map((i) => [i.id, i]));
+      expect(byId.get(credited.id)).toMatchObject({ amountArs: 1150, receivedArs: 952.85, receivedIsEstimate: false });
+      expect(byId.get(reserved.id)).toMatchObject({
+        amountArs: 1150,
+        receivedArs: estimateReceivedArs(1000, 1150),
+        receivedIsEstimate: true,
+      });
+    });
+
+    it("efectivo: el precio menos la comisión de Movo", async () => {
+      await app.db.cashShipmentPayment.create({
+        data: { shipmentId: uuid(), senderId: SENDER, carrierId: CARRIER, amountArs: 1170, commissionArs: 152.61 },
+      });
+      expect((await carrierItems())[0]).toMatchObject({ amountArs: 1170, receivedArs: 1017.39, receivedIsEstimate: false });
+    });
+
+    it("liberado sin cobrar: null, y el emisor no lo recibe", async () => {
+      await createHold({ status: "cancelled" });
+      expect((await carrierItems())[0]).toMatchObject({ receivedArs: null, receivedIsEstimate: false });
+      expect("receivedArs" in (await list("role=sender")).json().items[0]).toBe(false);
     });
   });
 
