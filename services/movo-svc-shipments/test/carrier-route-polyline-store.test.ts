@@ -54,6 +54,73 @@ describe("carrier-route-polyline-store", () => {
     });
   });
 
+  it("pasa el rumbo del origen al proveedor, y el rumbo no cambia la clave del cache (MOVO-357)", async () => {
+    const calls: RouteInput[] = [];
+    const store = createCarrierRoutePolylineStore({
+      redis: memoryRedis(),
+      provider: "google",
+      routesProvider: createFakeRoutesProvider(route, {
+        async getRoute(input) {
+          calls.push(input);
+          return route;
+        },
+      }),
+    });
+
+    expect(await store.get("c1", { ...ORIGIN, heading: 90 }, STOPS)).toBe("abc");
+    expect(await store.get("c1", { ...ORIGIN, heading: 180 }, STOPS)).toBe("abc");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ origin: ORIGIN, originHeading: 90 });
+    expect(calls[0]!.origin).not.toHaveProperty("heading");
+  });
+
+  it("una línea armada sin rumbo se rearma una sola vez con el primer pedido que trae rumbo (MOVO-357)", async () => {
+    const calls: RouteInput[] = [];
+    let n = 0;
+    const store = createCarrierRoutePolylineStore({
+      redis: memoryRedis(),
+      provider: "google",
+      routesProvider: createFakeRoutesProvider(route, {
+        async getRoute(input) {
+          calls.push(input);
+          n += 1;
+          return { ...route, polyline: `linea-${n}` };
+        },
+      }),
+    });
+    const moved = { lat: -31.39, lng: -64.21 };
+
+    expect(await store.get("c1", ORIGIN, STOPS)).toBe("linea-1");
+    expect(await store.get("c1", ORIGIN, STOPS)).toBe("linea-1");
+    expect(await store.get("c1", { ...moved, heading: 90 }, STOPS)).toBe("linea-2");
+    expect(await store.get("c1", { ...moved, heading: 270 }, STOPS)).toBe("linea-2");
+    expect(await store.get("c1", ORIGIN, STOPS)).toBe("linea-2");
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toMatchObject({ origin: moved, originHeading: 90 });
+  });
+
+  it("si falla el rearmado con rumbo, sigue la línea que había y no reintenta hasta que venza la falla (MOVO-357)", async () => {
+    let n = 0;
+    const store = createCarrierRoutePolylineStore({
+      redis: memoryRedis(),
+      provider: "google",
+      routesProvider: createFakeRoutesProvider(route, {
+        async getRoute() {
+          n += 1;
+          if (n > 1) throw new Error("google caído");
+          return route;
+        },
+      }),
+    });
+
+    expect(await store.get("c1", ORIGIN, STOPS)).toBe("abc");
+    expect(await store.get("c1", { ...ORIGIN, heading: 90 }, STOPS)).toBe("abc");
+    expect(await store.get("c1", { ...ORIGIN, heading: 90 }, STOPS)).toBe("abc");
+    expect(n).toBe(2);
+  });
+
   it("cachea por orden de paradas: el mismo orden no vuelve a pedir, otro orden sí", async () => {
     let calls = 0;
     const store = createCarrierRoutePolylineStore({

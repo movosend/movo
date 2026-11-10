@@ -96,6 +96,26 @@ describe("Mi ruta: camino por calles (MOVO-346)", () => {
     expect(coordinates.at(-1)).toEqual({ latitude: -31.43, longitude: -64.19 });
   });
 
+  it("MOVO-357: con el auto sobre la línea no hay recta desde el auto, y el recorte no vuelve a un tramo anterior", async () => {
+    // Ida al sur, oeste, vuelta al norte y de nuevo al este hasta casi el punto de partida.
+    const LOOP = "~xs~D~cvfK~{B??~{B_|B??wuB";
+    mockRoute(LOOP, { lat: -31.41, lng: -64.2 }); // sobre la vuelta (tramo 2)
+    const screen = await render(<OptimizedRouteScreen />);
+    const start = lastPolyline()[0];
+    expect(start.latitude).toBeCloseTo(-31.41, 6);
+    expect(start.longitude).toBeCloseTo(-64.2, 6);
+    // Sin el punto del auto duplicado: arranca en la proyección y sigue al norte.
+    expect(lastPolyline()[1]).toEqual({ latitude: -31.4, longitude: -64.2 });
+
+    // Siguiente posición cerca del arranque: el tramo 0 (la ida) está más cerca que el 3, pero ya se pasó.
+    mockRoute(LOOP, { lat: -31.4002, lng: -64.1804 });
+    await screen.rerender(<OptimizedRouteScreen />);
+
+    const coordinates = lastPolyline();
+    expect(coordinates.some((p: { latitude: number }) => p.latitude === -31.42)).toBe(false);
+    expect(coordinates.at(-1)).toEqual({ latitude: -31.4, longitude: -64.181 });
+  });
+
   it("sin polyline (el proveedor falló) no le pasa coordenadas: el mapa une las paradas con rectas", async () => {
     mockRoute(null, { lat: -31.41, lng: -64.18 });
 

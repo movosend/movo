@@ -1,4 +1,10 @@
-import { routeUntilStop, splitRoute, type RoutePoint } from "../src/lib/route-geometry";
+import {
+  CARRIER_ON_ROUTE_METERS,
+  carrierRouteLine,
+  routeUntilStop,
+  splitRoute,
+  type RoutePoint,
+} from "../src/lib/route-geometry";
 
 // MOVO-346: mismos casos que `geometry.test.ts` del panel (MOVO-328), sobre puntos de react-native-maps.
 const p = (latitude: number, longitude: number): RoutePoint => ({ latitude, longitude });
@@ -30,6 +36,75 @@ describe("splitRoute", () => {
 
   it("sin ruta devuelve vacío", () => {
     expect(splitRoute([], p(0, 0))).toEqual({ done: [], todo: [], segment: 0, offRouteMeters: 0 });
+  });
+});
+
+describe("carrierRouteLine (MOVO-357)", () => {
+  // Sobre el ecuador, 0.001° ≈ 111 m. La ruta va al este, da la vuelta en U y vuelve por la misma
+  // calle hasta x=0.001, y de ahí sigue al norte: el "va, vuelve y gira" de la captura.
+  const uTurn = [p(0, 0), p(0, 0.003), p(0.00005, 0.003), p(0.00005, 0.001), p(0.003, 0.001)];
+
+  it("cerca de la línea arranca en la proyección, sin recta desde el auto", () => {
+    const carrier = p(0.0002, 0.0015); // ~22 m al norte de la calle
+    const line = carrierRouteLine([p(0, 0), p(0, 0.003)], carrier);
+
+    expect(line.points[0]).toEqual(p(0, 0.0015));
+    expect(line.points).not.toContainEqual(carrier);
+    expect(line.segment).toBe(0);
+  });
+
+  it("lejos de la línea deja la recta y no avanza el tramo", () => {
+    const carrier = p(0.0015, 0.0015); // ~166 m: otra calle
+    const line = carrierRouteLine([p(0, 0), p(0, 0.003)], carrier, 0);
+
+    expect(line.points[0]).toEqual(carrier);
+    expect(line.points[1]).toEqual(p(0, 0.0015));
+    expect(line.segment).toBe(0);
+    expect(CARRIER_ON_ROUTE_METERS).toBeLessThan(166);
+  });
+
+  it("con el tramo guardado, el auto en la vuelta no salta a la ida y no conserva el giro", () => {
+    // Primera posición: ya pasó el giro y va por la vuelta hacia el oeste (tramo 2: la ida es el 0 y el
+    // giro el 1). La ida y la vuelta están igual de cerca: el rumbo decide.
+    const first = carrierRouteLine(uTurn, p(0.00005, 0.002), 0, 270);
+    expect(first.segment).toBe(2);
+
+    // Siguiente posición, sobre la calle compartida: la ida (tramo 0) queda más cerca, pero no se vuelve.
+    const second = carrierRouteLine(uTurn, p(0.00002, 0.0015), first.segment);
+    expect(second.segment).toBe(2);
+    expect(second.points).not.toContainEqual(p(0, 0.003));
+    expect(second.points.at(-1)).toEqual(p(0.003, 0.001));
+  });
+
+  it("en la ida y cerca de la vuelta no salta para adelante, con rumbo o sin él (review de la #336)", () => {
+    // ~4 m al norte de la ida y ~1 m de la vuelta: ruido normal del GPS antes de hacer el giro.
+    const carrier = p(0.00004, 0.0015);
+    expect(splitRoute(uTurn, carrier).segment).toBe(2);
+
+    const withoutHeading = carrierRouteLine(uTurn, carrier);
+    expect(withoutHeading.segment).toBe(0);
+    expect(withoutHeading.points).toContainEqual(p(0, 0.003));
+
+    const headingEast = carrierRouteLine(uTurn, carrier, 0, 90);
+    expect(headingEast.segment).toBe(0);
+    expect(headingEast.points).toContainEqual(p(0.00005, 0.003));
+  });
+
+  it("después de la vuelta en U, el rumbo lo pasa a la vuelta aunque la ida esté igual de cerca", () => {
+    const carrier = p(0.00003, 0.0015);
+    expect(carrierRouteLine(uTurn, carrier, 0).segment).toBe(0);
+    expect(carrierRouteLine(uTurn, carrier, 0, 265).segment).toBe(2);
+  });
+
+  it("sin tramo guardado, el mismo punto cae en la ida y arrastra el giro entero (el bug)", () => {
+    const line = splitRoute(uTurn, p(0.00002, 0.0015));
+    expect(line.segment).toBe(0);
+    expect(line.todo).toContainEqual(p(0, 0.003));
+  });
+
+  it("sin posición o sin ruta devuelve la ruta tal cual", () => {
+    expect(carrierRouteLine(uTurn, null, 2)).toEqual({ points: uTurn, segment: 2 });
+    expect(carrierRouteLine([], p(0, 0))).toEqual({ points: [], segment: 0 });
   });
 });
 

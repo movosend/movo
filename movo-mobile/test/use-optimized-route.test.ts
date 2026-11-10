@@ -135,6 +135,45 @@ describe("useOptimizedRoute (MOVO-207)", () => {
     });
   });
 
+  describe("rumbo hacia my-route (MOVO-357)", () => {
+    it("manda el rumbo del fix si viene, sin agregarlo a la posición del mapa", async () => {
+      (getCurrentLocation as jest.Mock).mockResolvedValue({ ...mockCarrierLocation, heading: 180 });
+      (shipmentsClient.getMyRoute as jest.Mock).mockResolvedValue(mockRoute);
+      const { result, unmount } = await renderHook(() => useOptimizedRoute("trip-1"));
+      await waitFor(() => expect(result.current.route).toEqual(mockRoute));
+
+      expect(shipmentsClient.getMyRoute).toHaveBeenCalledWith({ lat: -31.4167, lng: -64.1833, heading: 180 }, "trip-1");
+      expect(result.current.carrierLocation).toEqual({ lat: -31.4167, lng: -64.1833 });
+      await unmount();
+    });
+
+    it("el primer rumbo del seguimiento vuelve a pedir la ruta una sola vez, para que el backend rearme la línea", async () => {
+      (getCurrentLocation as jest.Mock).mockResolvedValue(mockCarrierLocation);
+      (shipmentsClient.getMyRoute as jest.Mock).mockResolvedValue(mockRoute);
+      const { result, unmount } = await renderHook(() => useOptimizedRoute("trip-1"));
+      await waitFor(() => expect(mockOnWatchedLocation).not.toBeNull());
+      await waitFor(() => expect(result.current.route).toEqual(mockRoute));
+      expect(shipmentsClient.getMyRoute).toHaveBeenCalledTimes(1);
+      expect(shipmentsClient.getMyRoute).toHaveBeenLastCalledWith({ lat: -31.4167, lng: -64.1833 }, "trip-1");
+
+      // El pedido que dispara toma un fix nuevo (el del mock), así que la posición vuelve a la de ese fix.
+      await act(async () => mockOnWatchedLocation?.({ lat: -31.5, lng: -64.3, heading: 45 } as never));
+      expect(result.current.carrierHeading).toBe(45);
+      await waitFor(() => expect(shipmentsClient.getMyRoute).toHaveBeenCalledTimes(2));
+      expect(shipmentsClient.getMyRoute).toHaveBeenLastCalledWith(
+        { lat: -31.4167, lng: -64.1833, heading: 45 },
+        "trip-1",
+      );
+
+      // Más rumbos en la misma visita no vuelven a pedir.
+      await act(async () => mockOnWatchedLocation?.({ lat: -31.51, lng: -64.3, heading: 50 } as never));
+      await act(async () => mockOnWatchedLocation?.({ lat: -31.52, lng: -64.3 } as never));
+      expect(shipmentsClient.getMyRoute).toHaveBeenCalledTimes(2);
+      expect(result.current.carrierHeading).toBeUndefined();
+      await unmount();
+    });
+  });
+
   it("AC8: si el GPS no tiene permiso (granted: false), marca gpsPermissionDenied sin llamar al backend", async () => {
     (getCurrentLocation as jest.Mock).mockResolvedValueOnce({ granted: false });
 
