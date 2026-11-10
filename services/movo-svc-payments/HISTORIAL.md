@@ -893,3 +893,13 @@ un hold se pasa de plazo cuando le quedan menos de 6 h, no por antigüedad. Una 
 ### MOVO-35 — Datos de cobro para Métricas (ADR-025, DD-059)
 
 `POST /internal/payments/admin/report-facts` (`modules/settlements/admin-report-facts.routes.ts`): por envío, liquidación, reembolsos, holds y efectivo, sin datos personales. La cruza `svc-admin` para Cashflow y Precio. Una penalidad por cancelación no cuenta como cobro del envío. `capturedArs` no incluye el recargo por deuda del emisor (MOVO-311). Un hold vencido se reconoce por `cancelled` + `expired`, el mismo supuesto del webhook de MOVO-268 que sigue sin confirmar (ver MOVO-215 en el `CLAUDE.md` raíz).
+
+### Feedback de TestFlight build 18 — lo que le quedó al transportista en Cobros
+
+`TransactionListItem` suma `receivedArs`/`receivedIsEstimate`, solo con `role=carrier` (`receivedAmount` en `transactions.service.ts`, declarados en `transactions.schema.ts`). Cada caso sale así:
+- liquidación acreditada: el neto real;
+- hold reservado o capturado sin acreditar: precio menos la comisión del hold (`hold_commission_ars`, columna nueva en las tres ramas de la query) menos `estimateReceivedArs`;
+- efectivo: precio menos comisión;
+- liberado, reembolsado o en disputa: `null`.
+
+La fila mostraba el precio que pagó el emisor. El estimado no usa `holds.mp_fee_ars` porque ese fee es sobre el total con el recargo del emisor (MOVO-311).

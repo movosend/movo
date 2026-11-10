@@ -823,3 +823,7 @@ Los contratos de MOVO-345 (`AdminReportById` y los de cada pestaña), más `dist
 ### Cola de revisión manual de KYC (`types/admin-kyc.ts`, DD-063)
 
 `AdminKycReviewRow`/`AdminKycReviewPage`/`AdminKycReviewDetail`, `AdminKycDecisionRequest`/`Response` y las constantes de página y de largo del motivo (10 a 500). `AdminKycEvidence` (y sus piezas) es el detalle que trae Didit, que no se guarda. `ApiErrorCode` suma `KYC_SESSION_NOT_FOUND`, `KYC_REVIEW_STATUS_CHANGED`, `KYC_REVIEW_SUPERSEDED`, `KYC_EVIDENCE_NOT_FOUND`, `KYC_REVIEW_IN_PROGRESS` y `KYC_PROVIDER_UNCONFIRMED`; `ADMIN_AUDIT_ACTIONS` suma `kyc.approve` y `kyc.decline`. Las filas de la cola traen `inReviewSince` y el detalle `status`/`resolvedAt`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### Feedback de TestFlight build 18 — `TransactionListItem.receivedArs`
+
+`receivedArs?: number | null` y `receivedIsEstimate?: boolean` en `types/transaction.ts`: lo que le quedó al transportista en la fila de Cobros. Solo los manda `role=carrier`. Son opcionales para no romper literales armados a mano ni la app contra un backend anterior. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

@@ -5107,3 +5107,25 @@ Informe en `docs/pruebas/2026-10-25-flujo-completo.md`. Un commit por punto; el 
 - **Soporte**: con el tema "Envío" hay que elegir el envío (sin "No es sobre un envío"). El backend todavía acepta `topic=shipment` sin envío, para no romper la build 17 que tienen los testers.
 - **"Pagar mi saldo"**: la hoja se vuelve a montar en cada toque (`key`) y el atajo `?pay=1` la abre después de la transición; el param se limpia recién al abrir (limpiarlo antes cancelaba la apertura). La causa no se pudo confirmar; la hipótesis es un `Modal` de iOS que no se presentó y dejó `payOpen` trabado en `true`.
 - Copy y detalles: "Retiro confirmado"/"Entrega confirmada" también en la fila "Etapa"; el marcador del seguimiento en vivo es un auto. Pendiente: el "se ve horrible" de la reputación en tema claro, a la espera de que Juan Cruz diga qué parte.
+### Feedback de TestFlight build 18 (prueba del 09/11 a la tarde)
+
+Registro de los comentarios en `docs/pruebas/testflight/2026-11-09-build-18.md`.
+- **Líneas del seguimiento** (`src/lib/live-route-lines.ts`, que usan `LiveMap` y `RouteMapCard`):
+  - una sola ruta continua: lo que falta en el gris `fg3` y lo recorrido en tinta; sin `lineDashPattern`, que en Google Maps de iOS se ve rayado;
+  - con seguimiento, `RouteMapCard` no dibuja la línea base debajo. Era la "doble línea": `/shipments/route` y `/tracking` son dos llamadas distintas a Google;
+  - antes del retiro (`phase: "pickup"`), la ruta retiro→entrega se dibuja entera, con el pin "Retiro", y no hay línea entre el auto y el retiro. El recorte desde el vehículo era la recta del primer tramo;
+  - en camino, el recorrido se cierra con la posición en vivo. Lo que falta arranca en la proyección si el vehículo está a más de 60 m de la ruta, y la proyección no retrocede (`startSegment`);
+  - el receptor sigue sin ver el retiro ni la ruta antes del retiro.
+- **Datos del seguimiento** (`useShipmentTracking`): `keepPreviousData` y la última ruta no vacía del envío, para que las líneas no desaparezcan al cambiar la clave ni con un `plannedRoute: null` pasajero.
+- **Seguimiento entregado** (`tracking.tsx`): cuenta como entregado también por el estado del envío. Oculta la ETA, el destino y el "En ruta", y el auto queda en gris.
+- **Mi ruta** (`useOptimizedRoute`):
+  - la última ruta de cada viaje queda en memoria; al volver se muestra y se refresca en silencio;
+  - con la pantalla enfocada, la posición sigue al GPS (`watchForegroundLocation` en `src/lib/location.ts`);
+  - "Maps" pasa a llamarse "Ruta completa" y "Navegar", "Ir a la parada".
+- **Éxitos del handshake**: los callers ya no envuelven el resultado en un `SafeAreaView` negro. `HandshakeConfirmationResult` ocupa toda la ventana y aplica los insets adentro.
+- **Transportista**:
+  - en "Con quién tratás", el receptor lleva el mismo badge de verificado que el emisor y se saca la etiqueta "Efectivo";
+  - en el envío completado no se repite "Participantes", porque ya están en "Calificaciones";
+  - la fila de un viaje no `active` en Inicio abre `/carrier/trips/:id`;
+  - en Cobros se ve `receivedArs` (`transactionRowAmount`), con "aprox." si es un estimado.
+- **Reputación**: "Ver todas" pasa a tinta en lugar del lima, que en tema claro no llegaba a 2:1. Con una sola reseña, la tarjeta ocupa todo el ancho.
