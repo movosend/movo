@@ -27,6 +27,7 @@ import { StaticMarker } from "../map/static-marker";
 import { SkeletonBlock } from "../ui/skeleton-block";
 
 const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
+const NO_TRACE: LatLng[] = [];
 
 const MAP_HEIGHT = 220;
 const EDGE_PADDING = { top: 64, right: 48, bottom: 40, left: 48 };
@@ -248,8 +249,8 @@ export function RouteMapCard({
     const subscription = AppState.addEventListener("change", (state) => setAppActive(state === "active"));
     return () => subscription.remove();
   }, []);
-  // Con el transportista en el mapa, el barrido distrae: la línea que importa es la que falta.
-  const shouldSweep = routePoints.length > 0 && !paused && appActive && !live?.position;
+  // Con seguimiento en vivo no hay barrido: la ruta es la de `liveLayer`.
+  const shouldSweep = routePoints.length > 0 && !paused && appActive && !live;
   useEffect(() => {
     frameCallback.setActive(shouldSweep);
   }, [frameCallback, shouldSweep]);
@@ -311,16 +312,21 @@ export function RouteMapCard({
   const livePosition = live?.position ?? null;
   const livePlanned = live && live.planned.length > 1 ? live.planned : routePoints;
   const livePhase: LivePhase = live?.phase ?? "delivery";
+  // Por campo y no por `live`: el caller lo arma como objeto nuevo en cada render, y la proyección
+  // recorre toda la polyline.
+  const liveTrace = pickup && live ? live.trace : NO_TRACE;
+  const liveLat = livePosition?.lat;
+  const liveLng = livePosition?.lng;
   const liveLines = useMemo(
     () =>
       liveRouteLines({
         phase: livePhase,
         planned: livePlanned,
         // La traza no se dibuja sin `pickup`: arranca en el retiro (MOVO-194 AC4).
-        trace: pickup && live ? live.trace : [],
-        carrier: livePosition ? { latitude: livePosition.lat, longitude: livePosition.lng } : null,
+        trace: liveTrace,
+        carrier: liveLat !== undefined && liveLng !== undefined ? { latitude: liveLat, longitude: liveLng } : null,
       }),
-    [livePhase, livePlanned, pickup, live, livePosition],
+    [livePhase, livePlanned, liveTrace, liveLat, liveLng],
   );
   // El receptor (sin `pickup`) solo ve lo que falta desde el transportista ya en camino.
   const remainingPoints = !pickup && (!livePosition || livePhase === "pickup") ? [] : liveLines.remaining;
@@ -489,20 +495,24 @@ export function RouteMapCard({
         >
           {pickup ? (
             <>
+              {/* Con seguimiento en vivo ni la base ni el barrido: la ruta la dibuja `liveLayer`. */}
               {live ? null : (
-                <Polyline
-                  testID={testID ? `${testID}-route-base` : undefined}
-                  coordinates={routePoints}
-                  strokeColor={colors.fg3}
-                  strokeWidth={3.5}
-                />
+                <>
+                  <Polyline
+                    testID={testID ? `${testID}-route-base` : undefined}
+                    coordinates={routePoints}
+                    strokeColor={colors.fg3}
+                    strokeWidth={3.5}
+                  />
+                  <AnimatedPolyline
+                    testID={testID ? `${testID}-route-sweep` : undefined}
+                    coordinates={routePoints}
+                    strokeColor={hexToRgba(colors.fg1, 1)}
+                    strokeWidth={3.5}
+                    animatedProps={animatedSweepProps}
+                  />
+                </>
               )}
-              <AnimatedPolyline
-                coordinates={routePoints}
-                strokeColor={hexToRgba(colors.fg1, 1)}
-                strokeWidth={3.5}
-                animatedProps={animatedSweepProps}
-              />
 
               <StaticMarker
                 key={`pickup-${pickup.address}`}

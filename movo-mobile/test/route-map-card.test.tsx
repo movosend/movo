@@ -114,6 +114,26 @@ describe("RouteMapCard", () => {
       expect(queryByTestId("map-route-base")).toBeNull();
     });
 
+    it("sin posición todavía no anima el barrido de la otra ruta debajo de la del seguimiento", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      const live = { position: null, stale: false, trace: [], planned: [], phase: "pickup" as const };
+      const { getByTestId, queryByTestId } = await render(
+        <RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} live={live} />,
+      );
+
+      expect(getByTestId("map-remaining")).toBeTruthy();
+      expect(queryByTestId("map-route-base")).toBeNull();
+      expect(queryByTestId("map-route-sweep")).toBeNull();
+    });
+
+    it("sin seguimiento en vivo, la base y el barrido siguen", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      const { getByTestId } = await render(<RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} />);
+
+      expect(getByTestId("map-route-base")).toBeTruthy();
+      expect(getByTestId("map-route-sweep")).toBeTruthy();
+    });
+
     it("antes del retiro dibuja la ruta entera, sin recortarla desde el transportista", async () => {
       mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
       const live = { position: { lat: -31.3, lng: -64.3 }, stale: false, trace: [], planned: [], phase: "pickup" as const };

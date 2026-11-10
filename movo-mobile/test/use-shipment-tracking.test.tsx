@@ -20,18 +20,20 @@ function tracking(state: "live" | "closed") {
 }
 
 let latest: ReturnType<typeof useShipmentTracking> | null = null;
-function Harness() {
-  latest = useShipmentTracking("shipment-1", { status: "in_transit" });
+function Harness({ status = "in_transit", enabled = true }: { status?: string; enabled?: boolean }) {
+  latest = useShipmentTracking("shipment-1", { status, enabled });
   return null;
 }
 
 async function renderHarness() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  await render(
+  const tree = (props: { status?: string; enabled?: boolean }) => (
     <QueryClientProvider client={queryClient}>
-      <Harness />
-    </QueryClientProvider>,
+      <Harness {...props} />
+    </QueryClientProvider>
   );
+  const screen = await render(tree({}));
+  return { rerender: (props: { status?: string; enabled?: boolean }) => screen.rerender(tree(props)) };
 }
 
 // MOVO-346 (punto 12): la ruta y el recorrido del tramo del envío para emisor y receptor.
@@ -66,5 +68,19 @@ describe("useShipmentTracking", () => {
 
     expect(mockGetTracking).toHaveBeenCalledTimes(1);
     expect(latest?.trace).toEqual([]);
+  });
+
+  it("al cerrarse el envío no sigue sirviendo el recorrido anterior como placeholder", async () => {
+    mockGetTracking.mockResolvedValue(tracking("live"));
+
+    const { rerender } = await renderHarness();
+    await waitFor(() => expect(latest?.trace).toHaveLength(1));
+
+    await act(async () => {
+      await rerender({ status: "delivered", enabled: false });
+    });
+    expect(latest?.trace).toEqual([]);
+    expect(latest?.planned).toEqual([]);
+    expect(latest?.data).toBeUndefined();
   });
 });

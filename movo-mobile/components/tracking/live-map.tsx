@@ -38,6 +38,9 @@ export interface LiveMapProps {
   testID?: string;
 }
 
+/** Default estable: un `[]` nuevo en cada render reiniciaría la proyección y los memos. */
+const NO_POINTS: LatLng[] = [];
+
 /**
  * Mapa interactivo de seguimiento en vivo para emisor y receptor (MOVO-204).
  *
@@ -58,8 +61,8 @@ export function LiveMap({
   topOffset = 56,
   bottomOffset = 260,
   showControls = true,
-  plannedRoute = [],
-  trace = [],
+  plannedRoute = NO_POINTS,
+  trace = NO_POINTS,
   phase = "delivery",
   pickupLocation = null,
   testID = "live-tracking-map",
@@ -79,11 +82,14 @@ export function LiveMap({
   const showPickup = phase === "pickup" && !isClosed && pickupLocation !== null;
 
   // Último tramo proyectado, para que el avance no salte hacia atrás si la ruta vuelve a pasar cerca
-  // de un tramo anterior. Se reinicia con otra ruta planificada.
+  // de un tramo anterior. Se reinicia con otra ruta planificada, en el mismo render (un `useEffect`
+  // llegaría tarde: la ruta nueva ya se habría proyectado desde el tramo de la anterior).
   const segmentRef = useRef(0);
-  useEffect(() => {
+  const segmentRouteRef = useRef(plannedRoute);
+  if (segmentRouteRef.current !== plannedRoute) {
+    segmentRouteRef.current = plannedRoute;
     segmentRef.current = 0;
-  }, [plannedRoute]);
+  }
   const lines = useMemo(
     () =>
       liveRouteLines({
@@ -322,7 +328,7 @@ export function LiveMap({
             strokeWidth={LIVE_REMAINING_LINE_WIDTH}
           />
         ) : null}
-        {lines.trace.length > 1 ? (
+        {lines.trace.length > 1 && !isClosed ? (
           <Polyline
             testID="live-map-trace"
             coordinates={lines.trace}

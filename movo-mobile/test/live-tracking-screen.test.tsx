@@ -168,11 +168,19 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
     (useShipment as jest.Mock).mockReturnValue({ data: { ...mockShipmentData, status: "delivered" }, isLoading: false });
     (usePublicProfile as jest.Mock).mockReturnValue({ data: mockCarrierData, isLoading: false });
     (useLivePosition as jest.Mock).mockReturnValue(mockPositionData);
-    mockUseShipmentTracking.mockReturnValue({ trace: [], planned: [] });
+    // Aunque llegue un recorrido (el último del estado anterior), con el envío cerrado no se dibuja (DD-023).
+    mockUseShipmentTracking.mockReturnValue({
+      trace: [
+        { latitude: -31.42, longitude: -64.18 },
+        { latitude: -31.385, longitude: -64.225 },
+      ],
+      planned: [],
+    });
 
     const { getByTestId, queryByTestId, queryByText } = await render(<LiveTrackingScreen />);
 
     expect(getByTestId("tracking-delivered-overlay")).toBeTruthy();
+    expect(queryByTestId("live-map-trace")).toBeNull();
     expect(queryByTestId("card-hero-eta")).toBeNull();
     expect(queryByTestId("live-map-destination-marker")).toBeNull();
     expect(queryByText(/En ruta/)).toBeNull();

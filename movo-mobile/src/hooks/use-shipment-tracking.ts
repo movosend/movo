@@ -26,17 +26,20 @@ export function useShipmentTracking(
   shipmentId: string | undefined,
   options: { enabled?: boolean; status?: string } = {},
 ) {
+  const enabled = (options.enabled ?? true) && !!shipmentId;
   const query = useQuery({
     queryKey: shipmentTrackingQueryKey(shipmentId, options.status),
     queryFn: () => shipmentsClient.getTracking(shipmentId!),
-    enabled: (options.enabled ?? true) && !!shipmentId,
+    enabled,
     placeholderData: keepPreviousData,
     refetchInterval: (q) => {
       const data = q.state.data as ShipmentPartyTracking | undefined;
       return data?.state === "live" ? data.pollIntervalSeconds * 1000 : false;
     },
   });
-  const data = query.data;
+  // Deshabilitada (envío cerrado): sin recorrido, aunque `keepPreviousData` siga sirviendo el del
+  // estado anterior bajo la clave nueva (DD-023).
+  const data = enabled ? query.data : undefined;
   // Por el string y no por el objeto: cada poll trae un objeto nuevo con la misma ruta, y una ruta
   // "nueva" reinicia la proyección del vehículo en `LiveMap`.
   const polyline = data?.plannedRoute?.polyline ?? null;
@@ -47,11 +50,12 @@ export function useShipmentTracking(
       lastPlanned.current = { shipmentId, points };
       return points;
     }
+    if (!enabled) return [];
     return lastPlanned.current.shipmentId === shipmentId ? lastPlanned.current.points : [];
-  }, [polyline, shipmentId]);
+  }, [polyline, shipmentId, enabled]);
   const trace = useMemo<RoutePoint[]>(
     () => (data?.trace ?? []).map((p) => ({ latitude: p.lat, longitude: p.lng })),
     [data?.trace],
   );
-  return { ...query, planned, trace };
+  return { ...query, data, planned, trace };
 }
