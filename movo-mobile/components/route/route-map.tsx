@@ -101,8 +101,9 @@ export function RouteMap({
     };
   }, []);
 
-  // "Abrir en Maps": el recorrido completo (todas las paradas en orden) en la app de mapas,
-  // con la misma cascada de deep-links que "Navegar" (MOVO-237).
+  // "Ruta completa": el recorrido entero (todas las paradas en orden) en la app de mapas, con la
+  // misma cascada de deep-links que "Ir a la parada" (MOVO-237), que va solo a la próxima. Antes se
+  // llamaba "Maps" y no se distinguía de "Navegar" (feedback de TestFlight build 18).
   const handleOpenExternalMaps = () => {
     try {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -119,7 +120,7 @@ export function RouteMap({
       const ok = opened !== null;
       setMapsToast(
         ok
-          ? { type: "success", message: "Abriendo el recorrido en tu app de mapas..." }
+          ? { type: "success", message: "Abriendo todas las paradas en tu app de mapas..." }
           : { type: "error", message: "No se pudo abrir la navegación externa." },
       );
       if (mapsToastTimeoutRef.current) {
@@ -569,7 +570,7 @@ export function RouteMap({
       )}
 
       {/* Controles del mapa arriba a la derecha (mockup 2a: 44px, mismo vidrio que la isla):
-          "Maps" (ruta completa en la app de mapas, discreto) y "Centrar" <-> "Ver ruta" */}
+          "Ruta completa" (todas las paradas en la app de mapas, discreto) y "Centrar" <-> "Ver ruta" */}
       <Animated.View
         pointerEvents={showControls ? "box-none" : "none"}
         style={[
@@ -582,11 +583,11 @@ export function RouteMap({
             testID="route-map-open-maps"
             onPress={handleOpenExternalMaps}
             accessibilityRole="button"
-            accessibilityLabel="Abrir en Maps para ver la ruta completa"
+            accessibilityLabel="Abrir la ruta completa, con todas las paradas, en la app de mapas"
             style={[glassControlStyle, { paddingLeft: 10, paddingRight: 12, gap: 6 }]}
           >
             <ArrowUpRight size={18} color={colors.fg2} strokeWidth={1.75} />
-            <Text className="font-sans-medium text-[14px] text-fg-2">Maps</Text>
+            <Text className="font-sans-medium text-[14px] text-fg-2">Ruta completa</Text>
           </Pressable>
         )}
         <Pressable

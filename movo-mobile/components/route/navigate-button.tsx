@@ -11,7 +11,7 @@ interface NavigateButtonProps {
 }
 
 /**
- * Botón "Navegar" de una parada (MOVO-237): delega la navegación turn-by-turn a Google
+ * Botón "Ir a la parada" (antes "Navegar", que no se distinguía de "Ruta completa" del mapa) de una parada (MOVO-237): delega la navegación turn-by-turn a Google
  * Maps/Waze/browser vía deep-link (`openNavigation`), sin costo de API para Movo.
  */
 export function NavigateButton({ target, testID = "navigate-btn", className = "" }: NavigateButtonProps) {
@@ -35,7 +35,7 @@ export function NavigateButton({ target, testID = "navigate-btn", className = ""
       accessibilityLabel="Navegar hasta esta parada"
     >
       <Navigation size={20} color={colors.fg1} strokeWidth={1.75} />
-      <Text className="font-sans-medium text-[16px] text-fg">Navegar</Text>
+      <Text className="font-sans-medium text-[16px] text-fg">Ir a la parada</Text>
     </Pressable>
   );
 }
