@@ -27,11 +27,13 @@ export type CurrentLocationResult =
 const MIN_SPEED_FOR_HEADING_MPS = 2;
 
 /** Rumbo en grados enteros (0-359), solo si el GPS lo informa y el dispositivo se está moviendo.
- * iOS manda `-1` cuando no lo sabe, Android `null` o `0`. Lo usa `my-route` para que Google no arme la
- * ruta en la dirección contraria a la que va el auto (MOVO-357). */
+ * iOS manda `-1` cuando no lo sabe, Android `null` o `0` exacto (`getBearing()` sin dato): el `0`
+ * exacto se descarta también, a costa de perder el norte justo, que en la práctica llega como 0.x.
+ * Lo usan `my-route`, para que Google no arme la ruta en la dirección contraria a la que va el auto, y
+ * el recorte de "Mi ruta", para no confundir la ida con la vuelta por la misma calle (MOVO-357). */
 export function headingFromCoords(coords: Pick<Location.LocationObjectCoords, "heading" | "speed">): number | undefined {
   const { heading, speed } = coords;
-  if (heading === null || heading === undefined || !Number.isFinite(heading) || heading < 0) return undefined;
+  if (heading === null || heading === undefined || !Number.isFinite(heading) || heading <= 0) return undefined;
   if (speed === null || speed === undefined || speed < MIN_SPEED_FOR_HEADING_MPS) return undefined;
   return Math.round(heading) % 360;
 }

@@ -74,6 +74,8 @@ describe("headingFromCoords (MOVO-357)", () => {
 
   it("descarta el rumbo inválido (-1 en iOS, null) o con el auto quieto", () => {
     expect(headingFromCoords({ heading: -1, speed: 8 })).toBeUndefined();
+    expect(headingFromCoords({ heading: 0, speed: 8 })).toBeUndefined(); // Android sin bearing
+    expect(headingFromCoords({ heading: 0.4, speed: 8 })).toBe(0);
     expect(headingFromCoords({ heading: null, speed: 8 })).toBeUndefined();
     expect(headingFromCoords({ heading: 90, speed: 0.5 })).toBeUndefined();
     expect(headingFromCoords({ heading: 90, speed: null })).toBeUndefined();

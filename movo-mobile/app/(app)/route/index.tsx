@@ -158,6 +158,7 @@ export default function OptimizedRouteScreen() {
   const {
     route,
     carrierLocation,
+    carrierHeading,
     isLoading,
     isRefreshing,
     gpsPermissionDenied,
@@ -368,21 +369,28 @@ export default function OptimizedRouteScreen() {
   // Decodificar solo cuando cambia el string; el recorte sí corre con cada fix de GPS.
   // MOVO-357 (el "triángulo"): el tramo de la proyección se guarda entre posiciones para que el
   // recorte no vuelva a una pasada anterior por la misma calle, y cerca de la línea no hay recta
-  // (`carrierRouteLine`). Se reinicia con cada línea nueva.
+  // (`carrierRouteLine`). Va en estado y no en un ref escrito durante el render (review de la #336):
+  // un render descartado no lo adelanta. Es de una línea: con otra, se arranca del tramo 0.
   const plannedRoute = useMemo(() => (route?.polyline ? decodePolyline(route.polyline) : undefined), [route?.polyline]);
   const demoRoute = useMemo(() => (demoMode ? decodePolyline(DEMO_POLYLINE) : undefined), [demoMode]);
-  const segmentRef = useRef(0);
-  const segmentRouteRef = useRef(plannedRoute);
-  if (segmentRouteRef.current !== plannedRoute) {
-    segmentRouteRef.current = plannedRoute;
-    segmentRef.current = 0;
-  }
+  const [routeProgress, setRouteProgress] = useState<{ line: typeof plannedRoute; segment: number }>({
+    line: undefined,
+    segment: 0,
+  });
+  const startSegment = routeProgress.line === plannedRoute ? routeProgress.segment : 0;
   const carrierLine = useMemo(() => {
     if (demoRoute || !plannedRoute) return null;
     const from = carrierLocation ? { latitude: carrierLocation.lat, longitude: carrierLocation.lng } : null;
-    return carrierRouteLine(plannedRoute, from, segmentRef.current);
-  }, [demoRoute, plannedRoute, carrierLocation]);
-  if (carrierLine) segmentRef.current = carrierLine.segment;
+    return carrierRouteLine(plannedRoute, from, startSegment, carrierHeading);
+  }, [demoRoute, plannedRoute, carrierLocation, carrierHeading, startSegment]);
+  useEffect(() => {
+    if (!carrierLine || !plannedRoute) return;
+    setRouteProgress((prev) =>
+      prev.line === plannedRoute && prev.segment === carrierLine.segment
+        ? prev
+        : { line: plannedRoute, segment: carrierLine.segment },
+    );
+  }, [carrierLine, plannedRoute]);
   const routePolylineCoordinates = demoRoute ?? carrierLine?.points;
 
   const handleSelectStop = (stop: CarrierRouteStop) => {

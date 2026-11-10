@@ -8,6 +8,8 @@ import { useAuthStore } from "../store/auth-store";
 export interface UseOptimizedRouteResult {
   route: CarrierRoute | null;
   carrierLocation: { lat: number; lng: number } | null;
+  /** Rumbo del auto (grados) mientras se mueve, del seguimiento de esta visita (MOVO-357). */
+  carrierHeading?: number;
   isLoading: boolean;
   isRefreshing: boolean;
   gpsPermissionDenied: boolean;
@@ -60,6 +62,13 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
   // Último rumbo del seguimiento en primer plano (MOVO-357). Se borra al perder foco: uno de una visita
   // anterior puede no ser el de ahora.
   const headingRef = useRef<number | undefined>(undefined);
+  const [carrierHeading, setCarrierHeading] = useState<number | undefined>(undefined);
+  // Si el último pedido de esta visita salió con rumbo (`null`: todavía no salió ninguno), y si ya se
+  // repidió por el primer rumbo. El backend arma la línea una vez por orden de paradas y casi siempre en
+  // el pedido del foco, antes de que el seguimiento tenga rumbo: el primer rumbo de la visita dispara un
+  // pedido más, y el backend rearma esa línea una sola vez (MOVO-357, review de la #336).
+  const lastRequestHadHeadingRef = useRef<boolean | null>(null);
+  const headingRefetchedRef = useRef<boolean>(false);
 
   const fetchRoute = useCallback(async (isRefresh = false) => {
     const requestId = ++requestSeqRef.current;
@@ -89,6 +98,7 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
       // recién pedido, o si no lo trae (quieto o sin rumbo), el último del seguimiento de esta visita.
       const heading = locResult.heading ?? headingRef.current;
       const query = heading === undefined ? coords : { ...coords, heading };
+      lastRequestHadHeadingRef.current = heading !== undefined;
       const result = tripId
         ? await shipmentsClient.getMyRoute(query, tripId)
         : await shipmentsClient.getMyRoute(query);
@@ -119,8 +129,13 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
       let stopWatching: (() => void) | null = null;
       let cancelled = false;
       void watchForegroundLocation(({ lat, lng, heading }) => {
-        if (heading !== undefined) headingRef.current = heading;
+        headingRef.current = heading ?? headingRef.current;
+        setCarrierHeading(heading);
         setCarrierLocation({ lat, lng });
+        if (heading !== undefined && lastRequestHadHeadingRef.current === false && !headingRefetchedRef.current) {
+          headingRefetchedRef.current = true;
+          void fetchRoute(true);
+        }
       }).then((stop) => {
         if (cancelled) stop();
         else stopWatching = stop;
@@ -130,6 +145,9 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
         requestSeqRef.current++;
         cancelled = true;
         headingRef.current = undefined;
+        lastRequestHadHeadingRef.current = null;
+        headingRefetchedRef.current = false;
+        setCarrierHeading(undefined);
         stopWatching?.();
       };
     }, [fetchRoute])
@@ -142,6 +160,7 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
   return {
     route,
     carrierLocation,
+    carrierHeading,
     isLoading,
     isRefreshing,
     gpsPermissionDenied,
