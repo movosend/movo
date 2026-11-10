@@ -4,11 +4,11 @@ import { Pressable, Text, View } from "react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import {
   debtLine,
-  formatTransactionAmount,
   isCashTransaction,
   refundLine,
   transactionTitle,
   transactionRowSubtitle,
+  transactionRowAmount,
   transactionStatusLabel,
 } from "../../src/lib/transaction-format";
 import { TransactionStatusPill } from "./transaction-status-pill";
@@ -34,7 +34,7 @@ export function TransactionRow({
   const debt = debtLine(item, role);
   const muted = role === "carrier" && item.status !== "completed" && item.status !== "refunded";
   const Direction = role === "sender" ? ArrowUpRight : ArrowDownLeft;
-  const amount = formatTransactionAmount(item.amountArs);
+  const amount = transactionRowAmount(item, role);
   const MethodIcon = isCashTransaction(item) ? Banknote : CreditCard;
 
   return (

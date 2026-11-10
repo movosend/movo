@@ -55,6 +55,22 @@ export function formatTransactionAmount(value: number | null | undefined): strin
   return formatPriceArs(value);
 }
 
+/**
+ * Monto de la fila del historial. En Cobros es lo que le quedó al transportista (`receivedArs`: neto acreditado,
+ * efectivo menos comisión, o un estimado con "aprox."), no el precio que pagó el emisor (feedback de TestFlight
+ * build 18). Sin `receivedArs` (liberado, reembolsado, o un backend anterior) cae al precio.
+ */
+export function transactionRowAmount(
+  item: Pick<TransactionListItem, "amountArs" | "receivedArs" | "receivedIsEstimate">,
+  role: TransactionRole,
+): string {
+  if (role === "carrier" && typeof item.receivedArs === "number" && Number.isFinite(item.receivedArs)) {
+    const amount = formatTransactionAmount(item.receivedArs);
+    return item.receivedIsEstimate ? `aprox. ${amount}` : amount;
+  }
+  return formatTransactionAmount(item.amountArs);
+}
+
 export function transactionDisplayCode(shipmentId: string): string {
   return activeShipmentDisplayCode(shipmentId);
 }
