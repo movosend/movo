@@ -195,6 +195,19 @@ describe("/payments/transactions (MOVO-303)", () => {
       expect((await carrierItems())[0]).toMatchObject({ receivedArs: null, receivedIsEstimate: false });
       expect("receivedArs" in (await list("role=sender")).json().items[0]).toBe(false);
     });
+
+    it("acreditado y después en disputa o reembolsado: null, la plata no le quedó", async () => {
+      const disputed = await createHold({ status: "captured" });
+      await settle(disputed, "credited");
+      await event(disputed, "chargeback", "opened");
+      const refunded = await createHold({ status: "captured" });
+      await settle(refunded, "credited");
+      await event(refunded, "refund", "refunded", 1150);
+
+      const byId = new Map((await carrierItems()).map((i) => [i.id, i]));
+      expect(byId.get(disputed.id)).toMatchObject({ receivedArs: null, receivedIsEstimate: false });
+      expect(byId.get(refunded.id)).toMatchObject({ receivedArs: null, receivedIsEstimate: false });
+    });
   });
 
   describe("filtro por envío (MOVO-308)", () => {

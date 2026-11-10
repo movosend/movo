@@ -130,6 +130,8 @@ function receivedAmount(
 ): { receivedArs: number | null; receivedIsEstimate: boolean } {
   if (row.kind === "balance_payment") return { receivedArs: null, receivedIsEstimate: false };
   if (row.kind === "cash_shipment") return { receivedArs: row.netAmountArs, receivedIsEstimate: false };
+  // Una disputa o un reembolso posteriores a la acreditación: la plata volvió (o puede volver) al emisor.
+  if (status === "disputed" || status === "refunded") return { receivedArs: null, receivedIsEstimate: false };
   if (row.settlementStatus === "credited" && row.netAmountArs !== null) {
     return { receivedArs: row.netAmountArs, receivedIsEstimate: false };
   }
