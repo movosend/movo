@@ -69,7 +69,12 @@ export function createGoogleRoutesProvider(config: GoogleRoutesProviderConfig): 
             "X-Goog-FieldMask": FIELD_MASK,
           },
           body: JSON.stringify({
-            origin: { location: { latLng: { latitude: input.origin.lat, longitude: input.origin.lng } } },
+            origin: {
+              location: {
+                latLng: { latitude: input.origin.lat, longitude: input.origin.lng },
+                ...(input.originHeading === undefined ? {} : { heading: input.originHeading }),
+              },
+            },
             destination: {
               location: { latLng: { latitude: input.destination.lat, longitude: input.destination.lng } },
             },

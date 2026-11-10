@@ -30,6 +30,9 @@ export interface RouteInput {
   /** Paradas intermedias, en orden (MOVO-346: el recorrido completo de "Mi ruta"). Google
    * acepta hasta `MAX_ROUTE_INTERMEDIATES`; el caller recorta antes de pedir. */
   intermediates?: RouteLatLng[];
+  /** Rumbo del vehículo en el origen, en grados (0-359). MOVO-357: sin él Google puede arrancar la
+   * ruta en la dirección contraria a la que va el auto y volver con una vuelta en U. */
+  originHeading?: number;
   /** Default `per_trip` — los callers previos a MOVO-237 no lo pasan. */
   mode?: RouteMode;
   /** Timeout de la llamada al proveedor; sin él, el default del provider (5 s). MOVO-346: "Mi ruta" lo acota

@@ -3358,6 +3358,8 @@ export function createShipmentsService(
       location: { lat: number; lng: number },
       tripId?: string,
       callerRoles: UserRole[] = [],
+      /** MOVO-357: rumbo del auto, solo para la línea por calles (el optimizador no lo usa). */
+      heading?: number,
     ): Promise<CarrierRoute> {
       if (tripId) {
         if (!tripRepository) {
@@ -3423,7 +3425,11 @@ export function createShipmentsService(
       // 5. MOVO-346: camino por calles en el orden de la ruta (optimizada o degradada). El store
       // nunca tira: si el proveedor falla, `polyline: null` y el mapa cae a las rectas.
       if (!routePolylineStore) return route;
-      const polyline = await routePolylineStore.get(carrierId, location, route.stops);
+      const polyline = await routePolylineStore.get(
+        carrierId,
+        heading === undefined ? location : { ...location, heading },
+        route.stops,
+      );
       return { ...route, polyline };
     },
 

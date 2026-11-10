@@ -23,9 +23,15 @@ export interface CarrierRoutePolylineStop extends RouteLatLng {
   type: string;
 }
 
+/** MOVO-357: el rumbo del auto al pedir la ruta. Solo pesa cuando no hay línea guardada (no es parte de la
+ * clave, igual que el origen). */
+export interface CarrierRoutePolylineOrigin extends RouteLatLng {
+  heading?: number;
+}
+
 export interface CarrierRoutePolylineStore {
   /** `null` si el proveedor falló: la ruta sale igual y el mapa cae a las rectas. */
-  get(carrierId: string, origin: RouteLatLng, stops: CarrierRoutePolylineStop[]): Promise<string | null>;
+  get(carrierId: string, origin: CarrierRoutePolylineOrigin, stops: CarrierRoutePolylineStop[]): Promise<string | null>;
 }
 
 export interface CarrierRoutePolylineStoreDeps {
@@ -44,14 +50,20 @@ function stopsFingerprint(stops: CarrierRoutePolylineStop[]): string {
 export function createCarrierRoutePolylineStore(deps: CarrierRoutePolylineStoreDeps): CarrierRoutePolylineStore {
   const warn = (err: unknown, carrierId: string, event: string) => deps.logger?.warn({ err, carrierId, event }, event);
 
-  async function fetchAndCache(key: string, carrierId: string, origin: RouteLatLng, stops: CarrierRoutePolylineStop[]) {
+  async function fetchAndCache(
+    key: string,
+    carrierId: string,
+    origin: CarrierRoutePolylineOrigin,
+    stops: CarrierRoutePolylineStop[],
+  ) {
     // Más paradas que el límite de Google: el camino cubre las primeras (el resto sigue con rectas en el mapa).
     const waypoints = stops.slice(0, MAX_ROUTE_INTERMEDIATES + 1);
     const destination = waypoints[waypoints.length - 1]!;
     let polyline: string;
     try {
       const route = await deps.routesProvider.getRoute({
-        origin,
+        origin: { lat: origin.lat, lng: origin.lng },
+        ...(origin.heading === undefined ? {} : { originHeading: origin.heading }),
         destination,
         intermediates: waypoints.slice(0, -1),
         mode: "per_trip",

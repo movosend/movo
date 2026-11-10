@@ -923,6 +923,9 @@ export const shipmentsSchemas = {
       lat: { type: "number", minimum: -90, maximum: 90 },
       lng: { type: "number", minimum: -180, maximum: 180 },
       tripId: { type: "string", format: "uuid" },
+      // MOVO-357: rumbo del auto (grados). Va a Google para que la línea por calles no arranque en la
+      // dirección contraria. Opcional: un mobile anterior no lo manda.
+      heading: { type: "integer", minimum: 0, maximum: 359 },
     },
   },
 

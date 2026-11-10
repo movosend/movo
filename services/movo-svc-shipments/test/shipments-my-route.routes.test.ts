@@ -101,6 +101,7 @@ describe("GET /shipments/my-route (HTTP Routes & ACs)", () => {
       { lat: -31.4167, lng: -64.1833 },
       undefined,
       [],
+      undefined,
     );
     const body = JSON.parse(res.body);
     expect(body).toEqual(sampleRoute);
@@ -120,6 +121,7 @@ describe("GET /shipments/my-route (HTTP Routes & ACs)", () => {
       { lat: -31.4167, lng: -64.1833 },
       undefined,
       [],
+      undefined,
     );
   });
 
@@ -137,6 +139,7 @@ describe("GET /shipments/my-route (HTTP Routes & ACs)", () => {
       { lat: -31.4167, lng: -64.1833 },
       tripId,
       [],
+      undefined,
     );
   });
 
@@ -154,7 +157,36 @@ describe("GET /shipments/my-route (HTTP Routes & ACs)", () => {
       { lat: -31.4167, lng: -64.1833 },
       tripId,
       ["admin"],
+      undefined,
     );
+  });
+
+  it("MOVO-357: propaga el rumbo (heading) de la query al servicio", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/shipments/my-route?lat=-31.4167&lng=-64.1833&heading=270",
+      headers: { "x-user-id": CARRIER_ID },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockService.getMyRoute).toHaveBeenCalledWith(
+      CARRIER_ID,
+      { lat: -31.4167, lng: -64.1833 },
+      undefined,
+      [],
+      270,
+    );
+  });
+
+  it.each(["360", "-1", "12.5"])("MOVO-357: rechaza heading=%s con 400", async (heading) => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/shipments/my-route?lat=-31.4167&lng=-64.1833&heading=${heading}`,
+      headers: { "x-user-id": CARRIER_ID },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockService.getMyRoute).not.toHaveBeenCalled();
   });
 
   it("MOVO-235: rechaza tripId con formato inválido (no uuid) con 400 VALIDATION_FAILED", async () => {

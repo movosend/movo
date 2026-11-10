@@ -76,6 +76,23 @@ describe("createGoogleRoutesProvider", () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).not.toHaveProperty("intermediates");
   });
 
+  it("manda el rumbo del origen si viene, y sin él no agrega el campo (MOVO-357)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ routes: [{ distanceMeters: 1, duration: "1s", polyline: { encodedPolyline: "x" } }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = createGoogleRoutesProvider({ apiKey: "test-key" });
+
+    await provider.getRoute({ origin, destination, originHeading: 270 });
+    await provider.getRoute({ origin, destination });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).origin).toEqual({
+      location: { latLng: { latitude: origin.lat, longitude: origin.lng }, heading: 270 },
+    });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).origin.location).not.toHaveProperty("heading");
+  });
+
   it("mode live falla con ApiError 501 sin llamar a Google", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

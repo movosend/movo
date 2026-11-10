@@ -54,6 +54,27 @@ describe("carrier-route-polyline-store", () => {
     });
   });
 
+  it("pasa el rumbo del origen al proveedor, y el rumbo no cambia la clave del cache (MOVO-357)", async () => {
+    const calls: RouteInput[] = [];
+    const store = createCarrierRoutePolylineStore({
+      redis: memoryRedis(),
+      provider: "google",
+      routesProvider: createFakeRoutesProvider(route, {
+        async getRoute(input) {
+          calls.push(input);
+          return route;
+        },
+      }),
+    });
+
+    expect(await store.get("c1", { ...ORIGIN, heading: 90 }, STOPS)).toBe("abc");
+    expect(await store.get("c1", { ...ORIGIN, heading: 180 }, STOPS)).toBe("abc");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ origin: ORIGIN, originHeading: 90 });
+    expect(calls[0]!.origin).not.toHaveProperty("heading");
+  });
+
   it("cachea por orden de paradas: el mismo orden no vuelve a pedir, otro orden sí", async () => {
     let calls = 0;
     const store = createCarrierRoutePolylineStore({

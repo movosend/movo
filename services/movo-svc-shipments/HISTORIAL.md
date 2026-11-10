@@ -4012,3 +4012,7 @@ Mensajes señalados: ventana móvil de 7 días, porque ni un mensaje moderado ni
 ### Feedback de TestFlight build 18 — viaje `declared` vencido con sus paquetes terminados
 
 `completeFinishedDeclared` (`trip-repository.ts`), paso `complete_finished_declared` del sweep: pasa a `completed` un viaje `declared` con la salida vencida y todas sus ofertas aceptadas no canceladas en `TRIP_FINISHED_SHIPMENT_STATUSES`, con el compare-and-swap de `retireDeclaredTrip` (log `trip_auto_completed`, `reason: "declared_packages_finished"`). `cancelOverdueDeclared` no lo cubría porque `ACCEPTED_OFFER_FILTER` solo descarta los `cancelled`. Pendiente: cerrar el viaje en la misma transacción del cambio forzado de estado desde el panel (DD-055), que hoy espera a que venza la salida.
+
+### MOVO-357 — rumbo del transportista en `my-route`
+
+`GET /shipments/my-route` acepta `heading` (entero de 0 a 359, opcional). Llega a `carrier-route-polyline-store.ts` y de ahí a Google Routes como `origin.location.heading` (`originHeading` en `RouteInput`). Sin rumbo, Google podía arrancar la línea en la dirección contraria a la que iba el auto y volver con una vuelta en U, que en "Mi ruta" se veía como un triángulo. El rumbo no entra en la clave del cache (como el origen), así que solo pesa cuando la línea no está guardada, y no va al optimizador. Fuera de alcance: recalcular la línea si el auto se desvía (sigue la cache de 2 h por orden de paradas).

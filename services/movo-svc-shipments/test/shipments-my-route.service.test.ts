@@ -356,6 +356,28 @@ describe("ShipmentsService.getMyRoute: camino por calles (MOVO-346)", () => {
     );
   });
 
+  it("MOVO-357: el rumbo va al store con el origen, y no al optimizador", async () => {
+    const shipment = createMockShipment({ id: "s1", status: ShipmentStatus.ASSIGNED });
+    const repository = { listActiveShipments: vi.fn().mockResolvedValue([shipment]) };
+    const routePolylineStore = { get: vi.fn().mockResolvedValue("encoded") };
+    const pricingLogisticsClient = {
+      evaluateCandidates: vi.fn(),
+      routeMatrix: vi.fn(),
+      optimizeRoute: vi.fn().mockRejectedValue(new Error("timeout")),
+    } as unknown as PricingLogisticsClient;
+
+    const service = createShipmentsService(repository as unknown as ShipmentRepository, {} as any, undefined, undefined, {
+      pricingLogisticsClient,
+      routePolylineStore,
+    });
+    await service.getMyRoute("carrier-1", CARRIER_LOCATION, undefined, [], 45);
+
+    expect(routePolylineStore.get).toHaveBeenCalledWith("carrier-1", { ...CARRIER_LOCATION, heading: 45 }, expect.any(Array));
+    expect(pricingLogisticsClient.optimizeRoute).toHaveBeenCalledWith(
+      expect.objectContaining({ carrierLocation: CARRIER_LOCATION }),
+    );
+  });
+
   it("sin store la ruta sale sin polyline", async () => {
     const shipment = createMockShipment({ id: "s1", status: ShipmentStatus.IN_TRANSIT });
     const repository = { listActiveShipments: vi.fn().mockResolvedValue([shipment]) };
