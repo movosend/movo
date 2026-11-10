@@ -135,6 +135,38 @@ describe("useOptimizedRoute (MOVO-207)", () => {
     });
   });
 
+  describe("rumbo hacia my-route (MOVO-357)", () => {
+    it("manda el rumbo del fix si viene, sin agregarlo a la posición del mapa", async () => {
+      (getCurrentLocation as jest.Mock).mockResolvedValue({ ...mockCarrierLocation, heading: 180 });
+      (shipmentsClient.getMyRoute as jest.Mock).mockResolvedValue(mockRoute);
+      const { result, unmount } = await renderHook(() => useOptimizedRoute("trip-1"));
+      await waitFor(() => expect(result.current.route).toEqual(mockRoute));
+
+      expect(shipmentsClient.getMyRoute).toHaveBeenCalledWith({ lat: -31.4167, lng: -64.1833, heading: 180 }, "trip-1");
+      expect(result.current.carrierLocation).toEqual({ lat: -31.4167, lng: -64.1833 });
+      await unmount();
+    });
+
+    it("sin rumbo en el fix usa el último del seguimiento de esta visita", async () => {
+      (getCurrentLocation as jest.Mock).mockResolvedValue(mockCarrierLocation);
+      (shipmentsClient.getMyRoute as jest.Mock).mockResolvedValue(mockRoute);
+      const { result, unmount } = await renderHook(() => useOptimizedRoute("trip-1"));
+      await waitFor(() => expect(mockOnWatchedLocation).not.toBeNull());
+      await waitFor(() => expect(result.current.route).toEqual(mockRoute));
+      expect(shipmentsClient.getMyRoute).toHaveBeenLastCalledWith({ lat: -31.4167, lng: -64.1833 }, "trip-1");
+
+      await act(async () => mockOnWatchedLocation?.({ lat: -31.5, lng: -64.3, heading: 45 } as never));
+      expect(result.current.carrierLocation).toEqual({ lat: -31.5, lng: -64.3 });
+      await act(async () => result.current.refetch());
+
+      expect(shipmentsClient.getMyRoute).toHaveBeenLastCalledWith(
+        { lat: -31.4167, lng: -64.1833, heading: 45 },
+        "trip-1",
+      );
+      await unmount();
+    });
+  });
+
   it("AC8: si el GPS no tiene permiso (granted: false), marca gpsPermissionDenied sin llamar al backend", async () => {
     (getCurrentLocation as jest.Mock).mockResolvedValueOnce({ granted: false });
 

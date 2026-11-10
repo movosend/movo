@@ -19,8 +19,22 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | type
 }
 
 export type CurrentLocationResult =
-  | { granted: true; lat: number; lng: number }
+  | { granted: true; lat: number; lng: number; heading?: number }
   | { granted: false };
+
+/** Por debajo de esta velocidad (m/s, ~7 km/h) el rumbo del GPS no es confiable: quieto o a paso de
+ * hombre, el dispositivo informa uno cualquiera. */
+const MIN_SPEED_FOR_HEADING_MPS = 2;
+
+/** Rumbo en grados enteros (0-359), solo si el GPS lo informa y el dispositivo se está moviendo.
+ * iOS manda `-1` cuando no lo sabe, Android `null` o `0`. Lo usa `my-route` para que Google no arme la
+ * ruta en la dirección contraria a la que va el auto (MOVO-357). */
+export function headingFromCoords(coords: Pick<Location.LocationObjectCoords, "heading" | "speed">): number | undefined {
+  const { heading, speed } = coords;
+  if (heading === null || heading === undefined || !Number.isFinite(heading) || heading < 0) return undefined;
+  if (speed === null || speed === undefined || speed < MIN_SPEED_FOR_HEADING_MPS) return undefined;
+  return Math.round(heading) % 360;
+}
 
 /** Pide permiso de ubicación en foreground y devuelve la posición actual del
  * dispositivo — "Usar mi ubicación" en el paso de direcciones del wizard de envíos
@@ -51,10 +65,12 @@ export async function getCurrentLocation(options?: { highAccuracy?: boolean }): 
   } else {
     position = await Location.getCurrentPositionAsync({});
   }
+  const heading = headingFromCoords(position.coords);
   return {
     granted: true,
     lat: position.coords.latitude,
     lng: position.coords.longitude,
+    ...(heading === undefined ? {} : { heading }),
   };
 }
 
@@ -64,16 +80,26 @@ export async function getCurrentLocation(options?: { highAccuracy?: boolean }): 
  * movía). Solo con el permiso ya concedido: no lo pide (lo pidió `getCurrentLocation` al entrar).
  * Devuelve la función para cortar la suscripción; si no hay permiso o falla, una que no hace nada.
  * No reemplaza a la tarea de background que publica la posición al servidor.
+ * MOVO-357: precisión alta (Balanced en iOS anda en ~100 m: el ícono saltaba entre calles y el recorte
+ * de la ruta caía en la calle de al lado). Solo dura lo que la pantalla esté enfocada, así que el costo
+ * de batería queda acotado. Pasa también el rumbo, cuando el auto se mueve (`headingFromCoords`).
  */
 export async function watchForegroundLocation(
-  onChange: (coords: { lat: number; lng: number }) => void,
+  onChange: (coords: { lat: number; lng: number; heading?: number }) => void,
 ): Promise<() => void> {
   try {
     const permission = await Location.getForegroundPermissionsAsync();
     if (!permission.granted) return () => undefined;
     const subscription = await Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.Balanced, timeInterval: 5_000, distanceInterval: 10 },
-      (position) => onChange({ lat: position.coords.latitude, lng: position.coords.longitude }),
+      { accuracy: Location.Accuracy.High, timeInterval: 3_000, distanceInterval: 10 },
+      (position) => {
+        const heading = headingFromCoords(position.coords);
+        onChange({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          ...(heading === undefined ? {} : { heading }),
+        });
+      },
     );
     return () => subscription.remove();
   } catch {

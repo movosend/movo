@@ -1,10 +1,17 @@
 import * as Location from "expo-location";
-import { HIGH_ACCURACY_TIMEOUT_MS, getCurrentLocation } from "../src/lib/location";
+import {
+  HIGH_ACCURACY_TIMEOUT_MS,
+  getCurrentLocation,
+  headingFromCoords,
+  watchForegroundLocation,
+} from "../src/lib/location";
 
 jest.mock("expo-location", () => ({
   Accuracy: { Balanced: 3, High: 4, Low: 1 },
   requestForegroundPermissionsAsync: jest.fn(),
+  getForegroundPermissionsAsync: jest.fn(),
   getCurrentPositionAsync: jest.fn(),
+  watchPositionAsync: jest.fn(),
 }));
 
 const mockRequest = Location.requestForegroundPermissionsAsync as jest.Mock;
@@ -56,5 +63,59 @@ describe("getCurrentLocation", () => {
     mockGetPosition.mockResolvedValue(position(1, 2));
     await getCurrentLocation();
     expect(mockGetPosition).toHaveBeenCalledWith({});
+  });
+});
+
+describe("headingFromCoords (MOVO-357)", () => {
+  it("devuelve el rumbo entero solo si el GPS lo informa y el auto se mueve", () => {
+    expect(headingFromCoords({ heading: 271.6, speed: 8 })).toBe(272);
+    expect(headingFromCoords({ heading: 359.7, speed: 8 })).toBe(0);
+  });
+
+  it("descarta el rumbo inválido (-1 en iOS, null) o con el auto quieto", () => {
+    expect(headingFromCoords({ heading: -1, speed: 8 })).toBeUndefined();
+    expect(headingFromCoords({ heading: null, speed: 8 })).toBeUndefined();
+    expect(headingFromCoords({ heading: 90, speed: 0.5 })).toBeUndefined();
+    expect(headingFromCoords({ heading: 90, speed: null })).toBeUndefined();
+  });
+});
+
+describe("watchForegroundLocation (MOVO-357)", () => {
+  const mockGetPermission = Location.getForegroundPermissionsAsync as jest.Mock;
+  const mockWatch = Location.watchPositionAsync as jest.Mock;
+
+  beforeEach(() => {
+    mockGetPermission.mockResolvedValue({ granted: true });
+    mockWatch.mockReset();
+  });
+
+  it("sigue la posición con precisión alta y pasa el rumbo cuando el auto se mueve", async () => {
+    const remove = jest.fn();
+    let emit: ((position: unknown) => void) | null = null;
+    mockWatch.mockImplementation(async (_options, callback) => {
+      emit = callback;
+      return { remove };
+    });
+    const onChange = jest.fn();
+
+    const stop = await watchForegroundLocation(onChange);
+
+    expect(mockWatch).toHaveBeenCalledWith(
+      { accuracy: Location.Accuracy.High, timeInterval: 3_000, distanceInterval: 10 },
+      expect.any(Function),
+    );
+    emit!({ coords: { latitude: -31.4, longitude: -64.18, heading: 90, speed: 10 } });
+    emit!({ coords: { latitude: -31.41, longitude: -64.18, heading: -1, speed: 0 } });
+    expect(onChange).toHaveBeenNthCalledWith(1, { lat: -31.4, lng: -64.18, heading: 90 });
+    expect(onChange).toHaveBeenNthCalledWith(2, { lat: -31.41, lng: -64.18 });
+
+    stop();
+    expect(remove).toHaveBeenCalled();
+  });
+
+  it("sin permiso no se suscribe", async () => {
+    mockGetPermission.mockResolvedValue({ granted: false });
+    await watchForegroundLocation(jest.fn());
+    expect(mockWatch).not.toHaveBeenCalled();
   });
 });

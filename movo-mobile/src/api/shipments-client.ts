@@ -519,12 +519,14 @@ export const shipmentsClient = {
 
   /** `GET /shipments/my-route?lat=...&lng=...` (MOVO-206 / MOVO-207 / MOVO-235).
    * Ruta optimizada multi-parada del transportista autenticado con solver VRPTW.
-   * Acepta opcionalmente `tripId` para acotar la ruta al viaje iniciado (MOVO-235). */
-  getMyRoute(coords: { lat: number; lng: number }, tripId?: string): Promise<CarrierRoute> {
+   * Acepta opcionalmente `tripId` para acotar la ruta al viaje iniciado (MOVO-235), y `heading`
+   * (grados, 0-359) para que la línea por calles salga en la dirección en que va el auto (MOVO-357). */
+  getMyRoute(coords: { lat: number; lng: number; heading?: number }, tripId?: string): Promise<CarrierRoute> {
     return httpClient.get<CarrierRoute>("/shipments/my-route", {
       lat: coords.lat,
       lng: coords.lng,
       tripId,
+      heading: coords.heading,
     });
   },
 

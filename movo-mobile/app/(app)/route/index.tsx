@@ -39,7 +39,7 @@ import { useCarrierRequirementsSheet } from "../../../src/hooks/use-carrier-requ
 import { useStartTrip, useTrip } from "../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { decodePolyline } from "../../../src/lib/polyline";
-import { splitRoute } from "../../../src/lib/route-geometry";
+import { carrierRouteLine } from "../../../src/lib/route-geometry";
 import { formatTripStartErrorMessage } from "../../../src/lib/trip-format";
 import { shortAddressLabel } from "../../../src/lib/shipment-format";
 import {
@@ -366,14 +366,24 @@ export default function OptimizedRouteScreen() {
   // recta si se alejó de la línea): sin eso queda una cola detrás del ícono. Sin `polyline` (el
   // proveedor falló) el mapa une las paradas con rectas.
   // Decodificar solo cuando cambia el string; el recorte sí corre con cada fix de GPS.
+  // MOVO-357 (el "triángulo"): el tramo de la proyección se guarda entre posiciones para que el
+  // recorte no vuelva a una pasada anterior por la misma calle, y cerca de la línea no hay recta
+  // (`carrierRouteLine`). Se reinicia con cada línea nueva.
   const plannedRoute = useMemo(() => (route?.polyline ? decodePolyline(route.polyline) : undefined), [route?.polyline]);
   const demoRoute = useMemo(() => (demoMode ? decodePolyline(DEMO_POLYLINE) : undefined), [demoMode]);
-  const routePolylineCoordinates = useMemo(() => {
-    if (demoRoute) return demoRoute;
-    if (!plannedRoute) return undefined;
+  const segmentRef = useRef(0);
+  const segmentRouteRef = useRef(plannedRoute);
+  if (segmentRouteRef.current !== plannedRoute) {
+    segmentRouteRef.current = plannedRoute;
+    segmentRef.current = 0;
+  }
+  const carrierLine = useMemo(() => {
+    if (demoRoute || !plannedRoute) return null;
     const from = carrierLocation ? { latitude: carrierLocation.lat, longitude: carrierLocation.lng } : null;
-    return splitRoute(plannedRoute, from).todo;
+    return carrierRouteLine(plannedRoute, from, segmentRef.current);
   }, [demoRoute, plannedRoute, carrierLocation]);
+  if (carrierLine) segmentRef.current = carrierLine.segment;
+  const routePolylineCoordinates = demoRoute ?? carrierLine?.points;
 
   const handleSelectStop = (stop: CarrierRouteStop) => {
     setSelectedStopOrder(stop.stopOrder);

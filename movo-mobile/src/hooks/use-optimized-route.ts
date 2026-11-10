@@ -57,6 +57,9 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
   // Si la ruta en pantalla salió de este montaje o solo del cache: un error sobre una del cache no la
   // sostiene (el viaje pudo terminar o cancelarse desde la última visita).
   const fetchedRef = useRef<boolean>(false);
+  // Último rumbo del seguimiento en primer plano (MOVO-357). Se borra al perder foco: uno de una visita
+  // anterior puede no ser el de ahora.
+  const headingRef = useRef<number | undefined>(undefined);
 
   const fetchRoute = useCallback(async (isRefresh = false) => {
     const requestId = ++requestSeqRef.current;
@@ -82,9 +85,13 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
       const coords = { lat: locResult.lat, lng: locResult.lng };
       setCarrierLocation(coords);
 
+      // MOVO-357: el rumbo va a Google para que la ruta no arranque con una vuelta en U. El del fix
+      // recién pedido, o si no lo trae (quieto o sin rumbo), el último del seguimiento de esta visita.
+      const heading = locResult.heading ?? headingRef.current;
+      const query = heading === undefined ? coords : { ...coords, heading };
       const result = tripId
-        ? await shipmentsClient.getMyRoute(coords, tripId)
-        : await shipmentsClient.getMyRoute(coords);
+        ? await shipmentsClient.getMyRoute(query, tripId)
+        : await shipmentsClient.getMyRoute(query);
       if (requestId !== requestSeqRef.current) return;
       setRoute(result);
       fetchedRef.current = true;
@@ -111,7 +118,10 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
       void fetchRoute(true);
       let stopWatching: (() => void) | null = null;
       let cancelled = false;
-      void watchForegroundLocation((coords) => setCarrierLocation(coords)).then((stop) => {
+      void watchForegroundLocation(({ lat, lng, heading }) => {
+        if (heading !== undefined) headingRef.current = heading;
+        setCarrierLocation({ lat, lng });
+      }).then((stop) => {
         if (cancelled) stop();
         else stopWatching = stop;
       });
@@ -119,6 +129,7 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
         // Invalidar petición en vuelo si la pantalla pierde foco
         requestSeqRef.current++;
         cancelled = true;
+        headingRef.current = undefined;
         stopWatching?.();
       };
     }, [fetchRoute])

@@ -67,6 +67,41 @@ export function splitRoute(planned: RoutePoint[], from: RoutePoint | null, start
   };
 }
 
+/** Hasta esta distancia a la línea, la ruta de "Mi ruta" arranca en la proyección y no en el auto
+ * (MOVO-357): con el GPS a pocos metros de la calle, la recta auto → línea es ruido, y si la
+ * proyección quedó atrás dibuja un "va y vuelve". */
+export const CARRIER_ON_ROUTE_METERS = 50;
+
+export interface CarrierRouteLine {
+  /** Lo que falta, para dibujar. */
+  points: RoutePoint[];
+  /** Tramo para pasar como `startSegment` en la próxima posición. */
+  segment: number;
+}
+
+/**
+ * Lo que le falta al transportista en "Mi ruta" (MOVO-357, la ruta verde que hacía un triángulo).
+ * La línea de `my-route` arranca donde estaba el auto al pedirla (el backend la guarda 2 h), así que
+ * se recorta desde el auto con dos reglas:
+ * - El tramo nunca retrocede: se busca desde `startSegment`, que el caller guarda entre posiciones.
+ *   Sin eso, si la ruta pasa dos veces por la misma calle (una vuelta en U), la proyección cae en la
+ *   pasada de ida y la línea conserva el giro entero.
+ * - Cerca de la línea (`CARRIER_ON_ROUTE_METERS`) arranca en la proyección, sin recta. Más lejos (otra
+ *   calle) la recta auto → línea queda, y no se avanza el tramo: una posición lejana no es avance.
+ */
+export function carrierRouteLine(
+  planned: RoutePoint[],
+  carrier: RoutePoint | null,
+  startSegment = 0,
+): CarrierRouteLine {
+  if (!carrier || planned.length < 2) return { points: planned, segment: startSegment };
+  const split = splitRoute(planned, carrier, startSegment);
+  if (split.offRouteMeters <= CARRIER_ON_ROUTE_METERS) {
+    return { points: split.todo.slice(1), segment: split.segment };
+  }
+  return { points: split.todo, segment: startSegment };
+}
+
 /** Margen sobre la distancia mínima para dar por alcanzada una parada en `routeUntilStop`. */
 const STOP_MATCH_TOLERANCE_M = 40;
 
