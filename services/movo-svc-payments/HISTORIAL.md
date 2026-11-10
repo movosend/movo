@@ -896,10 +896,4 @@ un hold se pasa de plazo cuando le quedan menos de 6 h, no por antigüedad. Una 
 
 ### Feedback de TestFlight build 18 — lo que le quedó al transportista en Cobros
 
-`TransactionListItem` suma `receivedArs`/`receivedIsEstimate`, solo con `role=carrier` (`receivedAmount` en `transactions.service.ts`, declarados en `transactions.schema.ts`). Cada caso sale así:
-- liquidación acreditada: el neto real;
-- hold reservado o capturado sin acreditar: precio menos la comisión del hold (`hold_commission_ars`, columna nueva en las tres ramas de la query) menos `estimateReceivedArs`;
-- efectivo: precio menos comisión;
-- liberado, reembolsado o en disputa: `null`.
-
-La fila mostraba el precio que pagó el emisor. El estimado no usa `holds.mp_fee_ars` porque ese fee es sobre el total con el recargo del emisor (MOVO-311).
+`TransactionListItem.receivedArs`/`receivedIsEstimate`, solo con `role=carrier` (`receivedAmount` en `transactions.service.ts`): neto real si está acreditado, estimado (precio menos `hold_commission_ars` menos `estimateReceivedArs`) si no, precio menos comisión en efectivo, y `null` si se liberó, se reembolsó o está en disputa, aunque se haya acreditado antes. El estimado no usa `holds.mp_fee_ars` porque ese fee es sobre el total con el recargo del emisor (MOVO-311).
