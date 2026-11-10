@@ -12,6 +12,7 @@ import { createNotificationsClient, NotificationsClient } from "../../adapters/n
 import { createRoutesProvider, RoutesProvider } from "../../adapters/routes-provider";
 import { createAdminTrackingService } from "../admin-internal/admin-tracking.service";
 import { createPlannedRouteStore } from "../admin-internal/planned-route-store";
+import { createApproachRouteStore } from "../admin-internal/approach-route-store";
 
 export interface PositionsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración -- mismo criterio que el resto de los
@@ -176,19 +177,28 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
   // receptor. Reusa el seguimiento del panel (MOVO-327): misma ruta cacheada, misma traza de custodia. Se arma
   // en el primer pedido: los tests de las otras rutas de este módulo montan el plugin sin `app.config`.
   let partyTracking: ReturnType<typeof createAdminTrackingService> | undefined;
-  const getPartyTracking = () =>
-    (partyTracking ??= createAdminTrackingService({
+  const getPartyTracking = () => {
+    if (partyTracking) return partyTracking;
+    const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config, app.log);
+    return (partyTracking = createAdminTrackingService({
       shipmentRepository,
       positionRepository,
       redis: app.redis,
       routeStore: createPlannedRouteStore({
         redis: app.redis,
-        routesProvider: opts.routesProvider ?? createRoutesProvider(app.config, app.log),
+        routesProvider,
+        provider: app.config.ROUTES_PROVIDER,
+        logger: app.log,
+      }),
+      approachRouteStore: createApproachRouteStore({
+        redis: app.redis,
+        routesProvider,
         provider: app.config.ROUTES_PROVIDER,
         logger: app.log,
       }),
       signalLostSeconds: app.config.TRACKING_SIGNAL_LOST_SECONDS,
     }));
+  };
 
   app.get<{ Params: ShipmentIdParams }>(
     "/:id/tracking",
@@ -199,7 +209,9 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
           "MOVO-346: ruta planificada del retiro a la entrega (polyline de Routes API, cacheada), traza de custodia " +
           "(desde el retiro, submuestreada a 500 puntos) y última posición conocida con métricas de avance. Mismo " +
           "contrato que el seguimiento del panel (`ShipmentPartyTracking`), salvo que con el envío cerrado la traza " +
-          "sale vacía. Solo el tramo de este envío, nunca el viaje entero. 403 si el caller no es parte del envío. " +
+          "sale vacía. Solo el tramo de este envío, nunca el viaje entero. MOVO-359: con el envío `assigned` y el viaje " +
+          "iniciado suma `approachRoute`, la ruta por calle del transportista al punto de retiro (cache de 2 min por " +
+          "celda de ~110 m; `null` si el proveedor falló o no hay posición reciente). 403 si el caller no es parte del envío. " +
           "La posición en vivo sigue llegando por el WS `/shipments/:id/track`.",
         tags: ["positions"],
         params: positionsSchemas.shipmentIdParam,
@@ -219,7 +231,7 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
       assertShipmentAccess(shipment, callerId, callerRoles, "No tenés permiso para ver el tracking de este envío.");
 
       reply.header("Cache-Control", "no-store");
-      return getPartyTracking().get(row, { closedTrace: false });
+      return getPartyTracking().get(row, { closedTrace: false, approachRoute: true });
     }
   );
 }

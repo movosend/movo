@@ -823,6 +823,26 @@ describe("Envíos para el panel (Postgres) — MOVO-325", () => {
         }
       });
 
+      it("MOVO-359: antes del retiro, con el viaje iniciado, suma la ruta del transportista al retiro; el panel no", async () => {
+        const shipment = await seedWithTrip(ShipmentStatus.ASSIGNED);
+        await setLastKnown(shipment.tripId, along(0.3), new Date());
+
+        for (const userId of [shipment.senderId, shipment.receiverId as string]) {
+          const response = await asUser(shipment.id, userId);
+          expect(response.statusCode).toBe(200);
+          const body: AdminShipmentTracking = response.json();
+          expect(body).toMatchObject({ state: "not_started", reason: "awaiting_pickup", approachRoute: plannedRoute });
+        }
+        expect("approachRoute" in (await tracking(shipment.id))).toBe(false);
+      });
+
+      it("MOVO-359: sin posición todavía, `approachRoute` es null", async () => {
+        const shipment = await seedWithTrip(ShipmentStatus.ASSIGNED);
+
+        const response = await asUser(shipment.id, shipment.senderId);
+        expect(response.json()).toMatchObject({ state: "not_started", approachRoute: null });
+      });
+
       it("403 para quien no es parte del envío, 404 si no existe", async () => {
         const shipment = await seedWithTrip(ShipmentStatus.IN_TRANSIT, { pickedUpAt: new Date() });
 

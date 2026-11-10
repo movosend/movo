@@ -384,6 +384,12 @@ export interface AdminShipmentTracking {
   destination: AdminTrackingPlace;
   /** Polyline encoded de Google (5 decimales). `null` sin transportista o si el proveedor falló. */
   plannedRoute: { polyline: string; distanceMeters: number; durationSeconds: number } | null;
+  /**
+   * MOVO-359: ruta por calle del transportista al punto de retiro. Solo en el seguimiento de emisor y
+   * receptor (`GET /shipments/:id/tracking`), con el envío `assigned` y el viaje iniciado; `null` si el
+   * proveedor falló o no hay posición reciente. Ausente en el seguimiento del panel.
+   */
+  approachRoute?: { polyline: string; distanceMeters: number; durationSeconds: number } | null;
   /** Cronológica, del retiro a la entrega (o a ahora). */
   trace: AdminTrackingPoint[];
   /** La traza pasó el tope y se submuestreó (conserva el primer y el último punto). */

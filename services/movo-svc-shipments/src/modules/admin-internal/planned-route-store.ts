@@ -21,6 +21,10 @@ export interface PlannedRouteStoreDeps {
   routesProvider: Pick<RoutesProvider, "getRoute">;
   provider: string;
   logger?: Pick<FastifyBaseLogger, "warn">;
+  /** Vida de una ruta cacheada. Default `PLANNED_ROUTE_TTL_SECONDS`. */
+  successTtlSeconds?: number;
+  /** Clave de cache. Default: `admin_tracking_route:<proveedor>:<envío>:<origen>:<destino>`, con las coordenadas exactas. */
+  keyFor?: (shipmentId: string, origin: RouteLatLng, destination: RouteLatLng) => string;
 }
 
 const isRouteResult = (value: unknown): value is RouteResult =>
@@ -46,14 +50,16 @@ export function createPlannedRouteStore(deps: PlannedRouteStoreDeps): PlannedRou
       return null;
     }
     await deps.redis
-      .set(key, JSON.stringify(route), "EX", PLANNED_ROUTE_TTL_SECONDS)
+      .set(key, JSON.stringify(route), "EX", deps.successTtlSeconds ?? PLANNED_ROUTE_TTL_SECONDS)
       .catch((err: unknown) => deps.logger?.warn({ err, shipmentId }, "admin_tracking_route_cache_failed"));
     return route;
   }
 
   return {
     async get(shipmentId, origin, destination) {
-      const key = `admin_tracking_route:${deps.provider}:${shipmentId}:${origin.lat},${origin.lng}:${destination.lat},${destination.lng}`;
+      const key = deps.keyFor
+        ? deps.keyFor(shipmentId, origin, destination)
+        : `admin_tracking_route:${deps.provider}:${shipmentId}:${origin.lat},${origin.lng}:${destination.lat},${destination.lng}`;
       // Redis es accesorio: si falla la lectura se trata como miss y se pide al proveedor.
       const [raw, failed] = await Promise.all([
         deps.redis.get(key),
