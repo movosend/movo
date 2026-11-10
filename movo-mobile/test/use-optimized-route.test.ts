@@ -1,11 +1,17 @@
 import { act, renderHook, waitFor } from "@testing-library/react-native";
 import { getCurrentLocation } from "../src/lib/location";
 import { shipmentsClient } from "../src/api/shipments-client";
-import { useOptimizedRoute } from "../src/hooks/use-optimized-route";
+import { clearOptimizedRouteCache, useOptimizedRoute } from "../src/hooks/use-optimized-route";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
 
+const mockStopWatching = jest.fn();
+let mockOnWatchedLocation: ((coords: { lat: number; lng: number }) => void) | null = null;
 jest.mock("../src/lib/location", () => ({
   getCurrentLocation: jest.fn(),
+  watchForegroundLocation: jest.fn(async (onChange: (coords: { lat: number; lng: number }) => void) => {
+    mockOnWatchedLocation = onChange;
+    return mockStopWatching;
+  }),
 }));
 
 jest.mock("../src/api/shipments-client", () => ({
@@ -57,6 +63,38 @@ describe("useOptimizedRoute (MOVO-207)", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    clearOptimizedRouteCache();
+    mockOnWatchedLocation = null;
+  });
+
+  describe("feedback de TestFlight build 18", () => {
+    it("al volver a entrar muestra la última ruta del viaje sin la pantalla de carga", async () => {
+      (getCurrentLocation as jest.Mock).mockResolvedValue(mockCarrierLocation);
+      (shipmentsClient.getMyRoute as jest.Mock).mockResolvedValue(mockRoute);
+      const first = await renderHook(() => useOptimizedRoute("trip-1"));
+      await waitFor(() => expect(first.result.current.route).toEqual(mockRoute));
+      await first.unmount();
+
+      (shipmentsClient.getMyRoute as jest.Mock).mockReturnValue(new Promise(() => undefined));
+      const second = await renderHook(() => useOptimizedRoute("trip-1"));
+      expect(second.result.current.isLoading).toBe(false);
+      expect(second.result.current.route).toEqual(mockRoute);
+      await second.unmount();
+    });
+
+    it("con la pantalla enfocada, la posición del transportista sigue al GPS y se corta al salir", async () => {
+      (getCurrentLocation as jest.Mock).mockResolvedValue(mockCarrierLocation);
+      (shipmentsClient.getMyRoute as jest.Mock).mockResolvedValue(mockRoute);
+      const { result, unmount } = await renderHook(() => useOptimizedRoute("trip-1"));
+      await waitFor(() => expect(mockOnWatchedLocation).not.toBeNull());
+      await waitFor(() => expect(result.current.route).toEqual(mockRoute));
+
+      await act(async () => mockOnWatchedLocation?.({ lat: -31.5, lng: -64.3 }));
+      expect(result.current.carrierLocation).toEqual({ lat: -31.5, lng: -64.3 });
+
+      await unmount();
+      expect(mockStopWatching).toHaveBeenCalled();
+    });
   });
 
   it("AC8: si el GPS no tiene permiso (granted: false), marca gpsPermissionDenied sin llamar al backend", async () => {

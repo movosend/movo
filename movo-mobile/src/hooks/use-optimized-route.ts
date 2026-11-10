@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { useFocusEffect } from "expo-router";
-import { getCurrentLocation } from "../lib/location";
+import { getCurrentLocation, watchForegroundLocation } from "../lib/location";
 import { shipmentsClient, type CarrierRoute } from "../api/shipments-client";
 import { friendlyErrorMessage } from "../lib/error-messages";
 
@@ -24,11 +24,29 @@ export interface UseOptimizedRouteResult {
  * AC7: Se recálcula automáticamente cuando la pantalla gana foco (`useFocusEffect`),
  * garantizando que si el transportista completó o canceló una parada en un wizard,
  * al regresar a la vista de ruta las paradas restantes se actualicen de inmediato.
+ *
+ * Feedback de TestFlight build 18 ("cada vez que entro dice calculando la mejor ruta" y "no se
+ * actualiza mi posición"): la última ruta de cada viaje queda en memoria y se muestra al volver a
+ * entrar mientras se refresca en silencio (la pantalla de carga queda para la primera vez), y con la
+ * pantalla enfocada la posición del transportista sigue al GPS (`watchForegroundLocation`), no solo
+ * a cada pedido de la ruta.
  */
+type LatLng = { lat: number; lng: number };
+
+/** Última ruta por viaje (`""` = la ruta del día sin viaje), para no volver a la pantalla de carga. */
+const lastRouteByTrip = new Map<string, { route: CarrierRoute; location: LatLng }>();
+
+/** Solo para tests: el cache es del módulo y sobrevive entre casos. */
+export function clearOptimizedRouteCache(): void {
+  lastRouteByTrip.clear();
+}
+
 export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
-  const [route, setRoute] = useState<CarrierRoute | null>(null);
-  const [carrierLocation, setCarrierLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const cacheKey = tripId ?? "";
+  const cached = lastRouteByTrip.get(cacheKey);
+  const [route, setRoute] = useState<CarrierRoute | null>(cached?.route ?? null);
+  const [carrierLocation, setCarrierLocation] = useState<LatLng | null>(cached?.location ?? null);
+  const [isLoading, setIsLoading] = useState<boolean>(!cached);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [gpsPermissionDenied, setGpsPermissionDenied] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,6 +81,7 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
         : await shipmentsClient.getMyRoute(coords);
       if (requestId !== requestSeqRef.current) return;
       setRoute(result);
+      lastRouteByTrip.set(tripId ?? "", { route: result, location: coords });
     } catch (err: unknown) {
       if (requestId !== requestSeqRef.current) return;
       // En un refresh en background, preservar la ruta existente para no dejar la pantalla vacía
@@ -81,9 +100,17 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
   useFocusEffect(
     useCallback(() => {
       void fetchRoute(true);
+      let stopWatching: (() => void) | null = null;
+      let cancelled = false;
+      void watchForegroundLocation((coords) => setCarrierLocation(coords)).then((stop) => {
+        if (cancelled) stop();
+        else stopWatching = stop;
+      });
       return () => {
         // Invalidar petición en vuelo si la pantalla pierde foco
         requestSeqRef.current++;
+        cancelled = true;
+        stopWatching?.();
       };
     }, [fetchRoute])
   );
