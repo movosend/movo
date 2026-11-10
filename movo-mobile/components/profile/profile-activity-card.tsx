@@ -97,6 +97,9 @@ export function ProfileActivityCard({
   const showRoleToggle = hasCarrier && hasSender;
   const [role, setRole] = useState<ReputationRole>(hasCarrier ? "carrier" : "sender");
   const [activeCommentIndex, setActiveCommentIndex] = useState(0);
+  // Ancho disponible del carrusel: con una sola reseña la tarjeta ocupa todo (antes quedaba a 232 px,
+  // dos tercios, con aire vacío al lado — feedback de TestFlight build 18); con varias se deja asomar la siguiente.
+  const [carouselWidth, setCarouselWidth] = useState(0);
 
   const breakdown = reputation ? (role === "carrier" ? reputation.asCarrier : reputation.asSender) : undefined;
   // Las de la pestaña elegida: una reseña como transportista no va en "Como emisor" (feedback de TestFlight, build 17).
@@ -107,8 +110,15 @@ export function ProfileActivityCard({
   // oculta la sección entera en vez de mostrar el badge/nota vacíos de antes.
   const showReputationSection = Boolean(reputation && breakdown && !(isNewProfile && allComments.length === 0));
 
+  const cardWidth =
+    carouselWidth === 0
+      ? CARD_WIDTH
+      : comments.length === 1
+        ? carouselWidth
+        : Math.max(CARD_WIDTH, Math.round(carouselWidth * 0.86));
+
   const handleScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const index = Math.round(event.nativeEvent.contentOffset.x / (CARD_WIDTH + CARD_GAP));
+    const index = Math.round(event.nativeEvent.contentOffset.x / (cardWidth + CARD_GAP));
     setActiveCommentIndex(Math.max(0, Math.min(index, comments.length - 1)));
   };
 
@@ -247,8 +257,9 @@ export function ProfileActivityCard({
                   hitSlop={8}
                   className="flex-row items-center gap-0.5"
                 >
-                  <Text className="font-sans-semibold text-[12px] text-lime-500">Ver todas</Text>
-                  <ChevronRight size={14} strokeWidth={2.2} color="#C6F24A" />
+                  {/* Tinta, no lima: el lima sobre el fondo claro no llega a 2:1 (feedback de TestFlight builds 17 y 18). */}
+                  <Text className="font-sans-semibold text-[12px] text-fg">Ver todas</Text>
+                  <ChevronRight size={14} strokeWidth={2.2} color={colors.fg1} />
                 </Pressable>
               ) : null}
             </View>
@@ -272,7 +283,8 @@ export function ProfileActivityCard({
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   decelerationRate="fast"
-                  snapToInterval={CARD_WIDTH + CARD_GAP}
+                  snapToInterval={cardWidth + CARD_GAP}
+                  onLayout={(event) => setCarouselWidth(Math.round(event.nativeEvent.layout.width))}
                   contentContainerStyle={{ gap: CARD_GAP }}
                   onMomentumScrollEnd={handleScrollEnd}
                   scrollEventThrottle={16}
@@ -283,7 +295,7 @@ export function ProfileActivityCard({
                       key={comment.id}
                       comment={comment}
                       variant="carousel"
-                      width={CARD_WIDTH}
+                      width={cardWidth}
                       testID={testID ? `${testID}-comment-${comment.id}` : undefined}
                     />
                   ))}
