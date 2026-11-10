@@ -822,7 +822,10 @@ export default function ShipmentDetailScreen() {
                 </>
               )}
 
-              {isFormerCarrier ? null : (
+              {/* Con el envío entregado, el transportista ve al emisor y al receptor en "Calificaciones"
+                  (feedback de TestFlight build 18: la lista repetida era redundante). Emisor y receptor
+                  solo califican al transportista, así que para ellos "Participantes" sigue sumando. */}
+              {isFormerCarrier || (isCarrier && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status)) ? null : (
               <View>
                 <Eyebrow>Participantes</Eyebrow>
                 <ShipmentPartiesCard
