@@ -377,7 +377,7 @@ describe("TransportShipmentDetailScreen", () => {
         id: userId,
         fullName: userId === "user-1" ? "Pedro Yorlano" : "Lolo Yorlano",
         photoUrl: null,
-        isVerified: userId === "user-1",
+        isVerified: true,
         badges: [],
         transactionCounts: { asSender: 0, asCarrier: 0 },
         reputationScore: userId === "user-1" ? 4.9 : null,
@@ -398,16 +398,18 @@ describe("TransportShipmentDetailScreen", () => {
       refetch: jest.fn(),
     });
 
-    const { getByText } = await render(<TransportShipmentDetailScreen />);
+    const { getByText, queryByText, queryByTestId } = await render(<TransportShipmentDetailScreen />);
 
     expect(getByText(/Pedro Yorlano/)).toBeTruthy();
     expect(getByText("· emisor")).toBeTruthy();
     expect(getByText("Identidad verificada · 4,9 en 34 envíos")).toBeTruthy();
     expect(getByText(/Lolo Yorlano/)).toBeTruthy();
     expect(getByText("· recibe")).toBeTruthy();
-    // `PUBLISHED` implica que el receptor ya confirmó (esa es la transición que lo
-    // publica) -- `receiverConfirmationStatus` mapea a "confirmed" acá.
-    expect(getByText("Ya aceptó recibir el paquete")).toBeTruthy();
+    // Feedback de TestFlight build 18: el receptor verificado lleva el mismo badge que el
+    // emisor, sin el "Ya aceptó recibir el paquete" (redundante en un envío publicado).
+    expect(getByText("Identidad verificada")).toBeTruthy();
+    expect(queryByText("Ya aceptó recibir el paquete")).toBeNull();
+    expect(queryByTestId("transport-detail-cash-badge")).toBeNull();
   });
 
   describe("Acción de ofertar y retirar oferta (MOVO-149)", () => {
