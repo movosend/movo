@@ -41,6 +41,8 @@ const review = (userId: string, overrides: Partial<AdminKycReviewDetail> = {}): 
   resolvedAt: null,
   email: `${userId}@movo.test`,
   phone: "+5493511234567",
+  firstName: "Julia María",
+  lastName: "Pérez Gómez",
   expirationDate: null,
   decidable: true,
   history: [],
@@ -87,7 +89,7 @@ describe("Cola de revisión manual de KYC", { timeout: 15_000 }, () => {
     const me = profile({ fullName: "Ada Admin", roles: [{ role: "admin", grantedAt: "2026-10-01T00:00:00.000Z" }] });
     const user = profile();
     const reviews = opts.reviews ? opts.reviews(user.id) : [review(user.id)];
-    const decisions: Array<{ sessionId: string; decision: string; reason: string; actorId: string }> = [];
+    const decisions: Array<{ sessionId: string; decision: string; reason: string; actorId: string; firstName?: string; lastName?: string }> = [];
     app = buildApp({
       usersClient: createFakeUsersClient({
         profiles: [me, user],
@@ -175,6 +177,50 @@ describe("Cola de revisión manual de KYC", { timeout: 15_000 }, () => {
       reason: "Documento y rostro coinciden",
     });
     expect(row?.context).toEqual({ sessionId: t.first.sessionId, verificationType: "identity" });
+  });
+
+  it("aprobar con el nombre corregido lo manda a svc-users y la bitácora solo anota que se corrigió, sin el nombre", async () => {
+    const t = await setup();
+
+    const response = await t.decide(t.first.sessionId, {
+      decision: "approved",
+      reason: "Documento y rostro coinciden",
+      firstName: "Julia María",
+      lastName: "Pérez Gómez",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(t.decisions[0]).toMatchObject({ decision: "approved", firstName: "Julia María", lastName: "Pérez Gómez" });
+    const [row] = await t.rows();
+    expect(row?.context).toEqual({ sessionId: t.first.sessionId, verificationType: "identity", nameCorrected: true });
+    expect(JSON.stringify(row)).not.toContain("Pérez");
+  });
+
+  it.each([
+    ["solo el nombre", { decision: "approved", firstName: "Julia" }],
+    ["al rechazar", { decision: "rejected", firstName: "Julia", lastName: "Pérez" }],
+  ])("rechaza con 400 corregir el nombre: %s", async (_caso, extra) => {
+    const t = await setup();
+
+    const response = await t.decide(t.first.sessionId, { reason: "Documento y rostro coinciden", ...extra });
+
+    expect(response.statusCode).toBe(400);
+    expect(t.decisions).toHaveLength(0);
+  });
+
+  it("corregir el nombre en una verificación de licencia es 400 y no deja una corrección en la bitácora", async () => {
+    const t = await setup({ reviews: (userId) => [review(userId, { verificationType: "license" })] });
+
+    const response = await t.decide(t.first.sessionId, {
+      decision: "approved",
+      reason: "Carnet vigente y legible",
+      firstName: "Julia",
+      lastName: "Pérez",
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(t.decisions).toHaveLength(0);
+    expect((await t.rows()).some((row) => JSON.stringify(row.context).includes("nameCorrected"))).toBe(false);
   });
 
   it("rechazar deja una fila kyc.decline", async () => {

@@ -22,8 +22,8 @@ stateDiagram-v2
 
     rejected --> pending: POST /kyc/session\n(reintento permitido, AC2)
     manual_review --> pending: POST /kyc/session\n(reintento permitido, AC2)
-    manual_review --> approved: admin aprueba desde el panel\n(DD-063, update-status en Didit)
-    manual_review --> rejected: admin rechaza desde el panel\n(DD-063, update-status en Didit)
+    manual_review --> approved: admin aprueba desde el panel\n(DD-064, update-status en Didit)
+    manual_review --> rejected: admin rechaza desde el panel\n(DD-064, update-status en Didit)
 
     approved --> [*]: estado terminal exitoso
 
@@ -37,7 +37,7 @@ stateDiagram-v2
     note right of manual_review
         No accionable por el usuario final. Un admin
         lo resuelve desde la cola /kyc del panel
-        (DD-063), o desde la consola de Didit (webhook
+        (DD-064), o desde la consola de Didit (webhook
         terminal). Las dos rutas pasan por
         applyTerminalDecision: la que llega segunda
         es un no-op.

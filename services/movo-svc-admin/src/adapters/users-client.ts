@@ -114,7 +114,7 @@ export interface UsersClient extends InternalClient {
    */
   decideKycReview(
     sessionId: string,
-    body: { decision: AdminKycDecision; reason: string },
+    body: { decision: AdminKycDecision; reason: string; firstName?: string; lastName?: string },
     actorId: string,
     ctx: RequestContext,
   ): Promise<AdminKycDecisionResponse>;
@@ -203,6 +203,8 @@ const isReviewDetail = (body: unknown): body is AdminKycReviewDetail =>
   isReviewRow(body) &&
   isString((body as unknown as Record<string, unknown>).email) &&
   isString((body as unknown as Record<string, unknown>).phone) &&
+  isString((body as unknown as Record<string, unknown>).firstName) &&
+  isString((body as unknown as Record<string, unknown>).lastName) &&
   isNullableString((body as unknown as Record<string, unknown>).expirationDate) &&
   isBoolean((body as unknown as Record<string, unknown>).decidable) &&
   Array.isArray((body as unknown as Record<string, unknown>).history);

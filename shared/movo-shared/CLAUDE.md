@@ -827,3 +827,6 @@ Los contratos de MOVO-345 (`AdminReportById` y los de cada pestaña), más `dist
 ### Feedback de TestFlight build 18 — `TransactionListItem.receivedArs`
 
 `receivedArs?: number | null` y `receivedIsEstimate?: boolean` en `types/transaction.ts`: lo que le quedó al transportista en la fila de Cobros. Solo los manda `role=carrier`. Son opcionales para no romper literales armados a mano ni la app contra un backend anterior. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+### Nombre legal desde el documento (DD-065) — `utils/person-name.ts`, `types/admin-kyc.ts`
+
+`normalizePersonName` (nombre y apellido por separado: cada palabra con inicial mayúscula, partículas "de/del/la/…" en minúscula salvo al principio, apóstrofes y guiones; no toca las tildes) y `PERSON_NAME_FIELD_PATTERN` (el patrón de un campo de nombre, una sola copia para el registro, el perfil y el panel). `types/admin-kyc.ts`: `ADMIN_KYC_NAME_MAX_LENGTH`, `AdminKycReviewDetail.firstName`/`lastName`, `AdminKycDecisionRequest.firstName`/`lastName` y `KYC_DECISION_NAME_RULES` (el nombre y el apellido van juntos y solo al aprobar, para el JSON Schema de `svc-admin` y `svc-users`). `ApiErrorCode` suma `KYC_REVIEW_IDENTITY_MISSING` (409). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

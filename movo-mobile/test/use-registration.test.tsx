@@ -2,15 +2,12 @@ import { render, waitFor } from "@testing-library/react-native";
 import { Text } from "react-native";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import {
-  formatDni,
   formatPhone,
   getFieldError,
-  isDniValid,
   isEmailValid,
   isPasswordValid,
   isPhoneValid,
   isStepValid,
-  isZipValid,
   RegistrationProvider,
   useRegistration,
   type RegistrationFields,
@@ -29,7 +26,6 @@ jest.mock("../src/api/auth-client", () => ({
     sendOtp: jest.fn(),
     verifyOtp: jest.fn(),
     resendOtp: jest.fn(),
-    geocodeAddress: jest.fn(),
     createKycSession: jest.fn(),
     getKycStatus: jest.fn(),
   },
@@ -46,17 +42,8 @@ const BASE_REGISTER_RESPONSE = {
 };
 
 const BASE_FIELDS: RegistrationFields = {
-  firstName: "Julia",
-  lastName: "Pérez",
   email: "julia@mail.com",
   phone: "351 234 5678",
-  dni: "12.345.678",
-  street: "Av. Corrientes",
-  number: "1234",
-  floor: "",
-  city: "CABA",
-  province: "CABA",
-  zip: "1425",
   password: "abc12345",
   passwordConfirm: "abc12345",
 };
@@ -82,20 +69,6 @@ describe("validadores de registro", () => {
     expect(isPasswordValid("sololetras")).toBe(false);
   });
 
-  it("valida DNI de 7 u 8 dígitos", () => {
-    expect(isDniValid("12345678")).toBe(true);
-    expect(isDniValid("123")).toBe(false);
-  });
-
-  it("formatea el DNI con puntos", () => {
-    expect(formatDni("12345678")).toBe("12.345.678");
-  });
-
-  it("valida el código postal de 4 dígitos", () => {
-    expect(isZipValid("1425")).toBe(true);
-    expect(isZipValid("14255")).toBe(false);
-  });
-
   it("getFieldError devuelve mensaje por campo inválido y vacío si es válido", () => {
     expect(getFieldError("email", { ...BASE_FIELDS, email: "mal" })).toBe("Ingresá un email válido");
     expect(getFieldError("email", BASE_FIELDS)).toBe("");
@@ -105,11 +78,12 @@ describe("validadores de registro", () => {
   });
 
   it("isStepValid agrupa la validación de cada paso del wizard", () => {
+    // Paso 0: email y teléfono. Paso 1: contraseña y su repetición.
     expect(isStepValid(0, BASE_FIELDS)).toBe(true);
     expect(isStepValid(0, { ...BASE_FIELDS, email: "mal" })).toBe(false);
+    expect(isStepValid(0, { ...BASE_FIELDS, phone: "" })).toBe(false);
     expect(isStepValid(1, BASE_FIELDS)).toBe(true);
-    expect(isStepValid(2, { ...BASE_FIELDS, province: "" })).toBe(false);
-    expect(isStepValid(3, BASE_FIELDS)).toBe(true);
+    expect(isStepValid(1, { ...BASE_FIELDS, passwordConfirm: "otra" })).toBe(false);
   });
 });
 
@@ -151,8 +125,6 @@ describe("RegistrationProvider", () => {
     Object.entries(BASE_FIELDS).forEach(([name, value]) =>
       getCtx().setField(name as keyof RegistrationFields, value),
     );
-    getCtx().confirmLocation(-31.4201, -64.1888);
-    await waitFor(() => expect(getCtx().latitude).toBe(-31.4201));
     getCtx().setAcceptedLegal(true);
     await waitFor(() => expect(getCtx().acceptedLegal).toBe(true));
 
@@ -165,21 +137,9 @@ describe("RegistrationProvider", () => {
     await waitFor(() => expect(getCtx().userId).toBe("usr_1"));
   });
 
-  it("no registra sin haber confirmado la ubicación en el mapa", async () => {
-    const { getCtx } = await renderRegistration();
-    await waitFor(() => expect(getCtx().resumeChecked).toBe(true));
-
-    const response = await getCtx().submitRegistration();
-
-    expect(response).toEqual({ ok: false });
-    expect(authClient.register).not.toHaveBeenCalled();
-  });
-
   it("MOVO-228: no registra sin haber tildado la aceptación de Términos/Privacidad", async () => {
     const { getCtx } = await renderRegistration();
     await waitFor(() => expect(getCtx().resumeChecked).toBe(true));
-    getCtx().confirmLocation(-31.4201, -64.1888);
-    await waitFor(() => expect(getCtx().latitude).toBe(-31.4201));
 
     const response = await getCtx().submitRegistration();
 
@@ -195,8 +155,6 @@ describe("RegistrationProvider", () => {
 
     const { getCtx } = await renderRegistration();
     await waitFor(() => expect(getCtx().resumeChecked).toBe(true));
-    getCtx().confirmLocation(-31.4201, -64.1888);
-    await waitFor(() => expect(getCtx().latitude).toBe(-31.4201));
     getCtx().setAcceptedLegal(true);
     await waitFor(() => expect(getCtx().acceptedLegal).toBe(true));
 
@@ -221,8 +179,6 @@ describe("RegistrationProvider", () => {
     Object.entries(BASE_FIELDS).forEach(([name, value]) =>
       getCtx().setField(name as keyof RegistrationFields, value),
     );
-    getCtx().confirmLocation(-31.4201, -64.1888);
-    await waitFor(() => expect(getCtx().latitude).toBe(-31.4201));
     await waitFor(() => expect(getCtx().fields.phone).toBe(BASE_FIELDS.phone));
     getCtx().setAcceptedLegal(true);
     await waitFor(() => expect(getCtx().acceptedLegal).toBe(true));
@@ -243,39 +199,18 @@ describe("RegistrationProvider", () => {
     expect(authClient.register).toHaveBeenCalledWith(
       expect.objectContaining({ phoneVerificationToken: "tok_abc" }),
     );
-    // MOVO-340: nombre y apellido por separado, sin un fullName que el backend vuelva a cortar.
+    // El registro ya no manda nombre, DNI ni dirección: los completa Didit al aprobar el KYC.
     const registerPayload = (authClient.register as jest.Mock).mock.calls[0][0];
-    expect(registerPayload).toMatchObject({ firstName: "Julia", lastName: "Pérez" });
-    expect(registerPayload).not.toHaveProperty("fullName");
+    expect(registerPayload).toMatchObject({ email: "julia@mail.com", phone: "+5493512345678" });
+    for (const campo of ["firstName", "lastName", "fullName", "dni", "address"]) {
+      expect(registerPayload).not.toHaveProperty(campo);
+    }
 
     // El token es de un solo uso y ya lo consumió el `register()` de arriba — si
     // quedara en el contexto, un wizard remontado (welcome -> register de nuevo sin
     // haber limpiado el estado) lo tomaría como "todavía válido", saltaría el paso de
     // OTP y el próximo `register()` fallaría con AUTH_OTP_INVALID.
     await waitFor(() => expect(getCtx().phoneVerificationToken).toBeNull());
-  });
-
-  it("geocodifica la dirección y expone lat/long para el paso de mapa", async () => {
-    (authClient.geocodeAddress as jest.Mock).mockResolvedValue({
-      lat: -31.42,
-      long: -64.18,
-      formattedAddress: "Av. Corrientes 1234, CABA",
-    });
-
-    const { getCtx } = await renderRegistration();
-    await waitFor(() => expect(getCtx().resumeChecked).toBe(true));
-    Object.entries(BASE_FIELDS).forEach(([name, value]) =>
-      getCtx().setField(name as keyof RegistrationFields, value),
-    );
-
-    let result: { ok: boolean } | undefined;
-    await waitFor(async () => {
-      result = await getCtx().geocodeAddress();
-    });
-
-    expect(result).toEqual({ ok: true });
-    await waitFor(() => expect(getCtx().latitude).toBe(-31.42));
-    expect(getCtx().longitude).toBe(-64.18);
   });
 
   it("verifyPhoneOtp no hace nada sin un OTP enviado antes", async () => {

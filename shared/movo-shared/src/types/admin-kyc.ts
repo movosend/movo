@@ -19,6 +19,18 @@ export type AdminKycDecision = "approved" | "rejected";
 /** Largo del motivo que el admin escribe al decidir (queda en Didit y en la bitácora). */
 export const ADMIN_KYC_DECISION_REASON_MIN_LENGTH = 10;
 export const ADMIN_KYC_DECISION_REASON_MAX_LENGTH = 500;
+/** Largo máximo del nombre y del apellido que el admin puede corregir al aprobar una identidad (los mismos 80 del perfil). */
+export const ADMIN_KYC_NAME_MAX_LENGTH = 80;
+
+/**
+ * Reglas del cuerpo de la decisión que van en el JSON Schema (y así en el Swagger generado) de `svc-admin` y `svc-users`: el
+ * nombre y el apellido van juntos, y solo se corrigen al aprobar.
+ */
+export const KYC_DECISION_NAME_RULES = {
+  dependencies: { firstName: ["lastName"], lastName: ["firstName"] },
+  if: { properties: { decision: { const: "rejected" } }, required: ["decision"] },
+  then: { not: { anyOf: [{ required: ["firstName"] }, { required: ["lastName"] }] } },
+} as const;
 
 /** Una fila de la cola: un intento en revisión. */
 export interface AdminKycReviewRow {
@@ -65,6 +77,12 @@ export interface AdminKycReviewDetail extends AdminKycReviewRow {
   resolvedAt: string | null;
   email: string;
   phone: string;
+  /**
+   * Nombre y apellido que la cuenta tiene hoy: los que Didit leyó del documento, guardados apenas llegó la decisión (también
+   * en revisión). Vacíos si Didit no los leyó; ahí hay que completarlos para aprobar. Son la base del formulario de la decisión.
+   */
+  firstName: string;
+  lastName: string;
   /** Vencimiento del documento, si Didit lo informó. */
   expirationDate: string | null;
   /** `true` si el caso se puede decidir: sigue en `manual_review` y es el último intento del usuario. */
@@ -77,6 +95,12 @@ export interface AdminKycReviewDetail extends AdminKycReviewRow {
 export interface AdminKycDecisionRequest {
   decision: AdminKycDecision;
   reason: string;
+  /**
+   * Nombre y apellido corregidos por el admin al aprobar una identidad. Pisan los que leyó Didit. Se mandan los dos o ninguno;
+   * sin ellos se usa el nombre de la cuenta, y si no hay ninguno aprobar es 409 `KYC_REVIEW_IDENTITY_MISSING`.
+   */
+  firstName?: string;
+  lastName?: string;
 }
 
 export interface AdminKycDecisionResponse {

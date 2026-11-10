@@ -541,8 +541,10 @@ export default function KycScreen() {
         </View>
 
         <Text className="mt-6 font-sans text-[12px] text-fg-3">
-          Tus datos están protegidos y solo se usan para verificar tu identidad.
-          Movo no almacena imágenes de tu DNI ni tu rostro.
+          Tomamos tu nombre y tu número de documento de tu DNI, así que no
+          tenés que escribirlos. Tus datos están protegidos y solo se usan para
+          verificar tu identidad. Movo no almacena imágenes de tu DNI ni tu
+          rostro.
         </Text>
       </View>
 

@@ -5,11 +5,8 @@ import {
   ClipboardCheck,
   Eye,
   EyeOff,
-  Home,
-  IdCard,
   Lock,
   type LucideIcon,
-  MapPin,
   Pencil,
   UserRound,
 } from "lucide-react-native";
@@ -24,8 +21,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useColorScheme } from "nativewind";
-import MapView, { Marker, PROVIDER_GOOGLE, type Region } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../../components/auth/primary-button";
 import { WizardHeader } from "../../components/auth/wizard-header";
@@ -33,66 +28,37 @@ import { ErrorBanner } from "../../components/ui/error-banner";
 import { OTP_LENGTH, type OtpInputHandle } from "../../components/ui/otp-input";
 import { OtpStep } from "../../components/ui/otp-step";
 import { PasswordStrengthMeter } from "../../components/ui/password-strength-meter";
-import { SelectField } from "../../components/ui/select-field";
 import { TextField } from "../../components/ui/text-field";
-import {
-  MAP_EDGE_BLEED,
-  MAP_GEOMETRY_COLOR_DARK,
-  MAP_GEOMETRY_COLOR_LIGHT,
-  movoMapStyleDark,
-  movoMapStyleLight,
-} from "../../src/constants/map-style";
 import { useOtpCooldown } from "../../src/hooks/use-otp-cooldown";
+import { type RegisterStep, registerStepProgress } from "../../src/lib/register-steps";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
-import { capitalizeName } from "../../src/lib/profile-format";
 import {
   type FieldName,
-  formatDni,
   formatPhone,
-  formatZip,
   getFieldError,
   isStepValid,
-  PROVINCES,
   useRegistration,
 } from "../../src/hooks/use-registration";
 
 /**
- * Pasos 0, 1, 2, 5 y 6 (info básica, DNI, dirección, contraseña, revisión) +
- * el paso de OTP (4) del mockup "Flujo de Registro" viven todos en este
- * wizard, en el mismo orden que el mockup — la verificación de teléfono
- * ocurre ANTES de crear la cuenta. Esto es un cambio respecto a la primera
- * versión de esta pantalla (donde el OTP era una ruta separada post-alta,
- * `verify-phone.tsx`, ya eliminada): requirió partir el contrato de backend
- * de MOVO-70 en dos llamadas nuevas sin cuenta todavía (`send-otp`,
- * `verify-otp`) más un `phoneVerificationToken` que viaja en el `register`
- * final — ver el comentario en `src/api/auth-client.ts` y en los tickets
- * MOVO-70/MOVO-72/MOVO-73 de Linear.
+ * Asistente de registro de 4 pasos: 0 email y teléfono, 1 código SMS, 2 contraseña, 3 revisión.
  *
- * Paso de mapa (3, nuevo): geocodifica la dirección del paso anterior para
- * centrar un pin que el usuario puede arrastrar y ajustar antes de
- * confirmar — mismo patrón "clásico" de apps de delivery/logística. El
- * `lat`/`long` final viaja en el `address` de `POST /auth/register`
- * (`users.address` del DER, MOVO-73).
+ * La verificación del teléfono ocurre ANTES de crear la cuenta: `send-otp` y `verify-otp` no
+ * necesitan cuenta, y el `phoneVerificationToken` que devuelven viaja en el `register` final.
+ *
+ * No se pide nombre, DNI ni dirección. El nombre legal y el DNI los completa Didit al aprobar la
+ * verificación de identidad (`/kyc`), y la dirección se carga después desde la libreta.
  */
 
-// Orden de foco esperado dentro de cada paso cuando iOS/Android autocompletan
-// varios campos de un tirón (Contactos / Direcciones guardadas): se usa para
-// saber a qué campo saltar y cuándo ya no queda ninguno por completar en el
-// paso (momento en el que se esconde el teclado).
-const STEP0_FIELD_ORDER: FieldName[] = ["firstName", "lastName", "email", "phone"];
-const STEP2_FIELD_ORDER: FieldName[] = ["street", "number", "floor", "city", "zip"];
+// Orden de foco esperado dentro del paso 0 cuando iOS/Android autocompletan varios campos de un
+// tirón (Contactos): se usa para saber a qué campo saltar y cuándo ya no queda ninguno por
+// completar en el paso (momento en el que se esconde el teclado).
+const STEP0_FIELD_ORDER: FieldName[] = ["email", "phone"];
 
-const STEP_LABELS = ["Paso 1", "Paso 2", "Paso 3", "Paso 4", "Paso 5", "Paso 6", "Paso 7"];
-
-// Córdoba Capital, Argentina — fallback si `geocodeAddress` todavía no resolvió el
-// pin cuando se arma el mapa (no debería pasar salvo por una carrera de renders).
-const FALLBACK_REGION: Region = { latitude: -31.4201, longitude: -64.1888, latitudeDelta: 0.01, longitudeDelta: 0.01 };
-
-type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+type Step = RegisterStep;
 
 export default function RegisterScreen() {
   const colors = useThemeColors();
-  const { colorScheme } = useColorScheme();
   const registration = useRegistration();
   const {
     fields,
@@ -103,13 +69,13 @@ export default function RegisterScreen() {
     errorBanner,
     clearErrorBanner,
     loading,
-    latitude,
-    longitude,
-    confirmLocation,
     acceptedLegal,
     setAcceptedLegal,
   } = registration;
   const [step, setStep] = useState<Step>(0);
+  // true cuando el paso del código se salteó porque el teléfono ya estaba verificado. Solo vale
+  // mientras el token siga vigente: si el usuario cambia el teléfono, el código vuelve a contar.
+  const [otpSkippedFlag, setOtpSkipped] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [otpCode, setOtpCode] = useState("");
   const { secondsLeft: otpSecondsLeft, start: startOtpCooldown } = useOtpCooldown();
@@ -159,6 +125,9 @@ export default function RegisterScreen() {
 
   // Todo cambio de paso pasa por acá: un error de un paso anterior no debe
   // seguir mostrándose una vez que el usuario avanzó o volvió a otro paso.
+  const otpSkipped = otpSkippedFlag && Boolean(registration.phoneVerificationToken);
+  const progress = registerStepProgress(step, otpSkipped);
+
   function goToStep(next: Step) {
     clearErrorBanner();
     setStep(next);
@@ -173,10 +142,11 @@ export default function RegisterScreen() {
       }
       return;
     }
-    // Simétrico al salto hacia adelante en goNext (step 3): si el teléfono ya está
-    // verificado, el paso de OTP (4) queda fuera de la navegación en ambos sentidos.
-    if (step === 5 && registration.phoneVerificationToken) {
-      goToStep(3);
+    // Simétrico al salto hacia adelante en goNext (paso 0): si el teléfono ya está verificado,
+    // el paso del código (1) queda fuera de la navegación en ambos sentidos.
+    if (step === 2 && registration.phoneVerificationToken) {
+      setOtpSkipped(true);
+      goToStep(0);
       return;
     }
     goToStep((step - 1) as Step);
@@ -193,42 +163,30 @@ export default function RegisterScreen() {
 
   async function goNext() {
     if (step === 0) {
-      touchAll(["firstName", "lastName", "email", "phone"]);
+      touchAll(["email", "phone"]);
       if (!isStepValid(0, fields)) return;
-      goToStep(1);
-    } else if (step === 1) {
-      touchAll(["dni"]);
-      if (!isStepValid(1, fields)) return;
-      goToStep(2);
-    } else if (step === 2) {
-      touchAll(["street", "number", "city", "province", "zip"]);
-      if (!isStepValid(2, fields)) return;
-      const result = await registration.geocodeAddress();
-      if (!result.ok) return;
-      goToStep(3);
-    } else if (step === 3) {
-      if (latitude === null || longitude === null) return;
-      // El teléfono ya está verificado para el número actual (no cambió desde la
-      // última vez) — reenviar un OTP acá sería gastar un SMS de más y hacerle pisar
-      // el paso al usuario de nuevo sin necesidad.
+      // El teléfono ya está verificado para el número actual (no cambió desde la última vez):
+      // reenviar un código sería gastar un SMS de más y hacerle pisar el paso al usuario de nuevo.
       if (registration.phoneVerificationToken) {
-        goToStep(5);
+        setOtpSkipped(true);
+        goToStep(2);
         return;
       }
       const result = await registration.sendOtp();
       if (!result.ok) return;
       setOtpCode("");
       startOtpCooldown(result.cooldownSeconds);
-      goToStep(4);
-    } else if (step === 4) {
+      setOtpSkipped(false);
+      goToStep(1);
+    } else if (step === 1) {
       if (otpCode.length < OTP_LENGTH) return;
       const result = await registration.verifyPhoneOtp(otpCode);
       if (!result.ok) return;
-      goToStep(5);
-    } else if (step === 5) {
+      goToStep(2);
+    } else if (step === 2) {
       touchAll(["password", "passwordConfirm"]);
-      if (!isStepValid(3, fields)) return;
-      goToStep(6);
+      if (!isStepValid(1, fields)) return;
+      goToStep(3);
     } else {
       const result = await registration.submitRegistration();
       if (result.ok) {
@@ -243,8 +201,8 @@ export default function RegisterScreen() {
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
       <WizardHeader
-        progress={(step + 1) / 7}
-        stepLabel={STEP_LABELS[step]}
+        progress={progress.fraction}
+        stepLabel={progress.label}
         onBack={goBack}
         testID="register-back"
       />
@@ -268,50 +226,9 @@ export default function RegisterScreen() {
               Creá tu cuenta
             </Text>
             <Text className="mb-5 font-sans text-body text-fg-2">
-              Es rápido. Después vas a verificar tu identidad para poder enviar
-              y llevar paquetes.
+              Es rápido. Después vas a verificar tu identidad con tu DNI para
+              poder enviar y llevar paquetes: de ahí tomamos tu nombre.
             </Text>
-
-            <View className="flex-row gap-2.5">
-              <TextField
-                testID="register-first-name"
-                ref={bindFieldRef("firstName")}
-                containerClassName="mb-3.5 flex-1 gap-1.5"
-                label="Nombre"
-                placeholder="Julia"
-                autoComplete="given-name"
-                textContentType="givenName"
-                autoCapitalize="words"
-                returnKeyType="next"
-                value={fields.firstName}
-                onFocus={() => onFieldFocus("firstName")}
-                onChangeText={(v) => {
-                  setField("firstName", v);
-                  onFieldAutofillCheck("firstName", STEP0_FIELD_ORDER);
-                }}
-                onBlur={() => touch("firstName")}
-                error={err("firstName")}
-              />
-              <TextField
-                testID="register-last-name"
-                ref={bindFieldRef("lastName")}
-                containerClassName="mb-3.5 flex-1 gap-1.5"
-                label="Apellido"
-                placeholder="Pérez"
-                autoComplete="family-name"
-                textContentType="familyName"
-                autoCapitalize="words"
-                returnKeyType="next"
-                value={fields.lastName}
-                onFocus={() => onFieldFocus("lastName")}
-                onChangeText={(v) => {
-                  setField("lastName", v);
-                  onFieldAutofillCheck("lastName", STEP0_FIELD_ORDER);
-                }}
-                onBlur={() => touch("lastName")}
-                error={err("lastName")}
-              />
-            </View>
 
             <TextField
               testID="register-email"
@@ -363,222 +280,6 @@ export default function RegisterScreen() {
         )}
 
         {step === 1 && (
-          <View>
-            <StepIcon icon={IdCard} />
-            <Text className="mb-1.5 font-sans-semibold text-title text-fg">
-              Tu DNI
-            </Text>
-            <Text className="mb-5 font-sans text-body text-fg-2">
-              Documento Nacional de Identidad. Lo vamos a confirmar más adelante
-              para asegurarnos de que sos vos. Esto ayuda a que Movo sea la red
-              de logística mas segura de Argentina 🚀
-            </Text>
-            <TextField
-              testID="register-dni"
-              label="Número de DNI"
-              placeholder="12.345.678"
-              keyboardType="numeric"
-              returnKeyType="done"
-              maxLength={10}
-              value={fields.dni}
-              onChangeText={(v) => setField("dni", formatDni(v))}
-              onBlur={() => touch("dni")}
-              error={err("dni")}
-            />
-          </View>
-        )}
-
-        {step === 2 && (
-          <View>
-            <StepIcon icon={Home} />
-            <Text className="mb-1.5 font-sans-semibold text-title text-fg">
-              Dirección de tu casa
-            </Text>
-            <Text className="mb-5 font-sans text-body text-fg-2">
-              Registrá la dirección de tu casa. Es el punto de partida de tus
-              envíos.
-            </Text>
-            <TextField
-              testID="register-street"
-              ref={bindFieldRef("street")}
-              label="Calle"
-              placeholder="Av. Corrientes"
-              autoComplete="street-address"
-              textContentType="streetAddressLine1"
-              autoCapitalize="words"
-              returnKeyType="next"
-              value={fields.street}
-              onFocus={() => onFieldFocus("street")}
-              onChangeText={(v) => {
-                setField("street", v);
-                onFieldAutofillCheck("street", STEP2_FIELD_ORDER);
-              }}
-              onBlur={() => touch("street")}
-              error={err("street")}
-            />
-            <View className="flex-row gap-2.5">
-              <TextField
-                testID="register-number"
-                ref={bindFieldRef("number")}
-                containerClassName="mb-3.5 flex-1 gap-1.5"
-                label="Número"
-                placeholder="1234"
-                keyboardType="numeric"
-                returnKeyType="next"
-                value={fields.number}
-                onFocus={() => onFieldFocus("number")}
-                onChangeText={(v) => {
-                  setField("number", v);
-                  onFieldAutofillCheck("number", STEP2_FIELD_ORDER);
-                }}
-                onBlur={() => touch("number")}
-                error={err("number")}
-              />
-              <TextField
-                testID="register-floor"
-                ref={bindFieldRef("floor")}
-                containerClassName="mb-3.5 flex-1 gap-1.5"
-                label="Piso / Depto"
-                placeholder="3B (opcional)"
-                textContentType="streetAddressLine2"
-                returnKeyType="next"
-                value={fields.floor}
-                onFocus={() => onFieldFocus("floor")}
-                onChangeText={(v) => {
-                  setField("floor", v);
-                  onFieldAutofillCheck("floor", STEP2_FIELD_ORDER);
-                }}
-              />
-            </View>
-            <View className="flex-row gap-2.5">
-              <TextField
-                testID="register-city"
-                ref={bindFieldRef("city")}
-                containerClassName="mb-3.5 flex-1 gap-1.5"
-                label="Ciudad"
-                placeholder="CABA"
-                autoComplete="address-line1"
-                textContentType="addressCity"
-                autoCapitalize="words"
-                returnKeyType="next"
-                value={fields.city}
-                onFocus={() => onFieldFocus("city")}
-                onChangeText={(v) => {
-                  setField("city", v);
-                  onFieldAutofillCheck("city", STEP2_FIELD_ORDER);
-                }}
-                onBlur={() => touch("city")}
-                error={err("city")}
-              />
-              <TextField
-                testID="register-zip"
-                ref={bindFieldRef("zip")}
-                containerClassName="mb-3.5 w-[110px] gap-1.5"
-                label="CP"
-                placeholder="1425"
-                keyboardType="numeric"
-                autoComplete="postal-code"
-                textContentType="postalCode"
-                returnKeyType="done"
-                maxLength={12}
-                value={fields.zip}
-                onFocus={() => onFieldFocus("zip")}
-                onChangeText={(v) => {
-                  setField("zip", formatZip(v));
-                  onFieldAutofillCheck("zip", STEP2_FIELD_ORDER);
-                }}
-                onBlur={() => touch("zip")}
-                error={err("zip")}
-              />
-            </View>
-            <SelectField
-              testID="register-province"
-              containerClassName="mb-3.5 gap-1.5"
-              label="Provincia"
-              placeholder="Seleccioná tu provincia"
-              options={PROVINCES}
-              value={fields.province}
-              onChange={(p) => {
-                setField("province", p);
-                touch("province");
-              }}
-              error={touched.province ? err("province") : undefined}
-            />
-          </View>
-        )}
-
-        {step === 3 && (
-          <View>
-            <StepIcon icon={MapPin} />
-            <Text className="mb-1.5 font-sans-semibold text-title text-fg">
-              Confirmá tu ubicación
-            </Text>
-            <Text className="mb-5 font-sans text-body text-fg-2">
-              Arrastrá el pin hasta el punto exacto de tu dirección.
-            </Text>
-            <View
-              className="relative h-80 overflow-hidden rounded-[10px]"
-              style={{ backgroundColor: colorScheme === "dark" ? MAP_GEOMETRY_COLOR_DARK : MAP_GEOMETRY_COLOR_LIGHT }}
-            >
-              <MapView
-                testID="register-map"
-                provider={PROVIDER_GOOGLE}
-                customMapStyle={colorScheme === "dark" ? movoMapStyleDark : movoMapStyleLight}
-                // Ver `MAP_EDGE_BLEED`: saca el borde propio de la view nativa fuera del recorte.
-                style={{
-                  position: "absolute",
-                  top: -MAP_EDGE_BLEED,
-                  bottom: -MAP_EDGE_BLEED,
-                  left: -MAP_EDGE_BLEED,
-                  right: -MAP_EDGE_BLEED,
-                }}
-                initialRegion={
-                  latitude !== null && longitude !== null
-                    ? { latitude, longitude, latitudeDelta: 0.01, longitudeDelta: 0.01 }
-                    : FALLBACK_REGION
-                }
-              >
-                {latitude !== null && longitude !== null && (
-                  <Marker
-                    testID="register-map-marker"
-                    coordinate={{ latitude, longitude }}
-                    draggable
-                    anchor={{ x: 0.5, y: 1 }}
-                    onDragEnd={(e) => {
-                      const { latitude: lat, longitude: long } = e.nativeEvent.coordinate;
-                      confirmLocation(lat, long);
-                    }}
-                  >
-                    <View
-                      style={{
-                        paddingTop: 12,
-                        paddingHorizontal: 12,
-                        shadowColor: "#000",
-                        shadowOffset: { width: 0, height: 2 },
-                        shadowOpacity: 0.3,
-                        shadowRadius: 3,
-                        elevation: 4,
-                      }}
-                    >
-                      <MapPin size={52} strokeWidth={1.5} color="#1A1A1D" fill="#C6F24A" />
-                    </View>
-                  </Marker>
-                )}
-              </MapView>
-              <View
-                pointerEvents="none"
-                className="absolute inset-0 rounded-[10px] border border-border"
-              />
-            </View>
-            <Text className="mt-2.5 font-sans text-[12px] text-fg-3">
-              {latitude !== null && longitude !== null
-                ? `Lat ${latitude.toFixed(5)}, Long ${longitude.toFixed(5)}`
-                : "Ubicando tu dirección…"}
-            </Text>
-          </View>
-        )}
-
-        {step === 4 && (
           <OtpStep
             ref={otpInputRef}
             testIDPrefix="register-otp"
@@ -596,7 +297,7 @@ export default function RegisterScreen() {
           />
         )}
 
-        {step === 5 && (
+        {step === 2 && (
           <View>
             <StepIcon icon={Lock} />
             <Text className="mb-1.5 font-sans-semibold text-title text-fg">
@@ -658,7 +359,7 @@ export default function RegisterScreen() {
           </View>
         )}
 
-        {step === 6 && (
+        {step === 3 && (
           <View>
             <StepIcon icon={ClipboardCheck} />
             <Text className="mb-1.5 font-sans-semibold text-title text-fg">
@@ -669,11 +370,6 @@ export default function RegisterScreen() {
             </Text>
             <View className="mb-5 overflow-hidden rounded-[10px] border border-border">
               <ReviewRow
-                label="Nombre"
-                value={capitalizeName(`${fields.firstName} ${fields.lastName}`)}
-                onEdit={() => goToStep(0)}
-              />
-              <ReviewRow
                 label="Email"
                 value={fields.email}
                 onEdit={() => goToStep(0)}
@@ -683,24 +379,6 @@ export default function RegisterScreen() {
                 value={`+54 ${fields.phone}`}
                 badge={registration.phoneVerifiedAt ? "Verificado" : undefined}
                 onEdit={() => goToStep(0)}
-              />
-              <ReviewRow
-                label="DNI"
-                value={fields.dni}
-                onEdit={() => goToStep(1)}
-              />
-              <ReviewRow
-                label="Dirección"
-                value={[
-                  `${fields.street} ${fields.number}`.trim(),
-                  fields.floor,
-                  fields.city,
-                  fields.province,
-                  fields.zip,
-                ]
-                  .filter(Boolean)
-                  .join(", ")}
-                onEdit={() => goToStep(2)}
                 last
               />
             </View>
@@ -748,7 +426,7 @@ export default function RegisterScreen() {
       <PrimaryButton
         testID="register-primary-action"
         label={
-          step === 6
+          step === 3
             ? loading
               ? "Creando cuenta…"
               : "Crear cuenta"
@@ -758,9 +436,8 @@ export default function RegisterScreen() {
         loading={loading}
         disabled={
           loading ||
-          (step === 3 && (latitude === null || longitude === null)) ||
-          (step === 4 && otpCode.length < OTP_LENGTH) ||
-          (step === 6 && !acceptedLegal)
+          (step === 1 && otpCode.length < OTP_LENGTH) ||
+          (step === 3 && !acceptedLegal)
         }
       />
     </SafeAreaView>

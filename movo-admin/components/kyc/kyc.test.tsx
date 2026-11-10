@@ -64,6 +64,8 @@ describe("DecisionPanel", () => {
   const props = {
     sessionId: "sess-1",
     fullName: "Marcos Vera",
+    firstName: "Marcos",
+    lastName: "Vera",
     verificationType: "identity" as const,
     decidable: true,
   }
@@ -97,6 +99,65 @@ describe("DecisionPanel", () => {
       )
     )
     expect(await screen.findByText("Quedó aprobada")).toBeInTheDocument()
+  })
+
+  it("aprobar una identidad muestra el nombre que leyó Didit, y si no se toca no lo manda", async () => {
+    actions.decideKyc.mockResolvedValue({ ok: true, data: { sessionId: "sess-1", status: "approved" } })
+    render(<DecisionPanel {...props} />)
+
+    fireEvent.click(screen.getByRole("button", { name: /Aprobar/ }))
+    expect(await screen.findByLabelText("Nombre")).toHaveValue("Marcos")
+    expect(screen.getByLabelText("Apellido")).toHaveValue("Vera")
+    fireEvent.change(screen.getByLabelText(/Motivo/), { target: { value: "El documento y la selfie coinciden" } })
+    fireEvent.click(screen.getByRole("button", { name: "Aprobar" }))
+
+    await waitFor(() =>
+      expect(actions.decideKyc).toHaveBeenCalledWith("sess-1", "approved", "El documento y la selfie coinciden")
+    )
+  })
+
+  it("el admin puede corregir el nombre al aprobar: se manda corregido", async () => {
+    actions.decideKyc.mockResolvedValue({ ok: true, data: { sessionId: "sess-1", status: "approved" } })
+    render(<DecisionPanel {...props} />)
+
+    fireEvent.click(screen.getByRole("button", { name: /Aprobar/ }))
+    fireEvent.change(await screen.findByLabelText("Apellido"), { target: { value: "Vera Núñez" } })
+    fireEvent.change(screen.getByLabelText(/Motivo/), { target: { value: "El documento y la selfie coinciden" } })
+    fireEvent.click(screen.getByRole("button", { name: "Aprobar" }))
+
+    await waitFor(() =>
+      expect(actions.decideKyc).toHaveBeenCalledWith("sess-1", "approved", "El documento y la selfie coinciden", {
+        firstName: "Marcos",
+        lastName: "Vera Núñez",
+      })
+    )
+  })
+
+  it("si Didit no leyó el nombre, hay que escribirlo para poder aprobar", async () => {
+    render(<DecisionPanel {...props} firstName="" lastName="" />)
+
+    fireEvent.click(screen.getByRole("button", { name: /Aprobar/ }))
+    fireEvent.change(await screen.findByLabelText(/Motivo/), { target: { value: "El documento y la selfie coinciden" } })
+    const confirm = screen.getByRole("button", { name: "Aprobar" })
+    expect(confirm).toBeDisabled()
+    expect(screen.getByText(/Didit no pudo leerlo/)).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Marcos" } })
+    fireEvent.change(screen.getByLabelText("Apellido"), { target: { value: "Vera" } })
+    expect(confirm).toBeEnabled()
+  })
+
+  it("al rechazar o decidir una licencia no se pide el nombre", async () => {
+    const { unmount } = render(<DecisionPanel {...props} />)
+    fireEvent.click(screen.getByRole("button", { name: /Rechazar/ }))
+    await screen.findByLabelText(/Motivo/)
+    expect(screen.queryByLabelText("Nombre")).not.toBeInTheDocument()
+    unmount()
+
+    render(<DecisionPanel {...props} verificationType="license" />)
+    fireEvent.click(screen.getByRole("button", { name: /Aprobar/ }))
+    await screen.findByLabelText(/Motivo/)
+    expect(screen.queryByLabelText("Nombre")).not.toBeInTheDocument()
   })
 
   it("rechazar manda la decisión 'rejected'", async () => {

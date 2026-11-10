@@ -195,6 +195,21 @@ describe("GET /users/me y GET /users/:id (MOVO-77)", () => {
       expect(body.badges).toEqual([]);
     });
 
+    it("una cuenta sin el nombre del documento se ve como 'Usuario de Movo' para otras personas, y vacía en el perfil propio", async () => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput({ firstName: "", lastName: "" }));
+
+      const publicResponse = await app.inject({
+        method: "GET",
+        url: `/users/${target.id}`,
+        headers: { "x-user-id": caller.id },
+      });
+      const ownResponse = await app.inject({ method: "GET", url: "/users/me", headers: { "x-user-id": target.id } });
+
+      expect(JSON.parse(publicResponse.body).fullName).toBe("Usuario de Movo");
+      expect(JSON.parse(ownResponse.body).fullName).toBe("");
+    });
+
     it("MOVO-171: incluye bio cuando el usuario la completó", async () => {
       const caller = await repo.create(buildInput());
       const target = await repo.create(buildInput());

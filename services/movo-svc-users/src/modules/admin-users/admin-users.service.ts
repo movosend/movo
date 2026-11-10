@@ -163,7 +163,8 @@ const MATCH_ORDER = Prisma.sql`CASE m.matched_by WHEN 'name' THEN 0 WHEN 'email'
 function toListItem(row: SearchRow): AdminUserListItem {
   return {
     id: row.id,
-    fullName: fullName({ firstName: row.first_name, lastName: row.last_name }),
+    // Una cuenta que todavía no tiene el nombre del documento se ve por su email, no como una fila en blanco.
+    fullName: fullName({ firstName: row.first_name, lastName: row.last_name }) || row.email,
     email: row.email,
     phone: row.phone,
     dni: row.dni,
@@ -284,7 +285,7 @@ export function createAdminUsersService(deps: AdminUsersServiceDeps) {
         id: user.id,
         firstName: user.firstName,
         lastName: user.lastName,
-        fullName: fullName(user),
+        fullName: fullName(user) || user.email,
         email: user.email,
         emailVerified: user.emailVerified,
         phone: user.phone,

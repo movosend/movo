@@ -21,6 +21,9 @@ const mocks = vi.hoisted(() => ({
   updateKycStatusIdentity: vi.fn(),
   updateKycStatusLicense: vi.fn(),
   upsertVerified: vi.fn(),
+  findByExternalSessionId: vi.fn(),
+  setVerifiedIdentity: vi.fn(),
+  clearVerifiedIdentity: vi.fn(),
 }));
 
 vi.mock("../src/repositories/kyc-verification-repository", async (importOriginal) => ({
@@ -28,6 +31,7 @@ vi.mock("../src/repositories/kyc-verification-repository", async (importOriginal
   createKycVerificationRepository: () => ({
     resolveByExternalSessionId: mocks.resolveByExternalSessionId,
     findLatestByUserId: mocks.findLatestByUserId,
+    findByExternalSessionId: mocks.findByExternalSessionId,
   }),
 }));
 vi.mock("../src/repositories/user-repository", async (importOriginal) => ({
@@ -36,6 +40,8 @@ vi.mock("../src/repositories/user-repository", async (importOriginal) => ({
     findById: mocks.findById,
     updateKycStatusIdentity: mocks.updateKycStatusIdentity,
     updateKycStatusLicense: mocks.updateKycStatusLicense,
+    setVerifiedIdentity: mocks.setVerifiedIdentity,
+    clearVerifiedIdentity: mocks.clearVerifiedIdentity,
   }),
 }));
 vi.mock("../src/repositories/drivers-license-repository", async (importOriginal) => ({
@@ -46,6 +52,13 @@ vi.mock("../src/repositories/drivers-license-repository", async (importOriginal)
 const WEBHOOK_SECRET = "webhook_secret_test";
 const USER_ID = "user-1";
 const SESSION_ID = "sess-1";
+
+// Lo que Didit devuelve de un documento leído: el nombre llega tal cual figura (en mayúsculas).
+const IDENTITY_DECISION = {
+  id_verifications: [
+    { first_name: "JULIA MARÍA", last_name: "PÉREZ GÓMEZ", document_number: "12.345.678", date_of_birth: "1990-05-17" },
+  ],
+};
 
 function signedWebhook(payload: DiditWebhookPayload) {
   const rawBody = Buffer.from(JSON.stringify(payload), "utf8");
@@ -72,7 +85,9 @@ function fakeUser(kycStatusIdentity: KycStatus) {
   return { id: USER_ID, kycStatusIdentity, kycStatusLicense: KycStatus.NOT_STARTED };
 }
 
-function buildService(overrides: { getSessionDecision?: DiditClient["getSessionDecision"] } = {}) {
+function buildService(
+  overrides: { getSessionDecision?: DiditClient["getSessionDecision"]; updateSessionStatus?: DiditClient["updateSessionStatus"] } = {},
+) {
   const logger = { info: vi.fn(), warn: vi.fn() };
   const notifications = { sendPushToUser: vi.fn().mockResolvedValue(undefined) };
   const didit: DiditClient = {
@@ -80,7 +95,7 @@ function buildService(overrides: { getSessionDecision?: DiditClient["getSessionD
       throw new Error("no usado en este test");
     },
     getSessionDecision: overrides.getSessionDecision ?? (async () => null),
-    async updateSessionStatus() {},
+    updateSessionStatus: overrides.updateSessionStatus ?? (async () => undefined),
   };
   const db = { $transaction: (callback: (tx: unknown) => unknown) => callback({}) } as unknown as PrismaClient;
   const service = createKycService(db, didit, WEBHOOK_SECRET, logger as unknown as FastifyBaseLogger, notifications);
@@ -99,6 +114,9 @@ beforeEach(() => {
   mocks.updateKycStatusIdentity.mockResolvedValue(null);
   mocks.updateKycStatusLicense.mockResolvedValue(null);
   mocks.upsertVerified.mockResolvedValue(undefined);
+  mocks.setVerifiedIdentity.mockResolvedValue(null);
+  mocks.clearVerifiedIdentity.mockResolvedValue(null);
+  mocks.findByExternalSessionId.mockResolvedValue(null);
 });
 
 describe("Push del resultado de KYC (MOVO-274)", () => {
@@ -150,7 +168,7 @@ describe("Push del resultado de KYC (MOVO-274)", () => {
       mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification(type, status));
       const { service, notifications } = buildService();
 
-      await postWebhook(service, { status: rawStatus, session_id: SESSION_ID });
+      await postWebhook(service, { status: rawStatus, session_id: SESSION_ID, decision: IDENTITY_DECISION });
 
       expect(notifications.sendPushToUser).toHaveBeenCalledTimes(1);
       expect(notifications.sendPushToUser).toHaveBeenCalledWith(USER_ID, {
@@ -165,7 +183,7 @@ describe("Push del resultado de KYC (MOVO-274)", () => {
       mocks.resolveByExternalSessionId.mockResolvedValue(null);
       const { service, notifications } = buildService();
 
-      await postWebhook(service, { status: "Approved", session_id: SESSION_ID });
+      await postWebhook(service, { status: "Approved", session_id: SESSION_ID, decision: IDENTITY_DECISION });
 
       expect(notifications.sendPushToUser).not.toHaveBeenCalled();
     });
@@ -216,7 +234,7 @@ describe("Push del resultado de KYC (MOVO-274)", () => {
         mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", status));
         const { service } = buildService();
 
-        await postWebhook(service, { status: rawStatus, session_id: SESSION_ID });
+        await postWebhook(service, { status: rawStatus, session_id: SESSION_ID, decision: IDENTITY_DECISION });
 
         expect(mocks.resolveByExternalSessionId).toHaveBeenCalledWith(
           expect.objectContaining({ fromStatus: [KycStatus.PENDING, KycStatus.MANUAL_REVIEW], toStatus: status })
@@ -228,7 +246,7 @@ describe("Push del resultado de KYC (MOVO-274)", () => {
       mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.APPROVED));
       const { service, notifications } = buildService();
 
-      await postWebhook(service, { status: "Approved", session_id: SESSION_ID });
+      await postWebhook(service, { status: "Approved", session_id: SESSION_ID, decision: IDENTITY_DECISION });
 
       const applied = mocks.resolveByExternalSessionId.mock.invocationCallOrder[0] ?? Infinity;
       const pushed = notifications.sendPushToUser.mock.invocationCallOrder[0] ?? -Infinity;
@@ -240,12 +258,275 @@ describe("Push del resultado de KYC (MOVO-274)", () => {
       const { service, notifications, logger } = buildService();
       notifications.sendPushToUser.mockRejectedValue(new Error("expo caído"));
 
-      await expect(postWebhook(service, { status: "Approved", session_id: SESSION_ID })).resolves.toBeUndefined();
+      await expect(postWebhook(service, { status: "Approved", session_id: SESSION_ID, decision: IDENTITY_DECISION })).resolves.toBeUndefined();
 
       expect(logger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ event: "kyc_push_failed", userId: USER_ID, verificationType: "identity" }),
         expect.any(String)
       );
+    });
+  });
+
+  describe("nombre y DNI leídos del documento", () => {
+    it("al aprobar la identidad guarda el nombre, el DNI (solo dígitos) y la fecha de nacimiento, una sola vez", async () => {
+      mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.APPROVED));
+      const { service } = buildService();
+
+      await postWebhook(service, { status: "Approved", session_id: SESSION_ID, decision: IDENTITY_DECISION });
+
+      expect(mocks.setVerifiedIdentity).toHaveBeenCalledTimes(1);
+      expect(mocks.setVerifiedIdentity).toHaveBeenCalledWith(USER_ID, {
+        firstName: "JULIA MARÍA",
+        lastName: "PÉREZ GÓMEZ",
+        dni: "12345678",
+        birthdate: new Date("1990-05-17T00:00:00.000Z"),
+      });
+    });
+
+    it("el nombre y el DNI no entran en raw_decision (AC9)", async () => {
+      mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.APPROVED));
+      const { service } = buildService();
+
+      await postWebhook(service, { status: "Approved", session_id: SESSION_ID, decision: IDENTITY_DECISION });
+
+      const saved = JSON.stringify(mocks.resolveByExternalSessionId.mock.calls[0]?.[0].rawDecision);
+      expect(saved).not.toContain("PÉREZ");
+      expect(saved).not.toContain("12345678");
+    });
+
+    it("si Didit deja la verificación en revisión manual, el nombre ya se guarda: aprobar después solo lo confirma", async () => {
+      mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.MANUAL_REVIEW));
+      const { service } = buildService();
+
+      await postWebhook(service, { status: "In Review", session_id: SESSION_ID, decision: IDENTITY_DECISION });
+
+      expect(mocks.setVerifiedIdentity).toHaveBeenCalledTimes(1);
+      expect(mocks.setVerifiedIdentity).toHaveBeenCalledWith(
+        USER_ID,
+        expect.objectContaining({ firstName: "JULIA MARÍA", lastName: "PÉREZ GÓMEZ", dni: "12345678" })
+      );
+    });
+
+    it("una verificación rechazada no guarda el nombre del documento", async () => {
+      mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.REJECTED));
+      const { service } = buildService();
+
+      await postWebhook(service, { status: "Declined", session_id: SESSION_ID, decision: IDENTITY_DECISION });
+
+      expect(mocks.setVerifiedIdentity).not.toHaveBeenCalled();
+    });
+
+    it("un número de documento que no es un DNI de 7 u 8 dígitos no se guarda, pero no frena la aprobación", async () => {
+      mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.APPROVED));
+      const { service } = buildService();
+
+      await postWebhook(service, {
+        status: "Approved",
+        session_id: SESSION_ID,
+        decision: { id_verifications: [{ first_name: "ANA", last_name: "LÓPEZ", document_number: "AB1234567" }] },
+      });
+
+      // `null` explícito: deja el dato vacío en vez de conservar el de otro documento (p. ej. el que tipeó una cuenta vieja).
+      expect(mocks.setVerifiedIdentity).toHaveBeenCalledWith(USER_ID, {
+        firstName: "ANA",
+        lastName: "LÓPEZ",
+        dni: null,
+        birthdate: null,
+      });
+    });
+
+    it("una cuenta con un DNI tipeado que verifica con un pasaporte queda sin DNI, no con el de otro documento", async () => {
+      mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.APPROVED));
+      const { service } = buildService();
+
+      await postWebhook(service, {
+        status: "Approved",
+        session_id: SESSION_ID,
+        decision: { id_verifications: [{ first_name: "Maria Victoria", last_name: "Villareal", document_number: "AAF794880" }] },
+      });
+
+      expect(mocks.setVerifiedIdentity).toHaveBeenCalledWith(USER_ID, expect.objectContaining({ dni: null }));
+    });
+
+    it("una identidad aprobada sin nombre legible pasa a revisión manual, con el motivo, y no guarda nada", async () => {
+      mocks.findByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.PENDING));
+      mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.MANUAL_REVIEW));
+      const { service, notifications } = buildService();
+
+      await postWebhook(service, {
+        status: "Approved",
+        session_id: SESSION_ID,
+        decision: { id_verifications: [{ document_number: "12345678" }] },
+      });
+
+      expect(mocks.resolveByExternalSessionId).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fromStatus: [KycStatus.PENDING],
+          toStatus: KycStatus.MANUAL_REVIEW,
+          rawDecision: expect.objectContaining({
+            warnings: [expect.objectContaining({ risk: "NAME_NOT_DETECTED" })],
+          }),
+        })
+      );
+      expect(mocks.updateKycStatusIdentity).toHaveBeenCalledWith(USER_ID, KycStatus.MANUAL_REVIEW);
+      expect(mocks.setVerifiedIdentity).not.toHaveBeenCalled();
+      expect(notifications.sendPushToUser).toHaveBeenCalledWith(
+        USER_ID,
+        expect.objectContaining({ title: "Tu identidad está en revisión" })
+      );
+    });
+
+    it("la licencia aprobada no toca el nombre ni el DNI, aunque no traiga nombre", async () => {
+      mocks.findByExternalSessionId.mockResolvedValue(fakeVerification("license", KycStatus.PENDING));
+      mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("license", KycStatus.APPROVED));
+      const { service } = buildService();
+
+      await postWebhook(service, { status: "Approved", session_id: SESSION_ID });
+
+      expect(mocks.updateKycStatusLicense).toHaveBeenCalledWith(USER_ID, KycStatus.APPROVED);
+      expect(mocks.setVerifiedIdentity).not.toHaveBeenCalled();
+    });
+
+    it("un webhook repetido (la compuerta devuelve null) no vuelve a escribir el nombre", async () => {
+      mocks.resolveByExternalSessionId.mockResolvedValue(null);
+      const { service } = buildService();
+
+      await postWebhook(service, { status: "Approved", session_id: SESSION_ID, decision: IDENTITY_DECISION });
+
+      expect(mocks.setVerifiedIdentity).not.toHaveBeenCalled();
+    });
+
+    it("por pull también guarda el nombre y el DNI al aprobar", async () => {
+      mocks.findById.mockResolvedValue(fakeUser(KycStatus.PENDING));
+      mocks.findLatestByUserId.mockResolvedValue({ status: KycStatus.PENDING, externalSessionId: SESSION_ID });
+      mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.APPROVED));
+      const { service } = buildService({
+        getSessionDecision: async () => ({ sessionId: SESSION_ID, rawStatus: "Approved", decision: IDENTITY_DECISION }),
+      });
+
+      await service.getStatus(USER_ID, "identity");
+
+      expect(mocks.setVerifiedIdentity).toHaveBeenCalledWith(
+        USER_ID,
+        expect.objectContaining({ firstName: "JULIA MARÍA", lastName: "PÉREZ GÓMEZ", dni: "12345678" })
+      );
+    });
+  });
+
+  describe("rechazo de una identidad que estaba en revisión", () => {
+    it("borra el nombre, el DNI y la fecha que se guardaron del documento", async () => {
+      mocks.findByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.MANUAL_REVIEW));
+      mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.REJECTED));
+      const { service } = buildService();
+
+      await postWebhook(service, { status: "Declined", session_id: SESSION_ID, decision: IDENTITY_DECISION });
+
+      expect(mocks.clearVerifiedIdentity).toHaveBeenCalledTimes(1);
+      expect(mocks.clearVerifiedIdentity).toHaveBeenCalledWith(USER_ID);
+      expect(mocks.setVerifiedIdentity).not.toHaveBeenCalled();
+    });
+
+    it("un rechazo que no pasó por revisión no toca el nombre de la cuenta", async () => {
+      mocks.findByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.PENDING));
+      mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.REJECTED));
+      const { service } = buildService();
+
+      await postWebhook(service, { status: "Declined", session_id: SESSION_ID, decision: IDENTITY_DECISION });
+
+      expect(mocks.clearVerifiedIdentity).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("revisión manual desde el panel (decideManualReview)", () => {
+    const REVIEW_INPUT = { externalSessionId: SESSION_ID, reason: "Motivo suficiente" };
+    const inReview = (type: "identity" | "license" = "identity") => ({
+      ...fakeVerification(type, KycStatus.MANUAL_REVIEW),
+      rawDecision: { status: "Approved", warnings: [{ risk: "NAME_NOT_DETECTED" }] },
+    });
+    const approvedWithoutName = {
+      sessionId: SESSION_ID,
+      rawStatus: "Approved",
+      decision: { id_verifications: [{ document_number: "12345678" }] },
+    };
+
+    function setup(decision: { sessionId: string; rawStatus: string; decision: unknown }, type: "identity" | "license" = "identity") {
+      mocks.findByExternalSessionId.mockResolvedValue(inReview(type));
+      mocks.findLatestByUserId.mockResolvedValue({ ...inReview(type) });
+      mocks.findById.mockResolvedValue({ id: USER_ID, firstName: "", lastName: "", dni: null, birthdate: null });
+      mocks.resolveByExternalSessionId.mockImplementation(async (input: { toStatus: KycStatus }) =>
+        fakeVerification(type, input.toStatus),
+      );
+      const updateSessionStatus = vi.fn().mockResolvedValue(undefined);
+      const built = buildService({ getSessionDecision: async () => decision, updateSessionStatus });
+      return { ...built, updateSessionStatus };
+    }
+
+    it("el caso que Didit aprobó sin nombre se resuelve con el nombre del admin: no vuelve a revisión ni se le pide a Didit lo que ya tiene", async () => {
+      const { service, updateSessionStatus } = setup(approvedWithoutName);
+
+      const resolved = await service.decideManualReview({
+        ...REVIEW_INPUT,
+        decision: KycStatus.APPROVED,
+        name: { firstName: "Ana María", lastName: "De la Cruz" },
+      });
+
+      expect(resolved.status).toBe(KycStatus.APPROVED);
+      expect(updateSessionStatus).not.toHaveBeenCalled();
+      expect(mocks.resolveByExternalSessionId).toHaveBeenCalledWith(expect.objectContaining({ toStatus: KycStatus.APPROVED }));
+      expect(mocks.setVerifiedIdentity).toHaveBeenCalledWith(
+        USER_ID,
+        expect.objectContaining({ firstName: "Ana María", lastName: "De la Cruz" }),
+      );
+    });
+
+    it("sin nombre del admin ni de Didit no se puede aprobar: 409, y Didit no recibe nada", async () => {
+      const { service, updateSessionStatus } = setup(approvedWithoutName);
+
+      await expect(service.decideManualReview({ ...REVIEW_INPUT, decision: KycStatus.APPROVED })).rejects.toMatchObject({
+        statusCode: 409,
+        code: "KYC_REVIEW_IDENTITY_MISSING",
+      });
+      expect(updateSessionStatus).not.toHaveBeenCalled();
+      expect(mocks.setVerifiedIdentity).not.toHaveBeenCalled();
+    });
+
+    it("un nombre guardado en la cuenta no alcanza para aprobar: podría ser uno tipeado por la persona", async () => {
+      const { service } = setup(approvedWithoutName);
+      mocks.findById.mockResolvedValue({ id: USER_ID, firstName: "Escrito", lastName: "Aman", dni: null, birthdate: null });
+
+      await expect(service.decideManualReview({ ...REVIEW_INPUT, decision: KycStatus.APPROVED })).rejects.toMatchObject({
+        code: "KYC_REVIEW_IDENTITY_MISSING",
+      });
+    });
+
+    it("rechazar el caso sí le pide a Didit el rechazo, aunque Didit lo tenga aprobado", async () => {
+      const { service, updateSessionStatus } = setup(approvedWithoutName);
+
+      await service.decideManualReview({ ...REVIEW_INPUT, decision: KycStatus.REJECTED });
+
+      expect(updateSessionStatus).toHaveBeenCalledWith(expect.objectContaining({ newStatus: "Declined" }));
+      expect(mocks.resolveByExternalSessionId).toHaveBeenCalledWith(expect.objectContaining({ toStatus: KycStatus.REJECTED }));
+    });
+
+    it("con el nombre leído por Didit, aprobar usa el del documento y conserva el DNI y la fecha", async () => {
+      const { service, updateSessionStatus } = setup({ sessionId: SESSION_ID, rawStatus: "In Review", decision: IDENTITY_DECISION });
+
+      await service.decideManualReview({ ...REVIEW_INPUT, decision: KycStatus.APPROVED });
+
+      expect(updateSessionStatus).toHaveBeenCalledWith(expect.objectContaining({ newStatus: "Approved" }));
+      expect(mocks.setVerifiedIdentity).toHaveBeenCalledWith(
+        USER_ID,
+        expect.objectContaining({ firstName: "JULIA MARÍA", lastName: "PÉREZ GÓMEZ", dni: "12345678" }),
+      );
+    });
+
+    it("corregir el nombre en una verificación de licencia es 400", async () => {
+      const { service, updateSessionStatus } = setup({ sessionId: SESSION_ID, rawStatus: "In Review", decision: {} }, "license");
+
+      await expect(
+        service.decideManualReview({ ...REVIEW_INPUT, decision: KycStatus.APPROVED, name: { firstName: "Ana", lastName: "Paz" } }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+      expect(updateSessionStatus).not.toHaveBeenCalled();
     });
   });
 
@@ -255,7 +536,7 @@ describe("Push del resultado de KYC (MOVO-274)", () => {
       mocks.findLatestByUserId.mockResolvedValue({ status: KycStatus.PENDING, externalSessionId: SESSION_ID });
       mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.APPROVED));
       const { service, notifications } = buildService({
-        getSessionDecision: async () => ({ sessionId: SESSION_ID, rawStatus: "Approved", decision: {} }),
+        getSessionDecision: async () => ({ sessionId: SESSION_ID, rawStatus: "Approved", decision: IDENTITY_DECISION }),
       });
 
       const result = await service.getStatus(USER_ID, "identity");
@@ -275,12 +556,30 @@ describe("Push del resultado de KYC (MOVO-274)", () => {
       mocks.findLatestByUserId.mockResolvedValue({ status: KycStatus.PENDING, externalSessionId: SESSION_ID });
       mocks.resolveByExternalSessionId.mockResolvedValue(null);
       const { service, notifications } = buildService({
-        getSessionDecision: async () => ({ sessionId: SESSION_ID, rawStatus: "Approved", decision: {} }),
+        getSessionDecision: async () => ({ sessionId: SESSION_ID, rawStatus: "Approved", decision: IDENTITY_DECISION }),
       });
 
       const result = await service.getStatus(USER_ID, "identity");
 
       expect(result.status).toBe(KycStatus.APPROVED);
+      expect(notifications.sendPushToUser).not.toHaveBeenCalled();
+    });
+
+    it("un pull que ve 'Approved' sin nombre sobre una identidad que Movo tiene en revisión por eso no repite la bajada en cada refresh", async () => {
+      mocks.findById.mockResolvedValue(fakeUser(KycStatus.MANUAL_REVIEW));
+      mocks.findLatestByUserId.mockResolvedValue({ status: KycStatus.MANUAL_REVIEW, externalSessionId: SESSION_ID });
+      const { service, notifications } = buildService({
+        getSessionDecision: async () => ({
+          sessionId: SESSION_ID,
+          rawStatus: "Approved",
+          decision: { id_verifications: [{ document_number: "12345678" }] },
+        }),
+      });
+
+      const result = await service.getStatus(USER_ID, "identity");
+
+      expect(result.status).toBe(KycStatus.MANUAL_REVIEW);
+      expect(mocks.resolveByExternalSessionId).not.toHaveBeenCalled();
       expect(notifications.sendPushToUser).not.toHaveBeenCalled();
     });
 

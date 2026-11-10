@@ -1,3 +1,5 @@
+import { PERSON_NAME_FIELD_PATTERN } from "@movo/shared";
+
 // MOVO-140 (AC1/AC10): extraídos para que `forgotPasswordBody.identifier` y
 // `resetPasswordBody.newPassword` compartan exactamente el mismo formato que
 // `registerBody.email`/`.phone`/`.password` -- una sola fuente de verdad para la
@@ -7,8 +9,8 @@
 // archivo, no hay razón para no compartirlas).
 const EMAIL_PATTERN = "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$";
 const PHONE_PATTERN = "^(\\+?54)?9?\\d{10}$";
-// Mismo patrón que users.schema.ts#NAME_FIELD_PATTERN (MOVO-133): no vacío ni solo espacios.
-const NAME_FIELD_PATTERN = "^\\S+(\\s+\\S+)*$";
+// No vacío ni solo espacios: el mismo patrón en el registro, la edición del perfil y el panel (`@movo/shared`).
+const NAME_FIELD_PATTERN = PERSON_NAME_FIELD_PATTERN;
 const PASSWORD_SCHEMA = {
   type: "string",
   minLength: 8,
@@ -19,24 +21,25 @@ export const authSchemas = {
   registerBody: {
     type: "object",
     additionalProperties: false,
-    // MOVO-340: o firstName + lastName (cliente actual) o fullName (cliente viejo).
-    anyOf: [{ required: ["firstName", "lastName"] }, { required: ["fullName"] }],
     required: [
       "email",
       "phone",
       "password",
       "phoneVerificationToken",
-      "dni",
-      "address",
       "termsAccepted",
       "termsVersion",
       "privacyAccepted",
       "privacyVersion",
     ],
     properties: {
-      // MOVO-340: nombre y apellido por separado, tal como los carga el formulario, así
-      // un nombre compuesto ("Juan Cruz" + "Bordino Blanche") se guarda como se escribió.
-      // Mismos límites que users.schema.ts#patchProfileBody (MOVO-133).
+      // Nombre, apellido, DNI y dirección ya no se piden en el registro: el nombre legal y el
+      // DNI los completa Didit al aprobar el KYC de identidad, y la dirección se carga después
+      // desde la libreta. Siguen declarados (opcionales y descartados, salvo la dirección) porque
+      // el esquema tiene `additionalProperties: false` y los builds anteriores del mobile los mandan:
+      // sin esto recibirían un 400 de validación en vez del 422 `LEGAL_DOCUMENT_VERSION_MISMATCH`
+      // ("actualizá la app"), que es lo que les toca porque la versión legal cambió y no pueden
+      // registrarse. Mismos límites que
+      // users.schema.ts#patchProfileBody (MOVO-133).
       firstName: { type: "string", minLength: 1, maxLength: 80, pattern: NAME_FIELD_PATTERN },
       lastName: { type: "string", minLength: 1, maxLength: 80, pattern: NAME_FIELD_PATTERN },
       fullName: {
@@ -65,15 +68,11 @@ export const authSchemas = {
       // para setear phoneVerified=true — sin esto, AC2 de MOVO-72 (KYC exige teléfono
       // verificado) es imposible de cumplir de punta a punta.
       phoneVerificationToken: { type: "string" },
-      // MOVO-73: DNI argentino, 7 u 8 dígitos. La columna `users.dni` ya existía
-      // (nullable, sin unique -- el DER la deja como "candidato natural a unique, no
-      // decidido") desde antes de esta US; acá se suma al contrato de registro porque
-      // el wizard del mobile ya lo pedía y el schema nunca lo había aceptado.
+      // Legado, opcional y descartado: el DNI lo completa Didit al aprobar el KYC.
       dni: { type: "string", pattern: "^\\d{7,8}$" },
-      // MOVO-73: tabla `users.address` del DER (docs/movo_der.dbml), implementada
-      // recién en esta US -- se crea la primera dirección del usuario (label/is_default/
-      // country se hardcodean server-side, no viajan acá) en la misma transacción que
-      // el alta de la cuenta. `lat`/`long` vienen del paso de mapa/geocoding del wizard.
+      // Opcional: el registro actual no la pide. Si un build viejo la manda, se crea como la
+      // primera dirección del usuario (label/is_default/country se hardcodean server-side) en
+      // la misma transacción que el alta. `lat`/`long` venían del paso de mapa del wizard.
       address: {
         type: "object",
         additionalProperties: false,

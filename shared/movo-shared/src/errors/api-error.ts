@@ -420,6 +420,9 @@ export type ApiErrorCode =
   | "KYC_EVIDENCE_NOT_FOUND"
   // Otro admin está decidiendo el mismo caso en este momento (409).
   | "KYC_REVIEW_IN_PROGRESS"
+  // No se puede aprobar una identidad en revisión si el documento no trae un nombre y un apellido legibles: el nombre de la
+  // cuenta sale del documento (DD-065), así que la única salida es rechazar para que la persona repita (409).
+  | "KYC_REVIEW_IDENTITY_MISSING"
   // Didit no respondió o respondió 5xx al pedido de decisión: el cambio pudo haberse aplicado o no (502). A diferencia de
   // KYC_PROVIDER_ERROR (Didit rechazó el pedido), no es un rechazo seguro.
   | "KYC_PROVIDER_UNCONFIRMED";

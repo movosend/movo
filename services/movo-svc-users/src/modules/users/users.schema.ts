@@ -1,3 +1,5 @@
+import { PERSON_NAME_FIELD_PATTERN } from "@movo/shared";
+
 // Autocontenido a propósito (no importa de otros *.schema.ts) — mismo criterio que ya
 // usa el resto de los módulos: cada schema no comparte definiciones entre sí.
 const KYC_STATUS_VALUES = ["not_started", "pending", "approved", "rejected", "expired", "manual_review"];
@@ -25,7 +27,7 @@ const MAX_DEVICE_PUBLIC_KEY_LENGTH = 2048;
 // MOVO-133: mismo espíritu que registerBody.fullName de auth.schema.ts (no vacío, sin
 // ser solo espacios) adaptado a un campo individual -- no se importa el de
 // auth.schema.ts a propósito, mismo criterio "autocontenido" de arriba.
-const NAME_FIELD_PATTERN = "^\\S+(\\s+\\S+)*$";
+const NAME_FIELD_PATTERN = PERSON_NAME_FIELD_PATTERN;
 // Mismo patrón que registerBody.phone/sendOtpBody.phone en auth.schema.ts: +54
 // opcional, 9 opcional (móvil), 10 dígitos.
 const PHONE_PATTERN = "^(\\+?54)?9?\\d{10}$";

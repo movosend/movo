@@ -45,6 +45,35 @@ describe("decideKyc", () => {
     expect(mocks.revalidatePath).toHaveBeenCalledWith(`/kyc/${SESSION}`)
   })
 
+  it("manda el nombre y el apellido corregidos, sin espacios de más", async () => {
+    mocks.decideKycReview.mockResolvedValue(DONE)
+
+    const result = await decideKyc(SESSION, "approved", REASON, {
+      firstName: "  Julia   María ",
+      lastName: " Pérez Gómez ",
+    })
+
+    expect(result).toEqual({ ok: true, data: DONE })
+    expect(mocks.decideKycReview).toHaveBeenCalledWith(SESSION, {
+      decision: "approved",
+      reason: REASON,
+      firstName: "Julia María",
+      lastName: "Pérez Gómez",
+    })
+  })
+
+  it.each([
+    ["nombre en blanco", "approved", { firstName: "  ", lastName: "Pérez" }],
+    ["apellido en blanco", "approved", { firstName: "Julia", lastName: "" }],
+    ["al rechazar", "rejected", { firstName: "Julia", lastName: "Pérez" }],
+    ["nombre larguísimo", "approved", { firstName: "a".repeat(81), lastName: "Pérez" }],
+  ])("rechaza el nombre con 400 y no llama al backend: %s", async (_n, decision, name) => {
+    const result = await decideKyc(SESSION, decision as "approved" | "rejected", REASON, name)
+
+    expect(result).toMatchObject({ ok: false, status: 400 })
+    expect(mocks.decideKycReview).not.toHaveBeenCalled()
+  })
+
   it.each([
     ["id con caracteres raros", "../x", "approved", REASON],
     ["decisión inválida", SESSION, "maybe", REASON],

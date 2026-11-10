@@ -13,7 +13,7 @@ import {
   type UserTourRecord,
   type VehicleProfile,
 } from "@movo/shared";
-import { User, fullName } from "./user";
+import { User, displayName, fullName } from "./user";
 
 // Los tipos de wire contract (`ProfileBadge`, `TransactionCounts`, `PrivateProfile`,
 // `PublicProfile`) viven en `@movo/shared` (MOVO-78, migrados desde este archivo) —
@@ -113,7 +113,7 @@ export function toPublicProfile(
   return {
     id: user.id,
     accountStatus: toPublicAccountStatus(user.status),
-    fullName: fullName(user),
+    fullName: displayName(user),
     photoUrl: user.photoUrl,
     isVerified: user.kycStatusIdentity === KycStatus.APPROVED,
     badges: computeBadges(user),

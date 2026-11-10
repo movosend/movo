@@ -1,4 +1,4 @@
-import { KycStatus } from "@movo/shared";
+import { KycStatus, normalizePersonName } from "@movo/shared";
 import {
   Prisma,
   UserRole as PrismaUserRole,
@@ -7,7 +7,14 @@ import {
 } from "../generated/prisma/client";
 import { escapeLike } from "../utils/escape-like";
 import { VerificationType } from "../models/kyc-verification";
-import { User, CreateUserInput, UserConflictError, parseUserRole, parseKycStatus, parseAccountStatus, fullName, effectiveAccountStatus } from "../models/user";
+import { User, CreateUserInput, UserConflictError, parseUserRole, parseKycStatus, parseAccountStatus, displayName, effectiveAccountStatus } from "../models/user";
+
+export interface VerifiedIdentity {
+  firstName: string;
+  lastName: string;
+  dni?: string | null | undefined;
+  birthdate?: Date | null | undefined;
+}
 
 export interface UserRepository {
   count(): Promise<number>;
@@ -16,6 +23,14 @@ export interface UserRepository {
   findById(id: string): Promise<User | null>;
   create(input: CreateUserInput): Promise<User>;
   updateKycStatusIdentity(id: string, status: KycStatus): Promise<User | null>;
+  /**
+   * Nombre, DNI y fecha de nacimiento leídos del documento por Didit al aprobar el KYC de
+   * identidad. Nombre y apellido se normalizan acá (`normalizePersonName`): el documento los
+   * trae en mayúsculas. `dni`/`birthdate` en `undefined` no se tocan.
+   */
+  setVerifiedIdentity(id: string, identity: VerifiedIdentity): Promise<User | null>;
+  /** Borra el nombre, el DNI y la fecha de nacimiento que se guardaron del documento (se rechazó la verificación). */
+  clearVerifiedIdentity(id: string): Promise<User | null>;
   updateKycStatusLicense(id: string, status: KycStatus): Promise<User | null>;
   /**
    * MOVO-230: vuelve a `not_started` el caché de KYC de estos usuarios para el tipo dado, solo
@@ -266,21 +281,25 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
             // no vienen del caller -- se hardcodean acá: la app es solo Argentina hoy
             // (mismo criterio que el regex de teléfono) y esta es siempre la dirección
             // por defecto porque es la única que existe en este punto.
-            addresses: {
-              create: {
-                label: null,
-                isDefault: true,
-                street: input.address.street,
-                streetNumber: input.address.number,
-                floorApartment: input.address.floor ?? null,
-                city: input.address.city,
-                province: input.address.province,
-                postalCode: input.address.zip,
-                country: "AR",
-                lat: input.address.lat,
-                long: input.address.long,
-              },
-            },
+            ...(input.address
+              ? {
+                  addresses: {
+                    create: {
+                      label: null,
+                      isDefault: true,
+                      street: input.address.street,
+                      streetNumber: input.address.number,
+                      floorApartment: input.address.floor ?? null,
+                      city: input.address.city,
+                      province: input.address.province,
+                      postalCode: input.address.zip,
+                      country: "AR",
+                      lat: input.address.lat,
+                      long: input.address.long,
+                    },
+                  },
+                }
+              : {}),
           },
           include: { roles: true },
         });
@@ -293,6 +312,43 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
           if (uniqueConstraintFieldsInclude(error, "phone")) {
             throw new UserConflictError("phone");
           }
+        }
+        throw error;
+      }
+    },
+
+    async setVerifiedIdentity(id: string, identity: VerifiedIdentity): Promise<User | null> {
+      try {
+        const row = await db.user.update({
+          where: { id },
+          data: {
+            firstName: normalizePersonName(identity.firstName),
+            lastName: normalizePersonName(identity.lastName),
+            ...(identity.dni !== undefined ? { dni: identity.dni } : {}),
+            ...(identity.birthdate !== undefined ? { birthdate: identity.birthdate } : {}),
+          },
+          include: { roles: true },
+        });
+        return toDomainUser(row);
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return null;
+        }
+        throw error;
+      }
+    },
+
+    async clearVerifiedIdentity(id: string): Promise<User | null> {
+      try {
+        const row = await db.user.update({
+          where: { id },
+          data: { firstName: "", lastName: "", dni: null, birthdate: null },
+          include: { roles: true },
+        });
+        return toDomainUser(row);
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return null;
         }
         throw error;
       }
@@ -525,6 +581,8 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         SELECT u.id
         FROM users.users u
         WHERE u.status::text <> 'deleted'
+          -- Mientras la identidad está en revisión manual, el nombre es el de un documento que todavía no se aprobó.
+          AND u.kyc_status_identity::text <> 'manual_review'
           ${excluded}
           AND ${Prisma.join(wordMatches, " AND ")}
         ORDER BY u.first_name ASC, u.id ASC
@@ -598,9 +656,9 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
       }
       const rows = await db.user.findMany({
         where: { id: { in: ids } },
-        select: { id: true, firstName: true, lastName: true },
+        select: { id: true, firstName: true, lastName: true, kycStatusIdentity: true },
       });
-      return new Map(rows.map((row) => [row.id, fullName(row)]));
+      return new Map(rows.map((row) => [row.id, displayName({ ...row, kycStatusIdentity: parseKycStatus(row.kycStatusIdentity, "users.kyc_status_identity") })]));
     },
 
     async countActiveByIds(ids: string[]): Promise<number> {
