@@ -55,7 +55,7 @@ export default function HandshakeScanScreen() {
 
   if (confirmedResult) {
     return (
-      <SafeAreaView className="flex-1 bg-ink-950">
+      <View className="flex-1 bg-ink-950">
         <HandshakeConfirmationResult
           testID="handshake-confirmation-result"
           result={confirmedResult}
@@ -84,7 +84,7 @@ export default function HandshakeScanScreen() {
             onSuccess={() => setRatingOpen(false)}
           />
         ) : null}
-      </SafeAreaView>
+      </View>
     );
   }
 

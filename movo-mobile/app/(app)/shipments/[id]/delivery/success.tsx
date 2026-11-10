@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { Pressable, Text } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { HandshakeConfirmationResult, type SecondaryCta } from "../../../../../components/handshake/handshake-confirmation-result";
 import { DeliveryCashCommissionNote } from "../../../../../components/payments/delivery-cash-commission-note";
@@ -103,7 +103,7 @@ export default function DeliverySuccessScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-ink-950">
+    <View className="flex-1 bg-ink-950">
       <HandshakeConfirmationResult
         testID="delivery-success-result"
         result={result}
@@ -132,6 +132,6 @@ export default function DeliverySuccessScreen() {
         onClose={() => setRatingOpen(false)}
         onSuccess={() => setRatingOpen(false)}
       />
-    </SafeAreaView>
+    </View>
   );
 }
