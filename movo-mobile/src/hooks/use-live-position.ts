@@ -11,6 +11,7 @@ import {
   type ConnectionState,
 } from "./use-shipment-channel";
 import { formatRelativeDuration } from "../lib/time-format";
+import { estimateArrivalMinutes } from "../lib/live-route-lines";
 
 export interface LiveCarrierPosition {
   lat: number;
@@ -24,7 +25,6 @@ export interface LiveCarrierPosition {
 export interface UseLivePositionOptions {
   destination?: { lat: number; lng: number } | null;
   enabled?: boolean;
-  demo?: boolean;
 }
 
 export type TrackingStatus =
@@ -85,7 +85,7 @@ export function useLivePosition(
   shipmentId: string | undefined,
   options: UseLivePositionOptions = {}
 ) {
-  const { destination, enabled = true, demo = false } = options;
+  const { destination, enabled = true } = options;
 
   const [livePosition, setLivePosition] = useState<LiveCarrierPosition | null>(null);
   const [isDelivered, setIsDelivered] = useState(false);
@@ -99,46 +99,13 @@ export function useLivePosition(
   } = useQuery({
     queryKey: ["shipments", shipmentId, "positions", "latest"],
     queryFn: () => shipmentsClient.getLastKnownPosition(shipmentId!),
-    enabled: Boolean(shipmentId) && enabled && !demo,
+    enabled: Boolean(shipmentId) && enabled,
     staleTime: 10_000,
   });
 
-  // Simulación en vivo para modo demo (probar telemetría en dispositivo real)
-  useEffect(() => {
-    if (!demo) return;
-    const startLat = -31.3850;
-    const startLng = -64.2250;
-    setLivePosition({
-      lat: startLat,
-      lng: startLng,
-      accuracyM: 8,
-      heading: 145,
-      speed: 12.5,
-      capturedAt: new Date().toISOString(),
-    });
-
-    let step = 0;
-    const interval = setInterval(() => {
-      step += 1;
-      const progress = (step % 200) / 200;
-      const curLat = startLat + progress * (-31.9140 - startLat) * 0.2;
-      const curLng = startLng + progress * (-63.6820 - startLng) * 0.2;
-      setLivePosition({
-        lat: curLat,
-        lng: curLng,
-        accuracyM: 6 + Math.round(Math.random() * 4),
-        heading: 140 + Math.round(Math.random() * 10),
-        speed: 11 + Math.random() * 3,
-        capturedAt: new Date().toISOString(),
-      });
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [demo]);
-
   // Inicializar o sincronizar con la posición inicial cuando se carga
   useEffect(() => {
-    if (initialPosition && !livePosition && !demo) {
+    if (initialPosition && !livePosition) {
       setLivePosition({
         lat: initialPosition.lat,
         lng: initialPosition.lng,
@@ -146,7 +113,7 @@ export function useLivePosition(
         capturedAt: initialPosition.capturedAt,
       });
     }
-  }, [initialPosition, demo]);
+  }, [initialPosition]);
 
   // Manejador de eventos WebSocket de posición
   const handlePositionMessage = useCallback((payload: RealtimePositionEvent) => {
@@ -172,7 +139,7 @@ export function useLivePosition(
     isTerminalClosed,
     reconnect,
   } = useShipmentChannel(shipmentId, {
-    enabled: enabled && !demo && !isDelivered,
+    enabled: enabled && !isDelivered,
     onPosition: handlePositionMessage,
     onStatus: handleStatusMessage,
   });
@@ -195,14 +162,13 @@ export function useLivePosition(
 
   // Derivar el estado general de tracking
   const trackingStatus: TrackingStatus = useMemo(() => {
-    if (demo) return "live";
     if (isDelivered || isTerminalClosed) return "closed";
     if (connectionState === "reconnecting") return "reconnecting";
     if (!livePosition) return "no_position";
     if (isStale) return "stale";
     if (connectionState === "connected") return "live";
     return "connecting";
-  }, [demo, isDelivered, isTerminalClosed, connectionState, livePosition, isStale]);
+  }, [isDelivered, isTerminalClosed, connectionState, livePosition, isStale]);
 
   // Texto amigable de última actualización
   const lastUpdateText = useMemo(() => {
@@ -220,14 +186,10 @@ export function useLivePosition(
     );
   }, [livePosition, destination]);
 
-  // Estimación de tiempo en minutos basada en distancia (asumiendo velocidad promedio urbana de 30-40 km/h)
-  const estimatedArrivalMinutes = useMemo(() => {
-    if (distanceKm == null) return null;
-    // Si la distancia es muy chica (< 0.2 km), ~2 min
-    if (distanceKm < 0.2) return 2;
-    // Estimación: ~2 minutos por km en entorno urbano/interurbano
-    return Math.max(3, Math.round(distanceKm * 2));
-  }, [distanceKm]);
+  const estimatedArrivalMinutes = useMemo(
+    () => (distanceKm == null ? null : estimateArrivalMinutes(distanceKm)),
+    [distanceKm],
+  );
 
   return {
     position: livePosition,

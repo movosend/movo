@@ -41,7 +41,7 @@ export function useShipmentTracking(
   // estado anterior bajo la clave nueva (DD-023).
   const data = enabled ? query.data : undefined;
   // Por el string y no por el objeto: cada poll trae un objeto nuevo con la misma ruta, y una ruta
-  // "nueva" reinicia la proyección del vehículo en `LiveMap`.
+  // "nueva" reinicia la proyección del vehículo en `RouteMapCard`.
   const polyline = data?.plannedRoute?.polyline ?? null;
   const lastPlanned = useRef<{ shipmentId: string | undefined; points: RoutePoint[] }>({ shipmentId, points: [] });
   const planned = useMemo<RoutePoint[]>(() => {

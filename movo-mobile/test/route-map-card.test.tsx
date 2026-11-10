@@ -1,5 +1,46 @@
-import { render } from "@testing-library/react-native";
+import { fireEvent, render } from "@testing-library/react-native";
+import { Text } from "react-native";
 import { RouteMapCard } from "../components/send/route-map-card";
+
+// `ExpandableMap` abre midiendo la card con `measureInWindow`, que no dispara en jest-expo (ver
+// `avatar-peek-viewer.test.tsx`). Se reemplaza por uno que monta la pantalla completa al tocar el
+// botón (o al montar con `openOnMount`): estos tests verifican qué dibuja RouteMapCard ahí.
+jest.mock("../components/map/expandable-map", () => {
+  const React = require("react");
+  const { Pressable, View } = require("react-native");
+  return {
+    ExpandableMap: ({
+      children,
+      renderFullscreen,
+      openOnMount,
+      onOpenedOnMount,
+      testID,
+    }: {
+      children: unknown;
+      renderFullscreen: (close: (then?: () => void) => void) => unknown;
+      openOnMount?: boolean;
+      onOpenedOnMount?: () => void;
+      testID?: string;
+    }) => {
+      const [open, setOpen] = React.useState(Boolean(openOnMount));
+      React.useEffect(() => {
+        if (openOnMount) onOpenedOnMount?.();
+      }, []);
+      return (
+        <View testID={testID}>
+          {children}
+          <Pressable testID={testID ? `${testID}-expand` : undefined} onPress={() => setOpen(true)} />
+          {open
+            ? renderFullscreen((then?: () => void) => {
+                setOpen(false);
+                then?.();
+              })
+            : null}
+        </View>
+      );
+    },
+  };
+});
 
 // El mock oficial de Reanimated no incluye `useFrameCallback`; acá alcanza con un
 // callback inactivo (el barrido animado no se verifica en Jest). Tampoco `useReducedMotion`,
@@ -169,6 +210,102 @@ describe("RouteMapCard", () => {
 
       expect(queryByTestId("map-trace")).toBeNull();
       expect(getByTestId("map-carrier")).toBeTruthy();
+    });
+  });
+
+  describe("MOVO-361: un solo mapa, a pantalla completa con el seguimiento", () => {
+    const CARRIER = { lat: -31.415, lng: -64.185 };
+    const LIVE = { position: CARRIER, stale: false, trace: [], planned: [] };
+
+    it("el botón de la esquina abre el mismo mapa con el seguimiento y el sheet", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      const renderSheet = jest.fn(({ estimate }: { estimate: { kind: string } }) => (
+        <Text testID="sheet">{estimate.kind}</Text>
+      ));
+      const { getByTestId, queryByTestId } = await render(
+        <RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} live={LIVE} renderFullscreenSheet={renderSheet} />,
+      );
+      expect(queryByTestId("sheet")).toBeNull();
+
+      await fireEvent.press(getByTestId("map-frame-expand"));
+
+      expect(getByTestId("map-fullscreen-map")).toBeTruthy();
+      expect(getByTestId("map-fs-carrier")).toBeTruthy();
+      expect(getByTestId("map-fs-remaining")).toBeTruthy();
+      expect(getByTestId("sheet")).toHaveTextContent("eta");
+    });
+
+    it("la llegada estimada mide lo que falta sobre la ruta, no en línea recta", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      let estimate: { kind: string; km?: number; target?: string } | undefined;
+      const { getByTestId } = await render(
+        <RouteMapCard
+          testID="map"
+          pickup={PICKUP}
+          delivery={DELIVERY}
+          live={LIVE}
+          renderFullscreenSheet={(ctx) => {
+            estimate = ctx.estimate;
+            return null;
+          }}
+        />,
+      );
+      await fireEvent.press(getByTestId("map-frame-expand"));
+
+      // La ruta del fixture (ejemplo de Google) mide cientos de km; en línea recta hasta la entrega hay ~1 km.
+      expect(estimate).toEqual(expect.objectContaining({ kind: "eta", target: "delivery" }));
+      expect(estimate?.km).toBeGreaterThan(100);
+    });
+
+    it("antes del retiro, el receptor ve la etapa y no la llegada al retiro", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      let estimate: { kind: string } | undefined;
+      const { getByTestId } = await render(
+        <RouteMapCard
+          testID="map"
+          pickup={PICKUP}
+          delivery={DELIVERY}
+          live={{ ...LIVE, phase: "pickup", viewer: "receiver" }}
+          renderFullscreenSheet={(ctx) => {
+            estimate = ctx.estimate;
+            return null;
+          }}
+        />,
+      );
+      await fireEvent.press(getByTestId("map-frame-expand"));
+
+      expect(estimate).toEqual(expect.objectContaining({ kind: "stage" }));
+    });
+
+    it("con openFullscreenOnMount abre solo y avisa", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      const onOpened = jest.fn();
+      const { getByTestId } = await render(
+        <RouteMapCard
+          testID="map"
+          pickup={PICKUP}
+          delivery={DELIVERY}
+          live={LIVE}
+          openFullscreenOnMount
+          onOpenedFullscreenOnMount={onOpened}
+          renderFullscreenSheet={() => <Text testID="sheet">sheet</Text>}
+        />,
+      );
+
+      expect(getByTestId("sheet")).toBeTruthy();
+      expect(onOpened).toHaveBeenCalledTimes(1);
+    });
+
+    it("AC7: el aviso del seguimiento va dentro del mapa, en la card y a pantalla completa", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      const notice = { title: "Seguimiento en vivo", body: "Se activa al iniciar el recorrido.", tone: "neutral" as const };
+      const { getByTestId } = await render(
+        <RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} notice={notice} />,
+      );
+
+      expect(getByTestId("map-notice")).toHaveTextContent(/Seguimiento en vivo/);
+      await fireEvent.press(getByTestId("map-frame-expand"));
+      expect(getByTestId("map-fs-notice")).toHaveTextContent(/Se activa al iniciar el recorrido/);
     });
   });
 });

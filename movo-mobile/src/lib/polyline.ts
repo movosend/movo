@@ -92,6 +92,24 @@ export function simplifyPolyline(points: LatLngPoint[], toleranceDeg: number): L
   return result;
 }
 
+const EARTH_RADIUS_KM = 6371;
+
+/** Largo de un trazo en km (suma de haversines entre puntos consecutivos). */
+export function polylineLengthKm(points: LatLngPoint[]): number {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    const dLat = ((b.latitude - a.latitude) * Math.PI) / 180;
+    const dLng = ((b.longitude - a.longitude) * Math.PI) / 180;
+    const h =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos((a.latitude * Math.PI) / 180) * Math.cos((b.latitude * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+    total += 2 * EARTH_RADIUS_KM * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  }
+  return total;
+}
+
 /**
  * Largo acumulado normalizado (0 en el primer punto, 1 en el último) de cada punto del trazo.
  * Permite que el barrido avance a velocidad constante por distancia y no por cantidad de

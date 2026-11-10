@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Modal, Pressable, useWindowDimensions, View, type StyleProp, type ViewStyle } from "react-native";
 import Animated, {
   Easing,
@@ -26,8 +26,14 @@ interface Rect {
 interface ExpandableMapProps {
   /** El mapa de la card (y sus overlays). El botón de expandir se superpone abajo a la derecha. */
   children: ReactNode;
-  /** Contenido del modo pantalla completa; `close` anima el cierre. */
-  renderFullscreen: (close: () => void) => ReactNode;
+  /** Contenido del modo pantalla completa; `close` anima el cierre y, al terminar, llama a `then`
+   * (p. ej. navegar: un `router.push` con el modal abierto queda tapado por el modal). */
+  renderFullscreen: (close: (then?: () => void) => void) => ReactNode;
+  /** Abre la pantalla completa apenas la card se dibuja (una vez por montaje), como si se tocara
+   * el botón: entrar al detalle desde "Seguir en vivo" del inicio (MOVO-361). */
+  openOnMount?: boolean;
+  /** Se llama al terminar de abrirse sola con `openOnMount`. */
+  onOpenedOnMount?: () => void;
   /** Color de fondo mientras el mapa nativo carga, para que la expansión no muestre un hueco. */
   backgroundColor: string;
   /** Radio de la card, para que el rectángulo animado parta con las mismas esquinas. */
@@ -49,6 +55,8 @@ export function ExpandableMap({
   renderFullscreen,
   backgroundColor,
   borderRadius = 0,
+  openOnMount = false,
+  onOpenedOnMount,
   className,
   style,
   testID,
@@ -60,7 +68,7 @@ export function ExpandableMap({
   const origin = useSharedValue<Rect>({ x: 0, y: 0, width: windowW, height: windowH });
   const progress = useSharedValue(0);
 
-  const open = () => {
+  const open = useCallback(() => {
     frameRef.current?.measureInWindow((x, y, width, height) => {
       origin.value = { x, y, width, height };
       progress.value = 0;
@@ -68,13 +76,33 @@ export function ExpandableMap({
       progress.value = withTiming(1, { duration: OPEN_MS, easing: EASING });
     });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
-  };
+  }, [origin, progress]);
 
-  const close = () => {
+  // `then` queda del lado de JS: pasar una función de JS por el worklet a `runOnJS` no es seguro.
+  const afterClose = useRef<(() => void) | undefined>(undefined);
+  const finishClose = useCallback(() => {
+    setVisible(false);
+    const then = afterClose.current;
+    afterClose.current = undefined;
+    then?.();
+  }, []);
+
+  const close = (then?: () => void) => {
+    afterClose.current = then;
     progress.value = withTiming(0, { duration: CLOSE_MS, easing: EASING }, (finished) => {
-      if (finished) runOnJS(setVisible)(false);
+      if (finished) runOnJS(finishClose)();
     });
   };
+
+  // Se abre recién con la card medida (`onLayout`): la animación parte de su rectángulo.
+  const [laidOut, setLaidOut] = useState(false);
+  const openedOnMount = useRef(false);
+  useEffect(() => {
+    if (!openOnMount || !laidOut || openedOnMount.current) return;
+    openedOnMount.current = true;
+    open();
+    onOpenedOnMount?.();
+  }, [openOnMount, laidOut, open, onOpenedOnMount]);
 
   const containerStyle = useAnimatedStyle(() => {
     const o = origin.value;
@@ -100,7 +128,14 @@ export function ExpandableMap({
 
   return (
     <>
-      <View ref={frameRef} collapsable={false} className={className} style={style} testID={testID}>
+      <View
+        ref={frameRef}
+        collapsable={false}
+        className={className}
+        style={style}
+        testID={testID}
+        onLayout={() => setLaidOut(true)}
+      >
         {children}
         <Pressable
           testID={testID ? `${testID}-expand` : undefined}
@@ -115,7 +150,7 @@ export function ExpandableMap({
         </Pressable>
       </View>
 
-      <Modal visible={visible} transparent animationType="none" statusBarTranslucent onRequestClose={close}>
+      <Modal visible={visible} transparent animationType="none" statusBarTranslucent onRequestClose={() => close()}>
         <Animated.View style={[{ position: "absolute", overflow: "hidden", backgroundColor }, containerStyle]}>
           <Animated.View style={[{ position: "absolute", width: windowW, height: windowH }, innerStyle]}>
             {renderFullscreen(close)}
