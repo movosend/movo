@@ -59,15 +59,15 @@ describe("trip-expiry-sweep plugin", () => {
 
   it("un paso que falla no frena a los demás (cada paso tiene su propio try/catch)", async () => {
     const { app, findMany } = buildTestApp("OK");
-    // El primer paso (cancelOverdueDeclared) tira; los otros tres (incluida la generación de
-    // viajes recurrentes, MOVO-265) igual tienen que correr.
+    // El primer paso (cancelOverdueDeclared) tira; los otros cuatro (incluidos el cierre de
+    // los declared terminados y la generación de viajes recurrentes, MOVO-265) igual corren.
     findMany.mockRejectedValueOnce(new Error("fila mala")).mockResolvedValue([]);
 
     await app.register(tripExpirySweepPlugin, { enabled: true });
     await app.ready();
     await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
 
-    expect(findMany).toHaveBeenCalledTimes(4);
+    expect(findMany).toHaveBeenCalledTimes(5);
     await app.close();
   });
 

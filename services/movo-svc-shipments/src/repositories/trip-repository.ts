@@ -351,6 +351,7 @@ export interface TripRepository {
    * los ids efectivamente cerrados.
    */
   completeFinishedActive(limit: number): Promise<string[]>;
+  completeFinishedDeclared(now: Date, limit: number): Promise<string[]>;
   /**
    * MOVO-258 (D5): pasa a `expired` (baja automática, DD-029) hasta `limit` viajes `active` que se quedaron sin ningún paquete
    * aceptado vivo (todos sus envíos se cancelaron después de iniciarlo). `start()` exige al
@@ -961,6 +962,42 @@ export function createTripRepository(db: PrismaClient): TripRepository {
           data: { status: TripStatus.COMPLETED },
         });
         if (result.count > 0) completed.push(id);
+      }
+      return completed;
+    },
+
+    /**
+     * Viaje `declared` con la salida vencida cuyos paquetes aceptados ya terminaron sin que el
+     * viaje se iniciara (p. ej. un envío llevado a `completed` desde el panel, DD-055). Ningún
+     * otro paso lo cerraba: `cancelOverdueDeclared` lo saltea porque tiene un paquete aceptado
+     * no cancelado, y `completeFinishedActive` solo mira `active`. Quedaba `declared` para
+     * siempre, y la app lo seguía mostrando como pendiente. Pasa a `completed`: al menos uno
+     * de sus paquetes no está cancelado (`some: ACCEPTED_OFFER_FILTER`), así que se hizo.
+     */
+    async completeFinishedDeclared(now: Date, limit: number): Promise<string[]> {
+      const where = {
+        status: TripStatus.DECLARED,
+        departureAt: { lt: now },
+        offers: {
+          some: ACCEPTED_OFFER_FILTER,
+          none: {
+            status: "accepted" as const,
+            shipment: { status: { notIn: TRIP_FINISHED_SHIPMENT_STATUSES } },
+          },
+        },
+      };
+
+      const candidates = await db.trip.findMany({
+        where,
+        select: { id: true },
+        orderBy: { departureAt: "asc" },
+        take: limit,
+      });
+
+      const completed: string[] = [];
+      for (const { id } of candidates) {
+        const applied = await retireDeclaredTrip(db, { ...where, id }, { status: TripStatus.COMPLETED });
+        if (applied) completed.push(id);
       }
       return completed;
     },
