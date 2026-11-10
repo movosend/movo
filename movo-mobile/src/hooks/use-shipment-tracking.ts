@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useRef } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { ShipmentPartyTracking } from "@movo/shared/dist/types/admin-shipments";
 import { shipmentsClient } from "../api/shipments-client";
 import type { RoutePoint } from "../lib/route-geometry";
@@ -16,6 +16,11 @@ export function shipmentTrackingQueryKey(shipmentId: string | undefined, status?
  * llega aparte, por el WS (`useLivePosition`). Con el envío cerrado no hay recorrido para las partes.
  * `status` va en la clave: antes del retiro el seguimiento no está `live` (no hay poll), y al pasar a
  * `in_transit` hay que volver a pedirlo.
+ *
+ * Feedback de TestFlight build 18 ("a veces se rompe el recorrido"): al cambiar la clave las líneas
+ * desaparecían hasta que respondía (`keepPreviousData` las sostiene), y un `plannedRoute: null`
+ * pasajero (el backend cachea 60 s un fallo de Google) borraba la ruta: se conserva la última no vacía
+ * del mismo envío.
  */
 export function useShipmentTracking(
   shipmentId: string | undefined,
@@ -25,16 +30,25 @@ export function useShipmentTracking(
     queryKey: shipmentTrackingQueryKey(shipmentId, options.status),
     queryFn: () => shipmentsClient.getTracking(shipmentId!),
     enabled: (options.enabled ?? true) && !!shipmentId,
+    placeholderData: keepPreviousData,
     refetchInterval: (q) => {
       const data = q.state.data as ShipmentPartyTracking | undefined;
       return data?.state === "live" ? data.pollIntervalSeconds * 1000 : false;
     },
   });
   const data = query.data;
-  const planned = useMemo<RoutePoint[]>(
-    () => (data?.plannedRoute ? decodePolyline(data.plannedRoute.polyline) : []),
-    [data?.plannedRoute],
-  );
+  // Por el string y no por el objeto: cada poll trae un objeto nuevo con la misma ruta, y una ruta
+  // "nueva" reinicia la proyección del vehículo en `LiveMap`.
+  const polyline = data?.plannedRoute?.polyline ?? null;
+  const lastPlanned = useRef<{ shipmentId: string | undefined; points: RoutePoint[] }>({ shipmentId, points: [] });
+  const planned = useMemo<RoutePoint[]>(() => {
+    if (polyline) {
+      const points = decodePolyline(polyline);
+      lastPlanned.current = { shipmentId, points };
+      return points;
+    }
+    return lastPlanned.current.shipmentId === shipmentId ? lastPlanned.current.points : [];
+  }, [polyline, shipmentId]);
   const trace = useMemo<RoutePoint[]>(
     () => (data?.trace ?? []).map((p) => ({ latitude: p.lat, longitude: p.lng })),
     [data?.trace],

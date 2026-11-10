@@ -112,7 +112,7 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
     // Banner de privacidad DD-023
     expect(getByTestId("banner-privacy-dd023")).toBeTruthy();
     expect(
-      getByText(/Solo ves la ubicación actual del transportista/i)
+      getByText(/Ves la ubicación del transportista y el recorrido de tu envío solo mientras está en curso/i)
     ).toBeTruthy();
   });
 
@@ -134,10 +134,48 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
     const { getByTestId } = await render(<LiveTrackingScreen />);
 
     expect(mockUseShipmentTracking).toHaveBeenCalledWith("shipment-uuid-12345", { enabled: true, status: "in_transit" });
-    expect(getByTestId("live-map-trace").props.coordinates).toEqual(trace);
+    // El recorrido se cierra con la posición en vivo, así no queda un hueco hasta el ícono.
+    expect(getByTestId("live-map-trace").props.coordinates).toEqual([...trace, { latitude: -31.385, longitude: -64.225 }]);
     const remaining = getByTestId("live-map-remaining").props.coordinates as unknown[];
     expect(remaining[0]).toEqual({ latitude: -31.385, longitude: -64.225 });
     expect(remaining.at(-1)).toEqual({ latitude: -31.914, longitude: -63.682 });
+    // Lo que falta va continuo, sin punteado (feedback de TestFlight build 18).
+    expect(getByTestId("live-map-remaining").props.lineDashPattern).toBeUndefined();
+    expect(() => getByTestId("live-map-pickup-marker")).toThrow();
+  });
+
+  it("antes del retiro muestra el pin de retiro y la ruta entera, sin recta desde el transportista", async () => {
+    (useShipment as jest.Mock).mockReturnValue({
+      data: { ...mockShipmentData, status: "assigned", pickupLat: -31.42, pickupLng: -64.18 },
+      isLoading: false,
+    });
+    (usePublicProfile as jest.Mock).mockReturnValue({ data: mockCarrierData, isLoading: false });
+    (useLivePosition as jest.Mock).mockReturnValue({ ...mockPositionData, position: { ...mockPositionData.position, lat: -31.3, lng: -64.3 } });
+    const planned = [
+      { latitude: -31.42, longitude: -64.18 },
+      { latitude: -31.914, longitude: -63.682 },
+    ];
+    mockUseShipmentTracking.mockReturnValue({ trace: [], planned });
+
+    const { getByTestId, queryByTestId } = await render(<LiveTrackingScreen />);
+
+    expect(getByTestId("live-map-pickup-marker")).toBeTruthy();
+    expect(getByTestId("live-map-remaining").props.coordinates).toEqual(planned);
+    expect(queryByTestId("live-map-trace")).toBeNull();
+  });
+
+  it("con el envío entregado oculta la ETA, el destino y el estado en ruta", async () => {
+    (useShipment as jest.Mock).mockReturnValue({ data: { ...mockShipmentData, status: "delivered" }, isLoading: false });
+    (usePublicProfile as jest.Mock).mockReturnValue({ data: mockCarrierData, isLoading: false });
+    (useLivePosition as jest.Mock).mockReturnValue(mockPositionData);
+    mockUseShipmentTracking.mockReturnValue({ trace: [], planned: [] });
+
+    const { getByTestId, queryByTestId, queryByText } = await render(<LiveTrackingScreen />);
+
+    expect(getByTestId("tracking-delivered-overlay")).toBeTruthy();
+    expect(queryByTestId("card-hero-eta")).toBeNull();
+    expect(queryByTestId("live-map-destination-marker")).toBeNull();
+    expect(queryByText(/En ruta/)).toBeNull();
   });
 
   it("abre las coordenadas de destino en Google Maps al presionar el botón de destino", async () => {

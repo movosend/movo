@@ -34,6 +34,7 @@ import {
   isTransitDelayed,
 } from "../../../../src/lib/active-shipment-format";
 import { formatDuration, formatTimeOfDay } from "../../../../src/lib/time-format";
+import { FULFILLED_SHIPMENT_STATUSES } from "../../../../src/lib/shipment-format";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
@@ -57,7 +58,9 @@ const EXPANDED_HEIGHT = Math.min(Math.round(SCREEN_HEIGHT * 0.65), 520);
  * Pantalla de Seguimiento en Vivo para Emisor y Receptor (MOVO-204).
  *
  * Cumple con:
- * - DD-023: Sin trazas históricas ni polilíneas pasadas del transportista.
+ * - DD-023: el recorrido de este envío se ve solo mientras está en curso (MOVO-346, punto 12).
+ * - Entregado (por el WS o por el estado del envío): el mapa y el sheet dejan de mostrar la ETA,
+ *   el destino y el "En ruta" (feedback de TestFlight build 18).
  * - Bottom Sheet deslizable plano con PanResponder sin conflicto de scroll.
  * - Single source of truth para la telemetría en la pastilla del mapa.
  */
@@ -106,21 +109,29 @@ export default function LiveTrackingScreen() {
   });
 
   const displayPosition = demoMode ? (livePosition ?? DEMO_CARRIER_POSITION) : livePosition;
+  // El WS avisa la entrega en vivo; el estado del envío cubre entrar con el envío ya entregado.
+  const shipmentClosed =
+    isDelivered || (!demoMode && !!shipment && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status));
 
   // MOVO-346 (punto 12): ruta planificada y recorrido del tramo de este envío.
   const partyTracking = useShipmentTracking(shipmentId, {
-    enabled: !demoMode && !isDelivered,
+    enabled: !demoMode && !shipmentClosed,
     status: shipment?.status,
   });
 
   // El receptor no ve el punto de retiro (MOVO-194 AC4): ni la traza, que arranca ahí, ni la ruta
-  // planificada entera; solo lo que falta desde el transportista (`LiveMap` la corta en su posición).
+  // planificada entera; solo lo que falta desde el transportista, ya en camino (`LiveMap` la corta en
+  // su posición). Antes del retiro la ruta empieza en el retiro, así que no ve ninguna.
   const currentUserId = useAuthStore((state) => state.user?.userId);
   const seesReceiverView =
     !!shipment &&
     (currentUserId === shipment.receiverId || shipment.receiverTransfer?.viewerIsFormerReceiver === true);
+  const mapPhase = demoMode || shipment?.status === ShipmentStatus.IN_TRANSIT ? "delivery" : "pickup";
   const mapTrace = seesReceiverView ? [] : partyTracking.trace;
-  const mapPlannedRoute = seesReceiverView && !displayPosition ? [] : partyTracking.planned;
+  const mapPlannedRoute =
+    seesReceiverView && (!displayPosition || mapPhase === "pickup") ? [] : partyTracking.planned;
+  const mapPickup =
+    !seesReceiverView && shipment && mapPhase === "pickup" ? { lat: shipment.pickupLat, lng: shipment.pickupLng } : null;
 
   // MOVO-278 (DD-045): sin posición (o con el envío demorado) el mapa explica qué pasa en
   // vez de quedar solo con el pin de destino. La última posición vence a los 7 días (ADR-020).
@@ -129,7 +140,7 @@ export default function LiveTrackingScreen() {
   const showNoPositionNotice =
     !demoMode &&
     shipment?.status === ShipmentStatus.IN_TRANSIT &&
-    !isDelivered &&
+    !shipmentClosed &&
     !isLoadingInitial &&
     (!displayPosition || isDelayed);
 
@@ -332,18 +343,20 @@ export default function LiveTrackingScreen() {
           carrierPosition={displayPosition}
           destinationLocation={destination}
           carrierName="Transportista"
-          trackingStatus={trackingStatus}
+          trackingStatus={shipmentClosed ? "closed" : trackingStatus}
           lastUpdateText={lastUpdateText}
           topOffset={topInset + 68}
           bottomOffset={isExpanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT}
           showControls={!isExpanded}
           plannedRoute={mapPlannedRoute}
           trace={mapTrace}
+          phase={mapPhase}
+          pickupLocation={mapPickup}
         />
       </View>
 
       {/* 3. Overlay si el envío ya fue entregado (AC8 / DD-023) */}
-      {isDelivered && (
+      {shipmentClosed && (
         <View
           testID="tracking-delivered-overlay"
           style={{
@@ -424,7 +437,8 @@ export default function LiveTrackingScreen() {
 
         {/* Contenido sin Scroll interno: arrastrar mueve el sheet entero */}
         <View className="px-4 pb-6 gap-3">
-          {/* TARJETA 1: Hero ETA Card */}
+          {/* TARJETA 1: Hero ETA Card (no con el envío entregado: daba "0 km hacia destino final") */}
+          {shipmentClosed ? null : (
           <View
             testID="card-hero-eta"
             className="p-4 rounded-2xl border border-border bg-bg-mute"
@@ -456,6 +470,7 @@ export default function LiveTrackingScreen() {
               </View>
             </View>
           </View>
+          )}
 
           {/* TARJETA 2: Conductor */}
           {shipment?.carrierId ? (
@@ -552,7 +567,7 @@ export default function LiveTrackingScreen() {
           >
             <ShieldCheck size={16} color="#71717A" className="mt-0.5 flex-none" />
             <Text className="font-sans text-caption text-fg-3 flex-1 leading-relaxed">
-              Solo ves la ubicación actual del transportista mientras el envío está en curso. El recorrido no se muestra; se guarda 30 días únicamente para resolver disputas.
+              Ves la ubicación del transportista y el recorrido de tu envío solo mientras está en curso. Al terminar dejan de mostrarse; el recorrido se guarda 30 días únicamente para resolver disputas.
             </Text>
           </View>
         </View>

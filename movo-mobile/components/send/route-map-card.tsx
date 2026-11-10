@@ -15,7 +15,12 @@ import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useShipmentRoute } from "../../src/hooks/use-shipments";
 import { hexToRgba } from "../../src/lib/color";
 import { cumulativeFractions, decodePolyline, simplifyPolyline } from "../../src/lib/polyline";
-import { splitRoute } from "../../src/lib/route-geometry";
+import {
+  LIVE_REMAINING_LINE_WIDTH,
+  LIVE_TRACE_LINE_WIDTH,
+  liveRouteLines,
+  type LivePhase,
+} from "../../src/lib/live-route-lines";
 import { ExpandableMap } from "../map/expandable-map";
 import { FullscreenMap } from "../map/fullscreen-map";
 import { StaticMarker } from "../map/static-marker";
@@ -129,9 +134,12 @@ export interface RouteMapLive {
   /** Recorrido real desde el retiro (`GET /shipments/:id/tracking`). No se dibuja sin `pickup`: el
    * receptor no ve el punto de retiro (MOVO-194 AC4) y la traza lo delataría. */
   trace: LatLng[];
-  /** Ruta planificada del envío; si viene vacía se usa la del mapa. Lo que falta se dibuja desde el
-   * transportista, punteado. */
+  /** Ruta planificada del envío; si viene vacía se usa la del mapa. Lo que falta va en el gris
+   * continuo de la ruta (`live-route-lines.ts`), en lugar de la línea base. */
   planned: LatLng[];
+  /** `pickup` (`assigned`): la ruta se dibuja entera, sin recortarla desde el transportista, que
+   * todavía no la recorre. `delivery` (`in_transit`, el default): lo que falta desde el transportista. */
+  phase?: LivePhase;
 }
 
 /**
@@ -297,33 +305,44 @@ export function RouteMapCard({
 
   const deliveryOnly = !pickup && !!delivery && pickupLabel !== undefined;
 
-  // Lo que falta: desde el transportista, sobre la ruta planificada (o la del mapa).
+  // Con seguimiento en vivo, el mapa dibuja UNA ruta: lo que falta en gris y lo recorrido en tinta.
+  // Feedback de TestFlight build 18: la línea base (de `/shipments/route`) quedaba debajo del punteado
+  // (de `/tracking`, otra llamada a Google) y se veían dos líneas casi paralelas.
   const livePosition = live?.position ?? null;
-  const remainingPoints = useMemo(() => {
-    if (!livePosition) return [];
-    const planned = live && live.planned.length > 1 ? live.planned : routePoints;
-    return splitRoute(planned, { latitude: livePosition.lat, longitude: livePosition.lng }).todo;
-  }, [live, livePosition, routePoints]);
-  const tracePoints = pickup && live ? live.trace : [];
+  const livePlanned = live && live.planned.length > 1 ? live.planned : routePoints;
+  const livePhase: LivePhase = live?.phase ?? "delivery";
+  const liveLines = useMemo(
+    () =>
+      liveRouteLines({
+        phase: livePhase,
+        planned: livePlanned,
+        // La traza no se dibuja sin `pickup`: arranca en el retiro (MOVO-194 AC4).
+        trace: pickup && live ? live.trace : [],
+        carrier: livePosition ? { latitude: livePosition.lat, longitude: livePosition.lng } : null,
+      }),
+    [livePhase, livePlanned, pickup, live, livePosition],
+  );
+  // El receptor (sin `pickup`) solo ve lo que falta desde el transportista ya en camino.
+  const remainingPoints = !pickup && (!livePosition || livePhase === "pickup") ? [] : liveLines.remaining;
+  const tracePoints = liveLines.trace;
 
   const liveLayer = (prefix: string) =>
     live ? (
       <>
+        {remainingPoints.length > 1 ? (
+          <Polyline
+            testID={testID ? `${testID}-${prefix}remaining` : undefined}
+            coordinates={remainingPoints}
+            strokeColor={colors.fg3}
+            strokeWidth={LIVE_REMAINING_LINE_WIDTH}
+          />
+        ) : null}
         {tracePoints.length > 1 ? (
           <Polyline
             testID={testID ? `${testID}-${prefix}trace` : undefined}
             coordinates={tracePoints}
             strokeColor={colors.fg1}
-            strokeWidth={4}
-          />
-        ) : null}
-        {remainingPoints.length > 1 ? (
-          <Polyline
-            testID={testID ? `${testID}-${prefix}remaining` : undefined}
-            coordinates={remainingPoints}
-            strokeColor={colors.fg1}
-            strokeWidth={3.5}
-            lineDashPattern={[6, 6]}
+            strokeWidth={LIVE_TRACE_LINE_WIDTH}
           />
         ) : null}
         {livePosition ? (
@@ -375,7 +394,7 @@ export function RouteMapCard({
           >
             {pickup ? (
               <>
-                <Polyline coordinates={routePoints} strokeColor={colors.fg1} strokeWidth={3.5} />
+                {live ? null : <Polyline coordinates={routePoints} strokeColor={colors.fg1} strokeWidth={3.5} />}
                 <StaticMarker
                   key={`fs-pickup-${pickup.address}`}
                   coordinate={{ latitude: pickup.lat, longitude: pickup.lng }}
@@ -470,12 +489,14 @@ export function RouteMapCard({
         >
           {pickup ? (
             <>
-              <Polyline
-                testID={testID ? `${testID}-route-base` : undefined}
-                coordinates={routePoints}
-                strokeColor={colors.fg3}
-                strokeWidth={3.5}
-              />
+              {live ? null : (
+                <Polyline
+                  testID={testID ? `${testID}-route-base` : undefined}
+                  coordinates={routePoints}
+                  strokeColor={colors.fg3}
+                  strokeWidth={3.5}
+                />
+              )}
               <AnimatedPolyline
                 coordinates={routePoints}
                 strokeColor={hexToRgba(colors.fg1, 1)}

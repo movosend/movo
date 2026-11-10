@@ -397,6 +397,7 @@ export default function ShipmentDetailScreen() {
         lastSignalLabel: livePosition ? `Última señal ${formatTimeOfDay(livePosition.capturedAt)}` : undefined,
         trace: partyTracking.trace,
         planned: partyTracking.planned,
+        phase: shipment?.status === ShipmentStatus.IN_TRANSIT ? "delivery" : "pickup",
       }
     : null;
 

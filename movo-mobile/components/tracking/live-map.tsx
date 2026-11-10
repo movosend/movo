@@ -3,14 +3,19 @@ import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
 import { useColorScheme } from "nativewind";
 import * as Haptics from "expo-haptics";
-import { Car, Crosshair, Map, MapPin } from "lucide-react-native";
+import { Car, Crosshair, Map, MapPin, Package } from "lucide-react-native";
 import {
   movoMapStyleDark,
   movoMapStyleLight,
 } from "../../src/constants/map-style";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import type { LiveCarrierPosition, TrackingStatus } from "../../src/hooks/use-live-position";
-import { splitRoute } from "../../src/lib/route-geometry";
+import {
+  LIVE_REMAINING_LINE_WIDTH,
+  LIVE_TRACE_LINE_WIDTH,
+  liveRouteLines,
+  type LivePhase,
+} from "../../src/lib/live-route-lines";
 
 export interface LiveMapProps {
   carrierPosition?: LiveCarrierPosition | null;
@@ -21,11 +26,15 @@ export interface LiveMapProps {
   topOffset?: number;
   bottomOffset?: number;
   showControls?: boolean;
-  /** Ruta planificada del tramo del envío (`GET /shipments/:id/tracking`). Lo que falta se dibuja
-   * punteado desde el transportista. */
+  /** Ruta planificada del tramo del envío, retiro → entrega (`GET /shipments/:id/tracking`). Lo que
+   * falta va en gris continuo (`live-route-lines.ts`). */
   plannedRoute?: LatLng[];
-  /** Recorrido real desde el retiro, sólido. */
+  /** Recorrido real desde el retiro, en tinta. */
   trace?: LatLng[];
+  /** Etapa del envío: `pickup` (`assigned`, el transportista va al retiro) o `delivery` (`in_transit`). */
+  phase?: LivePhase;
+  /** Pin del retiro, solo mientras el transportista va a buscarlo. Nunca para el receptor (MOVO-194 AC4). */
+  pickupLocation?: { lat: number; lng: number } | null;
   testID?: string;
 }
 
@@ -33,9 +42,12 @@ export interface LiveMapProps {
  * Mapa interactivo de seguimiento en vivo para emisor y receptor (MOVO-204).
  *
  * Posición actual del conductor, pin del destino, píldora de conexión y controles de recentrado.
- * MOVO-346 (punto 12) suma el recorrido (sólido) y lo que falta (punteado desde el transportista),
- * del tramo de este envío y solo mientras dura: `GET /shipments/:id/tracking` no devuelve traza con el
- * envío cerrado (DD-023, privacidad de la ubicación del transportista).
+ * MOVO-346 (punto 12) suma el recorrido y lo que falta, del tramo de este envío y solo mientras dura:
+ * `GET /shipments/:id/tracking` no devuelve traza con el envío cerrado (DD-023, privacidad de la
+ * ubicación del transportista). Antes del retiro (`phase: "pickup"`) se ve el pin del retiro y la ruta
+ * retiro → entrega entera, sin ninguna línea entre el vehículo y el retiro (feedback de TestFlight
+ * build 18: el recorte desde el vehículo dibujaba una recta). Con `trackingStatus: "closed"` (entregado)
+ * se ocultan el destino y el estado "En ruta".
  */
 export function LiveMap({
   carrierPosition,
@@ -48,6 +60,8 @@ export function LiveMap({
   showControls = true,
   plannedRoute = [],
   trace = [],
+  phase = "delivery",
+  pickupLocation = null,
   testID = "live-tracking-map",
 }: LiveMapProps) {
   const mapRef = useRef<MapView>(null);
@@ -61,13 +75,27 @@ export function LiveMap({
   const isDark = colorScheme === "dark";
   const colors = useThemeColors();
 
-  const remainingRoute = useMemo(
+  const isClosed = trackingStatus === "closed";
+  const showPickup = phase === "pickup" && !isClosed && pickupLocation !== null;
+
+  // Último tramo proyectado, para que el avance no salte hacia atrás si la ruta vuelve a pasar cerca
+  // de un tramo anterior. Se reinicia con otra ruta planificada.
+  const segmentRef = useRef(0);
+  useEffect(() => {
+    segmentRef.current = 0;
+  }, [plannedRoute]);
+  const lines = useMemo(
     () =>
-      carrierPosition && plannedRoute.length > 1
-        ? splitRoute(plannedRoute, { latitude: carrierPosition.lat, longitude: carrierPosition.lng }).todo
-        : plannedRoute,
-    [carrierPosition, plannedRoute],
+      liveRouteLines({
+        phase,
+        planned: plannedRoute,
+        trace,
+        carrier: carrierPosition ? { latitude: carrierPosition.lat, longitude: carrierPosition.lng } : null,
+        startSegment: segmentRef.current,
+      }),
+    [phase, plannedRoute, trace, carrierPosition],
   );
+  segmentRef.current = lines.segment;
 
   // Permite que los subviews nativos se rendericen y luego congela el ciclo de rastreo para alto rendimiento
   useEffect(() => {
@@ -123,6 +151,9 @@ export function LiveMap({
           longitude: carrierPosition.lng,
         });
       }
+      if (showPickup && pickupLocation) {
+        coordinates.push({ latitude: pickupLocation.lat, longitude: pickupLocation.lng });
+      }
       if (destinationLocation) {
         coordinates.push({
           latitude: destinationLocation.lat,
@@ -158,7 +189,7 @@ export function LiveMap({
         animated,
       });
     },
-    [carrierPosition, destinationLocation, topOffset, bottomOffset, getLatitudeOffset]
+    [carrierPosition, destinationLocation, showPickup, pickupLocation, topOffset, bottomOffset, getLatitudeOffset]
   );
 
   // Al estar listo el mapa, ajustamos el encuadre inicial
@@ -282,20 +313,58 @@ export function LiveMap({
         showsPointsOfInterests={false}
         showsUserLocation={false}
       >
-        {trace.length > 1 ? (
-          <Polyline testID="live-map-trace" coordinates={trace} strokeColor={colors.fg1} strokeWidth={4} />
-        ) : null}
-        {remainingRoute.length > 1 ? (
+        {/* Lo que falta primero: el recorrido en tinta queda encima donde se tocan. */}
+        {lines.remaining.length > 1 && !isClosed ? (
           <Polyline
             testID="live-map-remaining"
-            coordinates={remainingRoute}
-            strokeColor={colors.fg1}
-            strokeWidth={3.5}
-            lineDashPattern={[6, 6]}
+            coordinates={lines.remaining}
+            strokeColor={colors.fg3}
+            strokeWidth={LIVE_REMAINING_LINE_WIDTH}
           />
         ) : null}
-        {/* MARCADOR 1: Destino Final */}
-        {destinationLocation && (
+        {lines.trace.length > 1 ? (
+          <Polyline
+            testID="live-map-trace"
+            coordinates={lines.trace}
+            strokeColor={colors.fg1}
+            strokeWidth={LIVE_TRACE_LINE_WIDTH}
+          />
+        ) : null}
+        {showPickup && pickupLocation ? (
+          <Marker
+            testID="live-map-pickup-marker"
+            coordinate={{ latitude: pickupLocation.lat, longitude: pickupLocation.lng }}
+            anchor={{ x: 0.5, y: 1 }}
+            tracksViewChanges={tracksViewChanges}
+          >
+            <View style={styles.destinationMarkerWrapper}>
+              <View
+                style={[
+                  styles.destinationBadge,
+                  {
+                    backgroundColor: isDark ? "#18181B" : "#FFFFFF",
+                    borderColor: isDark ? "rgba(255,255,255,0.15)" : "#E4E4E7",
+                  },
+                ]}
+              >
+                <Text style={[styles.destinationBadgeText, { color: isDark ? "#FFFFFF" : "#0A0A0B" }]}>Retiro</Text>
+              </View>
+              <View
+                style={[
+                  styles.destinationPinCircle,
+                  { backgroundColor: isDark ? "#27272A" : "#FFFFFF", shadowColor: "#000" },
+                ]}
+              >
+                <View style={styles.destinationPinInner}>
+                  <Package size={15} color="#FFFFFF" />
+                </View>
+              </View>
+              <View style={styles.destinationPinPoint} />
+            </View>
+          </Marker>
+        ) : null}
+        {/* MARCADOR 1: Destino Final (oculto con el envío entregado: ya no hay a dónde llegar) */}
+        {destinationLocation && !isClosed && (
           <Marker
             testID="live-map-destination-marker"
             coordinate={{
@@ -342,7 +411,7 @@ export function LiveMap({
           </Marker>
         )}
 
-        {/* MARCADOR 2: Transportista en Tiempo Real (DD-023: Sin traza histórica) */}
+        {/* MARCADOR 2: Transportista en tiempo real */}
         {carrierPosition && (
           <Marker
             ref={markerRef}
@@ -355,7 +424,8 @@ export function LiveMap({
             tracksViewChanges={tracksViewChanges}
           >
             <View style={styles.carrierMarkerWrapper}>
-              {/* Callout flotante de estado y nombre */}
+              {/* Callout flotante de estado y nombre; con el envío entregado ya no está "En ruta". */}
+              {isClosed ? null : (
               <View
                 style={[
                   styles.carrierCallout,
@@ -379,19 +449,20 @@ export function LiveMap({
                   {trackingStatus === "stale" ? "Pausado" : "En ruta"}
                 </Text>
               </View>
+              )}
 
               {/* Pin táctico con halo verde lima */}
               <View style={styles.carrierPinContainer}>
                 <View
                   style={[
                     styles.carrierHalo,
-                    trackingStatus === "stale" && styles.carrierHaloStale,
+                    (trackingStatus === "stale" || isClosed) && styles.carrierHaloStale,
                   ]}
                 >
                   <View style={styles.carrierInnerCircle}>
                     <Car
                       size={18}
-                      color={trackingStatus === "stale" ? "#A1A1AA" : "#C6F24A"}
+                      color={trackingStatus === "stale" || isClosed ? "#A1A1AA" : "#C6F24A"}
                     />
                   </View>
                 </View>
