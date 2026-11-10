@@ -213,6 +213,48 @@ describe("RouteMapCard", () => {
     });
   });
 
+  describe("MOVO-355: la línea de la ruta", () => {
+    const TRACE = [
+      { latitude: PICKUP.lat, longitude: PICKUP.lng },
+      { latitude: -31.415, longitude: -64.185 },
+    ];
+    const LIVE = { position: { lat: -31.415, lng: -64.185 }, stale: false, trace: TRACE, planned: [] };
+
+    it("lo recorrido va encima de lo que falta, en tinta sobre gris y sin punteado", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      const { getByTestId } = await render(<RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} live={LIVE} />);
+
+      const remaining = getByTestId("map-remaining").props;
+      const trace = getByTestId("map-trace").props;
+      expect(trace.zIndex).toBeGreaterThan(remaining.zIndex);
+      expect(remaining.strokeColor).toBe("#5A5A62");
+      expect(trace.strokeColor).toBe("#0A0A0B");
+      expect(remaining.lineDashPattern).toBeUndefined();
+      expect(trace.lineDashPattern).toBeUndefined();
+    });
+
+    it("a pantalla completa el orden es el mismo", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      const { getByTestId } = await render(<RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} live={LIVE} />);
+      await fireEvent.press(getByTestId("map-frame-expand"));
+
+      expect(getByTestId("map-fs-trace").props.zIndex).toBeGreaterThan(getByTestId("map-fs-remaining").props.zIndex);
+    });
+
+    it("sin seguimiento, a pantalla completa va la misma base gris con el barrido que en la card", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      const { getByTestId } = await render(<RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} />);
+      await fireEvent.press(getByTestId("map-frame-expand"));
+
+      const cardBase = getByTestId("map-route-base").props;
+      const fsBase = getByTestId("map-fs-route-base").props;
+      expect(fsBase.strokeColor).toBe("#5A5A62");
+      expect(fsBase.strokeColor).toBe(cardBase.strokeColor);
+      expect(fsBase.strokeWidth).toBe(cardBase.strokeWidth);
+      expect(getByTestId("map-fs-route-sweep").props.zIndex).toBeGreaterThan(fsBase.zIndex);
+    });
+  });
+
   describe("MOVO-361: un solo mapa, a pantalla completa con el seguimiento", () => {
     const CARRIER = { lat: -31.415, lng: -64.185 };
     const LIVE = { position: CARRIER, stale: false, trace: [], planned: [] };
