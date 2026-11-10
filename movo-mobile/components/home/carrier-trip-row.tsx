@@ -1,7 +1,7 @@
 import { router } from "expo-router";
 import { Truck } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
-import type { TripWithAcceptedPackages } from "../../src/api/trips-client";
+import { TripStatus, type TripWithAcceptedPackages } from "../../src/api/trips-client";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import {
   formatDepartureDateOnly,
@@ -17,8 +17,10 @@ import {
  *
  * El estado es el que devuelve el backend (`tripStatusLabel`): la app no marca nada como
  * "vencido" por fecha — un `declared` con salida pasada sigue siendo iniciable para el
- * backend, y cerrar esos viajes es responsabilidad del backend. Toca → `/route?tripId=`,
- * que para un viaje `declared` ya ofrece el CTA de inicio (MOVO-252).
+ * backend, y cerrar esos viajes es responsabilidad del backend. Toca → el detalle del viaje
+ * (`/carrier/trips/:id`, como la lista de viajes), que ofrece iniciarlo si está `declared`; solo un
+ * viaje `active` va directo al mapa (`/route?tripId=`). Antes todos iban a `/route`, que para un
+ * viaje no iniciado mostraba una pantalla casi vacía (feedback de TestFlight build 18).
  */
 export function CarrierTripRow({
   trip,
@@ -35,7 +37,11 @@ export function CarrierTripRow({
   return (
     <Pressable
       testID={testID}
-      onPress={() => router.push({ pathname: "/route", params: { tripId: trip.id } } as never)}
+      onPress={() =>
+        trip.status === TripStatus.ACTIVE
+          ? router.push({ pathname: "/route", params: { tripId: trip.id } } as never)
+          : router.push(`/carrier/trips/${trip.id}` as never)
+      }
       accessibilityRole="button"
       className={`flex-row items-center gap-3 py-3 ${isFirst ? "" : "border-t border-border"}`}
     >
