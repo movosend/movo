@@ -45,7 +45,7 @@ function message(over: Partial<LocalChatMessage> & { authorId: string }): LocalC
 }
 
 function item(m: LocalChatMessage, mine: boolean, extra: Partial<Extract<ChatTimelineItem, { kind: "message" }>> = {}): ChatTimelineItem {
-  return { kind: "message", key: `message-${m.clientMessageId}`, message: m, mine, showName: !mine, showAvatar: !mine, groupStart: true, ...extra };
+  return { kind: "message", key: `message-${m.clientMessageId}`, message: m, mine, showName: !mine, showAvatar: !mine, groupStart: true, showTime: true, ...extra };
 }
 
 function state(overrides: Record<string, unknown> = {}) {

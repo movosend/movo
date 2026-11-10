@@ -190,6 +190,7 @@ export default function DevChatScreen() {
         showName={item.showName}
         showAvatar={item.showAvatar}
         groupStart={item.groupStart}
+        showTime={item.showTime}
         avatar={author ? { fullName: author.fullName, photoUrl: null } : undefined}
         onRetry={() => undefined}
         onDiscard={() => undefined}

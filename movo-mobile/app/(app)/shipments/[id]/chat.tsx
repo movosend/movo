@@ -143,6 +143,7 @@ export default function ShipmentChatScreen() {
         showName={item.showName}
         showAvatar={item.showAvatar}
         groupStart={item.groupStart}
+        showTime={item.showTime}
         animateIn={liveKeys.has(item.key)}
         avatar={author ? { fullName: author.fullName, photoUrl: author.photoUrl } : undefined}
         onPressAvatar={openShipmentDetail}

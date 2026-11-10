@@ -11,6 +11,7 @@ function msg(key: string): ChatTimelineItem {
     showName: true,
     showAvatar: true,
     groupStart: true,
+    showTime: true,
     message: {
       id: key,
       shipmentId: "s1",
