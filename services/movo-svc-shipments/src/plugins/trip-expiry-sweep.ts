@@ -80,6 +80,16 @@ export default fp(async (app: FastifyInstance, opts: TripExpirySweepPluginOption
         }
       });
 
+      await runStep("complete_finished_declared", async () => {
+        const completedIds = await repository.completeFinishedDeclared(new Date(), BATCH_SIZE);
+        for (const tripId of completedIds) {
+          app.log.info(
+            { event: "trip_auto_completed", tripId, reason: "declared_packages_finished" },
+            "Viaje declared vencido con sus paquetes terminados completado automáticamente",
+          );
+        }
+      });
+
       // MOVO-258 (D5): cierre automático de viajes `active` cuyos paquetes ya terminaron.
       await runStep("complete_finished_active", async () => {
         const completedIds = await repository.completeFinishedActive(BATCH_SIZE);

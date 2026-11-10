@@ -1,5 +1,7 @@
 import { useEffect, type ReactNode } from "react";
-import { Dimensions, Pressable, Text, View } from "react-native";
+import { StatusBar } from "expo-status-bar";
+import { Pressable, Text, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   Easing,
   useAnimatedProps,
@@ -131,7 +133,10 @@ export function HandshakeConfirmationResult({
     opacity: title.value,
     transform: [{ translateY: (1 - title.value) * 10 }],
   }));
-  const { width: screenW, height: screenH } = Dimensions.get("window");
+  // La pantalla ocupa toda la ventana, insets incluidos (feedback de TestFlight build 18: el lima no llegaba
+  // arriba ni abajo porque los callers lo envolvían en un SafeAreaView negro). Los insets se aplican adentro.
+  const insets = useSafeAreaInsets();
+  const { width: screenW, height: screenH } = useWindowDimensions();
   const wipeDiameter = Math.hypot(screenW, screenH) * 2.2;
 
   const sheetStyle = useAnimatedStyle(() => ({
@@ -162,6 +167,7 @@ export function HandshakeConfirmationResult({
 
   return (
     <View testID={testID} className="flex-1 overflow-hidden bg-ink-950">
+      <StatusBar style="dark" />
       <Animated.View
         pointerEvents="none"
         style={[
@@ -178,7 +184,7 @@ export function HandshakeConfirmationResult({
         ]}
       />
 
-      <View className="flex-1 items-center justify-center gap-6 px-8">
+      <View className="flex-1 items-center justify-center gap-6 px-8" style={{ paddingTop: insets.top }}>
         <Animated.View style={checkStyle}>
           <Svg width={72} height={72} viewBox="0 0 24 24" fill="none">
             <AnimatedPath
@@ -203,7 +209,10 @@ export function HandshakeConfirmationResult({
         </Animated.View>
       </View>
 
-      <Animated.View style={sheetStyle} className="gap-4 rounded-t-[14px] bg-paper px-5 pb-6 pt-5">
+      <Animated.View
+        style={[sheetStyle, { paddingBottom: Math.max(24, insets.bottom + 12) }]}
+        className="gap-4 rounded-t-[14px] bg-paper px-5 pt-5"
+      >
         <Text className="font-mono text-[13px] text-ink-600">{shipmentCode}</Text>
 
         {isPickup ? (

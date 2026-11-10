@@ -1131,6 +1131,25 @@ describe("ShipmentDetailScreen", () => {
       expect(getByTestId("shipment-detail-price")).toHaveTextContent(amount);
     });
 
+    it.each([
+      ["user-2", false],
+      ["user-1", true],
+    ])("con el envío completado, el usuario %s ve Participantes: %s (el transportista ya los tiene en Calificaciones)", async (userId, visible) => {
+      mockCurrentUser.mockReturnValue({ userId });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: "user-2", status: ShipmentStatus.COMPLETED }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { queryByTestId, getByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-ratings")).toBeTruthy();
+      expect(queryByTestId("shipment-detail-parties") !== null).toBe(visible);
+    });
+
     it("MOVO-285: con el monto exacto del hold el transportista ve 'Recibís', sin 'aprox.'", async () => {
       mockCurrentUser.mockReturnValue({ userId: "user-2" });
       mockUseShipment.mockReturnValue({

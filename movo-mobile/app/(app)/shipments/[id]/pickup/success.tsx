@@ -54,12 +54,12 @@ export default function PickupSuccessScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-ink-950">
+    <View className="flex-1 bg-ink-950">
       <HandshakeConfirmationResult
         testID="pickup-success-result"
         result={result}
         onCtaPress={result.stage === "pickup" ? goToRoute : goToShipment}
       />
-    </SafeAreaView>
+    </View>
   );
 }

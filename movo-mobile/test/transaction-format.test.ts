@@ -18,6 +18,7 @@ import {
   transactionCardLabel,
   transactionDisplayCode,
   transactionHeroLabel,
+  transactionRowAmount,
   transactionHeroPill,
   transactionRowSubtitle,
   transactionStatusLabel,
@@ -282,5 +283,24 @@ describe("pagos de saldo y deuda en el historial", () => {
     expect(debtLine(item({ debtAmountArs: 250 }), "sender")).toBe("Incluye $250 de tu saldo");
     expect(debtLine(item({ debtAmountArs: 2400 }), "carrier")).toBe("Se descontaron $2.400 de tu saldo");
     expect(debtLine(item({ debtAmountArs: null }), "sender")).toBeNull();
+  });
+});
+
+describe("transactionRowAmount (feedback de TestFlight build 18)", () => {
+  const base = { amountArs: 1170 };
+
+  it("en Cobros muestra lo que le quedó al transportista, con aprox. si es estimado", () => {
+    expect(transactionRowAmount({ ...base, receivedArs: 1017.39, receivedIsEstimate: false }, "carrier")).toBe(
+      formatTransactionAmount(1017.39)
+    );
+    expect(transactionRowAmount({ ...base, receivedArs: 950, receivedIsEstimate: true }, "carrier")).toBe(
+      `aprox. ${formatTransactionAmount(950)}`
+    );
+  });
+
+  it("cae al precio sin receivedArs (liberado o backend anterior) y en Pagos", () => {
+    expect(transactionRowAmount({ ...base, receivedArs: null }, "carrier")).toBe(formatTransactionAmount(1170));
+    expect(transactionRowAmount(base, "carrier")).toBe(formatTransactionAmount(1170));
+    expect(transactionRowAmount({ ...base, receivedArs: 900 }, "sender")).toBe(formatTransactionAmount(1170));
   });
 });

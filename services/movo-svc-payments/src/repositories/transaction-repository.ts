@@ -31,6 +31,8 @@ export interface TransactionRow {
   debtOffsetArs: number | null;
   /** MOVO-311: precio acordado y recargo del emisor, para mostrarle al transportista su cobro sin el recargo. */
   baseAmountArs: number;
+  /** Comisión de Movo fijada en el hold (sin la deuda cobrada); `null` fuera de un hold. Para el estimado de lo que recibe el transportista. */
+  holdCommissionArs: number | null;
   debtSurchargeArs: number | null;
   /** MOVO-311: bruto y fee de MP tal como los ve el transportista (fijados al acreditar). */
   carrierGrossAmountArs: number | null;
@@ -93,6 +95,7 @@ interface RawRow {
   commission_ars: number | null;
   debt_offset_ars: number | null;
   base_amount_ars: number;
+  hold_commission_ars: number | null;
   debt_surcharge_ars: number | null;
   carrier_gross_amount_ars: number | null;
   carrier_mp_fee_ars: number | null;
@@ -126,6 +129,7 @@ function toRow(r: RawRow): TransactionRow {
     commissionArs: r.commission_ars,
     debtOffsetArs: r.debt_offset_ars,
     baseAmountArs: r.base_amount_ars,
+    holdCommissionArs: r.hold_commission_ars,
     debtSurchargeArs: r.debt_surcharge_ars,
     carrierGrossAmountArs: r.carrier_gross_amount_ars,
     carrierMpFeeArs: r.carrier_mp_fee_ars,
@@ -166,6 +170,7 @@ function visibleTransactions(column: "payer_id" | "carrier_id", userId: string):
       to_char(h.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor,
       h.amount_ars::float8 AS amount_ars,
       h.base_amount_ars::float8 AS base_amount_ars,
+      h.commission_ars::float8 AS hold_commission_ars,
       h.status::text AS hold_status,
       -- Un hold con tarjeta guardada completa marca y últimos 4 con la tarjeta si MP todavía no los informó.
       COALESCE(h.card_brand, sc.brand)::varchar(32) AS card_brand,
@@ -241,6 +246,7 @@ function approvedBalancePayments(userId: string): Prisma.Sql {
       to_char(a.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor,
       a.amount_ars::float8 AS amount_ars,
       a.amount_ars::float8 AS base_amount_ars,
+      NULL::float8 AS hold_commission_ars,
       'captured'::text AS hold_status,
       c.brand::varchar(32) AS card_brand,
       c.last4::varchar(4) AS card_last4,
@@ -284,6 +290,7 @@ function cashShipments(column: "sender_id" | "carrier_id", userId: string): Pris
       to_char(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor,
       c.amount_ars::float8 AS amount_ars,
       c.amount_ars::float8 AS base_amount_ars,
+      NULL::float8 AS hold_commission_ars,
       'captured'::text AS hold_status,
       NULL::varchar(32) AS card_brand,
       NULL::varchar(4) AS card_last4,

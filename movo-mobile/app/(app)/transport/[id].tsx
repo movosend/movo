@@ -17,7 +17,6 @@ import { type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { PublicProfile } from "@movo/shared/dist/types/user-profile";
-import type { ReceiverConfirmationStatus } from "../../../components/shipments/counterpart-card";
 import { SuspendedActionNotice } from "../../../components/account/suspended-action-notice";
 import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
 import { PackageCard } from "../../../components/shipments/package-card";
@@ -29,7 +28,6 @@ import { AvatarImage } from "../../../components/ui/avatar-image";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { GridPattern } from "../../../components/ui/grid-pattern";
 import { DebtDiscount } from "../../../components/payments/debt-discount";
-import { PaymentMethodBadge } from "../../../components/shipments/payment-method-badge";
 import { SkeletonBlock } from "../../../components/ui/skeleton-block";
 import { useActiveSuspension } from "../../../src/hooks/use-account-restriction";
 import { useMyOffers } from "../../../src/hooks/use-offers";
@@ -51,7 +49,6 @@ import {
   formatRouteDistanceKm,
   formatTripDistanceKm,
   haversineDistanceKm,
-  receiverConfirmationStatus,
   shortAddressLabel,
   zoneLabelFromAddress,
 } from "../../../src/lib/shipment-format";
@@ -66,17 +63,6 @@ function Eyebrow({ children }: { children: ReactNode }) {
   );
 }
 
-// MOVO-177 (feedback de UI): copy plano bajo el nombre para el receptor -- distinto
-// del chip de `CounterpartCard` (usado en `shipments/[id].tsx`, vista emisor/
-// receptor), porque acá las dos partes conviven en una sola card ("Con quién
-// tratás") y un chip de color por fila competiría visualmente con el badge de
-// identidad verificada de la fila del emisor.
-const RECEIVER_CONFIRMATION_TEXT: Record<ReceiverConfirmationStatus, string> = {
-  pending: "Todavía no confirmó si acepta el paquete",
-  confirmed: "Ya aceptó recibir el paquete",
-  rejected: "Rechazó recibir el paquete",
-};
-
 function reputationSuffix(profile: PublicProfile): string | undefined {
   if (profile.reputationScore === null) return undefined;
   const scoreLabel = profile.reputationScore.toFixed(1).replace(".", ",");
@@ -84,22 +70,20 @@ function reputationSuffix(profile: PublicProfile): string | undefined {
 }
 
 /**
- * Una fila de la card "Con quién tratás" (MOVO-177, feedback de UI sobre el mockup):
- * avatar + nombre + rol inline, y debajo, según el rol, o la reputación (emisor,
- * `ProfileVerifiedBadge` con sufijo) o el estado de confirmación (receptor, texto
- * plano) -- nunca ambos, y nunca inventado si `profile.reputationScore` es `null`
- * (perfil sin calificaciones todavía).
+ * Una fila de la card "Con quién tratás" (MOVO-177): avatar + nombre + rol inline, y debajo la
+ * identidad verificada con la reputación (nunca inventada si `profile.reputationScore` es `null`).
+ * Emisor y receptor se ven igual (feedback de TestFlight build 18): antes el receptor mostraba
+ * "Ya aceptó recibir el paquete" en lugar del badge, redundante para un envío publicado y que
+ * hacía parecer que no estaba verificado.
  */
 function PartyRow({
   userId,
   roleLabel,
-  receiverConfirmation,
   onPress,
   testID,
 }: {
   userId: string;
   roleLabel: string;
-  receiverConfirmation?: ReceiverConfirmationStatus;
   onPress?: () => void;
   testID?: string;
 }) {
@@ -144,11 +128,7 @@ function PartyRow({
           {profile.fullName}{" "}
           <Text className="font-sans text-small text-fg-3">· {roleLabel}</Text>
         </Text>
-        {receiverConfirmation ? (
-          <Text className="mt-1 font-sans text-small text-fg-2">
-            {RECEIVER_CONFIRMATION_TEXT[receiverConfirmation]}
-          </Text>
-        ) : profile.isVerified ? (
+        {profile.isVerified ? (
           <ProfileVerifiedBadge suffix={reputationSuffix(profile)} />
         ) : null}
         <AccountStatusChip
@@ -404,7 +384,6 @@ export default function TransportShipmentDetailScreen() {
             className="flex-1"
             contentContainerClassName="gap-5 px-5 pb-6 pt-4"
           >
-            <PaymentMethodBadge paymentMethod={shipment.paymentMethod} testID="transport-detail-cash-badge" />
             {myActiveOffer ? (
               <Pressable
                 testID="transport-active-offer-card"
@@ -719,9 +698,6 @@ export default function TransportShipmentDetailScreen() {
                 <PartyRow
                   userId={shipment.receiverId}
                   roleLabel="recibe"
-                  receiverConfirmation={receiverConfirmationStatus(
-                    shipment.status,
-                  )}
                   onPress={() => openProfile(shipment.receiverId)}
                   testID="transport-detail-receiver"
                 />

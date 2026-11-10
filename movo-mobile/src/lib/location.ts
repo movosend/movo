@@ -57,3 +57,26 @@ export async function getCurrentLocation(options?: { highAccuracy?: boolean }): 
     lng: position.coords.longitude,
   };
 }
+
+/**
+ * Sigue la posición del dispositivo en primer plano mientras el caller la necesite (el mapa de "Mi
+ * ruta" con el viaje en curso: feedback de TestFlight build 18, el ícono del transportista no se
+ * movía). Solo con el permiso ya concedido: no lo pide (lo pidió `getCurrentLocation` al entrar).
+ * Devuelve la función para cortar la suscripción; si no hay permiso o falla, una que no hace nada.
+ * No reemplaza a la tarea de background que publica la posición al servidor.
+ */
+export async function watchForegroundLocation(
+  onChange: (coords: { lat: number; lng: number }) => void,
+): Promise<() => void> {
+  try {
+    const permission = await Location.getForegroundPermissionsAsync();
+    if (!permission.granted) return () => undefined;
+    const subscription = await Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.Balanced, timeInterval: 5_000, distanceInterval: 10 },
+      (position) => onChange({ lat: position.coords.latitude, lng: position.coords.longitude }),
+    );
+    return () => subscription.remove();
+  } catch {
+    return () => undefined;
+  }
+}

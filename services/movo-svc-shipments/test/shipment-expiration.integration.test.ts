@@ -239,6 +239,40 @@ describe("expiración y cierre automático (MOVO-258, Postgres)", () => {
       expect((await tripRepo.findById(declared.id))?.status).toBe(TripStatus.DECLARED);
     });
 
+    describe("completeFinishedDeclared: declared vencido con sus paquetes terminados", () => {
+      it.each([ShipmentStatus.COMPLETED, ShipmentStatus.DELIVERED])(
+        "pasa a completed si su paquete quedó %s sin que el viaje se iniciara (p. ej. forzado desde el panel)",
+        async (status) => {
+          const { trip, shipmentId } = await createAssignedWithTrip();
+          await app.db.shipment.update({ where: { id: shipmentId }, data: { status } });
+
+          expect(await tripRepo.completeFinishedDeclared(new Date(), 100)).toEqual([trip.id]);
+          expect((await tripRepo.findById(trip.id))?.status).toBe(TripStatus.COMPLETED);
+        }
+      );
+
+      it.each([ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.ASSIGNED])(
+        "sigue declared si un paquete está %s",
+        async (status) => {
+          const { trip, shipmentId } = await createAssignedWithTrip();
+          await app.db.shipment.update({ where: { id: shipmentId }, data: { status } });
+
+          expect(await tripRepo.completeFinishedDeclared(new Date(), 100)).toEqual([]);
+          expect((await tripRepo.findById(trip.id))?.status).toBe(TripStatus.DECLARED);
+        }
+      );
+
+      it("no toca uno con la salida por delante ni uno sin paquetes", async () => {
+        const future = await createAssignedWithTrip({ departureAt: new Date(Date.now() + HOUR_MS) });
+        await app.db.shipment.update({ where: { id: future.shipmentId }, data: { status: ShipmentStatus.COMPLETED } });
+        const empty = await tripRepo.create(tripInput());
+
+        expect(await tripRepo.completeFinishedDeclared(new Date(), 100)).toEqual([]);
+        expect((await tripRepo.findById(future.trip.id))?.status).toBe(TripStatus.DECLARED);
+        expect((await tripRepo.findById(empty.id))?.status).toBe(TripStatus.DECLARED);
+      });
+    });
+
     it("expireActiveWithoutPackages expira un active que se quedó sin paquetes por otro camino", async () => {
       const { tripId, shipmentId } = await activeTripWithShipment(null);
 

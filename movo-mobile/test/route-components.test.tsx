@@ -471,11 +471,11 @@ describe("Componentes de Ruta (MOVO-207)", () => {
         />
       );
 
-      // Control "Maps" junto a "Centrar": discreto, sin subtítulo
+      // Control "Ruta completa" junto a "Centrar": discreto, sin subtítulo
       const openMapsBtn = getByTestId("route-map-open-maps");
       expect(openMapsBtn).toBeTruthy();
-      expect(getByText("Maps")).toBeTruthy();
-      expect(openMapsBtn.props.accessibilityLabel).toBe("Abrir en Maps para ver la ruta completa");
+      expect(getByText("Ruta completa")).toBeTruthy();
+      expect(openMapsBtn.props.accessibilityLabel).toBe("Abrir la ruta completa, con todas las paradas, en la app de mapas");
 
       // Toast no visible al inicio
       expect(queryByTestId("route-navigation-toast")).toBeNull();
@@ -491,7 +491,7 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       expect(openURLSpy.mock.calls[0][0]).toContain("-31.425"); // lat de parada 1
 
       expect(getByTestId("route-navigation-toast")).toBeTruthy();
-      expect(getByText("Abriendo el recorrido en tu app de mapas...")).toBeTruthy();
+      expect(getByText("Abriendo todas las paradas en tu app de mapas...")).toBeTruthy();
 
       // Al expirar el tiempo del toast (2400ms), desaparece
       await act(async () => {

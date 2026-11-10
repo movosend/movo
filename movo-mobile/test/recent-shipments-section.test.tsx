@@ -245,8 +245,9 @@ describe("RecentShipmentsSection", () => {
         "shipment-row-s1",
       ]);
 
+      // Un viaje sin iniciar abre su detalle (que ofrece iniciarlo); solo uno `active` va al mapa.
       fireEvent.press(getByTestId("trip-row-t-past"));
-      expect(mockRouterPush).toHaveBeenCalledWith({ pathname: "/route", params: { tripId: "t-past" } });
+      expect(mockRouterPush).toHaveBeenCalledWith("/carrier/trips/t-past");
     });
 
     it("con viajes pero sin envíos no muestra el estado vacío", async () => {
