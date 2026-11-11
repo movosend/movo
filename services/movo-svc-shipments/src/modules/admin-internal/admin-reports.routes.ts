@@ -1,6 +1,17 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
-import { ApiError, CSV_MAX_ROWS, DISTANCE_BANDS, DistanceBand, REPORT_RANGE_ERROR_MESSAGES, ReportRange, SUPPORT_TOPICS, validateReportRange } from "@movo/shared";
+import {
+  ApiError,
+  CSV_MAX_ROWS,
+  DISTANCE_BANDS,
+  DistanceBand,
+  OPERATIONS_CITY_MAX_LENGTH,
+  REPORT_RANGE_ERROR_MESSAGES,
+  ReportRange,
+  SUPPORT_TOPICS,
+  validateReportRange,
+} from "@movo/shared";
 import { carriersReport, deliveriesReport, distancesReport, ShipmentMetricFact, supportReport } from "../../domain/admin-report-metrics";
+import { operationsReport } from "../../domain/operations-report";
 import { createAdminReportsRepository } from "../../repositories/admin-reports-repository";
 
 const rangeProperties = { from: { type: "string" }, to: { type: "string" } } as const;
@@ -74,6 +85,26 @@ export default async function adminReportsRoutes(app: FastifyInstance, _opts: Fa
     async (request: FastifyRequest) => {
       const range = rangeOf(request.query as ReportRange);
       return supportReport(await repository.supportMetricFacts(range), SUPPORT_TOPICS, range, new Date());
+    },
+  );
+
+  app.get(
+    "/admin/reports/operations",
+    {
+      schema: {
+        hide: true,
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          required: ["from", "to"],
+          properties: { ...rangeProperties, city: { type: "string", minLength: 1, maxLength: OPERATIONS_CITY_MAX_LENGTH } },
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const query = request.query as ReportRange & { city?: string };
+      const range = rangeOf(query);
+      return operationsReport(await repository.operationsFacts(range), range, new Date(), query.city);
     },
   );
 
