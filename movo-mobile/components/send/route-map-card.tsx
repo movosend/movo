@@ -410,11 +410,12 @@ export function RouteMapCard({
         viewer: live?.viewer ?? "sender",
         remaining: remainingPoints,
         toPickup: liveLines.toPickup,
+        toPickupGapM: liveLines.toPickupGapM,
         carrier: liveLat !== undefined && liveLng !== undefined ? { latitude: liveLat, longitude: liveLng } : null,
         pickup: pickup ? { latitude: pickup.lat, longitude: pickup.lng } : null,
         delivery: delivery ? { latitude: delivery.lat, longitude: delivery.lng } : null,
       }),
-    [livePhase, live?.viewer, pickup, delivery, remainingPoints, liveLines.toPickup, liveLat, liveLng],
+    [livePhase, live?.viewer, pickup, delivery, remainingPoints, liveLines.toPickup, liveLines.toPickupGapM, liveLat, liveLng],
   );
 
   // A pantalla completa con seguimiento: transportista y entrega, más el retiro mientras va a buscarlo

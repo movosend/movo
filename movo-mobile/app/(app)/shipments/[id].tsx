@@ -401,13 +401,16 @@ export default function ShipmentDetailScreen() {
   });
   const partyTracking = useShipmentTracking(shipment?.id, { enabled: liveEnabled, status: shipment?.status });
   // MOVO-359: antes del retiro el mapa dibuja la ruta del transportista al punto de retiro. Se pide una vez y
-  // solo se renueva si el auto se aleja de esa línea.
+  // solo se renueva si el auto se aleja de esa línea. Solo el emisor la ve (la llegada al retiro es dato suyo):
+  // el receptor no la pide, así no se duplican las llamadas facturadas a Google Routes.
   const isPickupPhase = shipment?.status !== ShipmentStatus.IN_TRANSIT;
   useApproachRefresh({
-    active: liveEnabled && isPickupPhase,
+    active: liveEnabled && isPickupPhase && !seesReceiverView,
+    settled: partyTracking.isFetched && !partyTracking.isFetching,
     approach: partyTracking.approach,
     position: livePosition ? { lat: livePosition.lat, lng: livePosition.lng } : null,
-    refetch: partyTracking.refetch,
+    // Sin cancelar un pedido en curso: cancelarlo no evita la llamada del backend, solo la repite.
+    refetch: () => partyTracking.refetch({ cancelRefetch: false }),
   });
   const routeLive: RouteMapLive | null = liveEnabled
     ? {

@@ -10,6 +10,23 @@ export function shipmentTrackingQueryKey(shipmentId: string | undefined, status?
 }
 
 /**
+ * Decodifica una polyline y conserva la última no vacía mientras sea el mismo envío: un `null` pasajero (el
+ * proveedor falló y el backend lo cachea) no borra la línea. Sin `enabled` no hay línea.
+ */
+function useRetainedPolyline(polyline: string | null, shipmentId: string | undefined, enabled: boolean): RoutePoint[] {
+  const last = useRef<{ shipmentId: string | undefined; points: RoutePoint[] }>({ shipmentId, points: [] });
+  return useMemo<RoutePoint[]>(() => {
+    if (polyline) {
+      const points = decodePolyline(polyline);
+      last.current = { shipmentId, points };
+      return points;
+    }
+    if (!enabled) return [];
+    return last.current.shipmentId === shipmentId ? last.current.points : [];
+  }, [polyline, shipmentId, enabled]);
+}
+
+/**
  * Ruta planificada y recorrido del transportista para el emisor y el receptor (MOVO-346, punto 12;
  * `GET /shipments/:id/tracking`). Se refresca cada `pollIntervalSeconds` del backend mientras el
  * seguimiento está `live` (la traza crece con las posiciones que se persisten); la posición en vivo
@@ -42,17 +59,7 @@ export function useShipmentTracking(
   const data = enabled ? query.data : undefined;
   // Por el string y no por el objeto: cada poll trae un objeto nuevo con la misma ruta, y una ruta
   // "nueva" reinicia la proyección del vehículo en `RouteMapCard`.
-  const polyline = data?.plannedRoute?.polyline ?? null;
-  const lastPlanned = useRef<{ shipmentId: string | undefined; points: RoutePoint[] }>({ shipmentId, points: [] });
-  const planned = useMemo<RoutePoint[]>(() => {
-    if (polyline) {
-      const points = decodePolyline(polyline);
-      lastPlanned.current = { shipmentId, points };
-      return points;
-    }
-    if (!enabled) return [];
-    return lastPlanned.current.shipmentId === shipmentId ? lastPlanned.current.points : [];
-  }, [polyline, shipmentId, enabled]);
+  const planned = useRetainedPolyline(data?.plannedRoute?.polyline ?? null, shipmentId, enabled);
   const trace = useMemo<RoutePoint[]>(
     () => (data?.trace ?? []).map((p) => ({ latitude: p.lat, longitude: p.lng })),
     [data?.trace],
@@ -60,16 +67,6 @@ export function useShipmentTracking(
   // MOVO-359: ruta del vehículo al retiro (antes del retiro). Como la planificada, la última no vacía se
   // conserva si un pedido la trae `null` (el proveedor falló y el backend lo cachea un minuto): sin ella
   // la línea saltaría de golpe a la ruta entera.
-  const approachPolyline = data?.approachRoute?.polyline ?? null;
-  const lastApproach = useRef<{ shipmentId: string | undefined; points: RoutePoint[] }>({ shipmentId, points: [] });
-  const approach = useMemo<RoutePoint[]>(() => {
-    if (approachPolyline) {
-      const points = decodePolyline(approachPolyline);
-      lastApproach.current = { shipmentId, points };
-      return points;
-    }
-    if (!enabled) return [];
-    return lastApproach.current.shipmentId === shipmentId ? lastApproach.current.points : [];
-  }, [approachPolyline, shipmentId, enabled]);
+  const approach = useRetainedPolyline(data?.approachRoute?.polyline ?? null, shipmentId, enabled);
   return { ...query, data, planned, trace, approach };
 }

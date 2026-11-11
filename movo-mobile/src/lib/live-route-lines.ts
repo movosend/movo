@@ -34,6 +34,9 @@ export interface LiveRouteLines {
   /** Antes del retiro: lo que falta de la ruta del vehículo al punto de retiro (ya incluido al frente de
    * `remaining`). Vacío en camino a la entrega o sin esa ruta. */
   toPickup: RoutePoint[];
+  /** Metros del vehículo a la línea de `toPickup` cuando está tan lejos que no se unen en el dibujo (una
+   * recta no sigue ninguna calle) pero ese tramo igual hay que recorrerlo: se suma a la distancia al retiro. */
+  toPickupGapM: number;
 }
 
 /**
@@ -57,27 +60,37 @@ export function liveRouteLines(input: {
 }): LiveRouteLines {
   const { phase, planned, trace, carrier, approach = [], startSegment = 0 } = input;
   if (phase === "pickup") {
-    if (!carrier || approach.length < 2) return { remaining: planned, trace: [], segment: 0, toPickup: [] };
+    if (!carrier || approach.length < 2) {
+      return { remaining: planned, trace: [], segment: 0, toPickup: [], toPickupGapM: 0 };
+    }
     const toPickup = remainingFrom(approach, carrier, startSegment);
-    return { remaining: [...toPickup.points, ...planned], trace: [], segment: toPickup.segment, toPickup: toPickup.points };
+    return {
+      remaining: [...toPickup.points, ...planned],
+      trace: [],
+      segment: toPickup.segment,
+      toPickup: toPickup.points,
+      toPickupGapM: toPickup.gapM,
+    };
   }
 
   const closedTrace = carrier && trace.length > 0 ? [...trace, carrier] : trace;
   if (!carrier || planned.length < 2) {
-    return { remaining: planned, trace: closedTrace, segment: startSegment, toPickup: [] };
+    return { remaining: planned, trace: closedTrace, segment: startSegment, toPickup: [], toPickupGapM: 0 };
   }
 
   const rest = remainingFrom(planned, carrier, startSegment);
-  return { remaining: rest.points, trace: closedTrace, segment: rest.segment, toPickup: [] };
+  return { remaining: rest.points, trace: closedTrace, segment: rest.segment, toPickup: [], toPickupGapM: 0 };
 }
 
 /** Lo que falta de una ruta desde el vehículo: arranca en su proyección, y solo se une a él con una recta si
  * está cerca de la línea (una recta lejos de la línea no sigue ninguna calle). */
 function remainingFrom(route: RoutePoint[], carrier: RoutePoint, startSegment: number) {
   const split = splitRoute(route, carrier, startSegment);
+  const detached = split.offRouteMeters > MAX_JOIN_OFF_ROUTE_M;
   return {
-    points: split.offRouteMeters > MAX_JOIN_OFF_ROUTE_M ? split.todo.slice(1) : split.todo,
+    points: detached ? split.todo.slice(1) : split.todo,
     segment: split.segment,
+    gapM: detached ? split.offRouteMeters : 0,
   };
 }
 
@@ -101,16 +114,18 @@ export function liveArrivalEstimate(input: {
   remaining: RoutePoint[];
   /** Antes del retiro: lo que falta de la ruta del vehículo al retiro (`LiveRouteLines.toPickup`). */
   toPickup?: RoutePoint[];
+  /** Tramo del vehículo a esa línea cuando no está unido a ella (`LiveRouteLines.toPickupGapM`). */
+  toPickupGapM?: number;
   carrier: RoutePoint | null;
   pickup: RoutePoint | null;
   delivery: RoutePoint | null;
 }): LiveArrivalEstimate {
-  const { phase, viewer, remaining, toPickup = [], carrier, pickup, delivery } = input;
+  const { phase, viewer, remaining, toPickup = [], toPickupGapM = 0, carrier, pickup, delivery } = input;
   if (phase === "pickup") {
     if (viewer === "receiver") return { kind: "stage", text: RECEIVER_PICKUP_STAGE_TEXT };
     if (!carrier || !pickup) return { kind: "unknown" };
     // Sobre la ruta por calle al retiro; sin ella (todavía no llegó o el proveedor falló), en línea recta.
-    return eta("pickup", toPickup.length > 1 ? polylineLengthKm(toPickup) : straightKm(carrier, pickup));
+    return eta("pickup", toPickup.length > 1 ? polylineLengthKm(toPickup) + toPickupGapM / 1000 : straightKm(carrier, pickup));
   }
   if (!carrier) return { kind: "unknown" };
   if (remaining.length > 1) return eta("delivery", polylineLengthKm(remaining));

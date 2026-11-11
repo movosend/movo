@@ -27,6 +27,7 @@ describe("useApproachRefresh", () => {
 
   const base = (over: Partial<Props> = {}): Props => ({
     active: true,
+    settled: true,
     approach: APPROACH,
     position: { lat: -31.405, lng: -64.2 },
     refetch: jest.fn(),
@@ -62,6 +63,15 @@ describe("useApproachRefresh", () => {
     jest.advanceTimersByTime(APPROACH_REFRESH_MIN_INTERVAL_MS + 1);
     await screen.rerender(<Harness {...base({ refetch, position: { lat: -31.407, lng: -64.198 } })} />);
     expect(refetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("mientras el seguimiento no respondió (o hay un pedido en curso) no pide, aunque no haya ruta todavía", async () => {
+    const props = base({ approach: [], settled: false });
+    const screen = await render(<Harness {...props} />);
+    expect(props.refetch).not.toHaveBeenCalled();
+
+    await screen.rerender(<Harness {...props} settled />);
+    expect(props.refetch).toHaveBeenCalledTimes(1);
   });
 
   it("inactivo (en camino a la entrega, o sin posición) no pide nada", async () => {

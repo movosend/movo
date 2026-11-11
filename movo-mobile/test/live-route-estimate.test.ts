@@ -88,12 +88,20 @@ describe("liveRouteLines antes del retiro con ruta al retiro", () => {
     expect(lines.toPickup[0]).not.toEqual(P(-31.43, -64.19));
   });
 
+  it("liveRouteLines informa el tramo fuera de la línea solo cuando no se une al dibujo", () => {
+    const near = liveRouteLines({ phase: "pickup", planned: PLANNED, trace: [], carrier: P(-31.45, -64.2), approach: APPROACH });
+    expect(near.toPickupGapM).toBe(0);
+    const far = liveRouteLines({ phase: "pickup", planned: PLANNED, trace: [], carrier: P(-31.45, -64.195), approach: APPROACH });
+    expect(far.toPickupGapM).toBeGreaterThan(100);
+  });
+
   it("sin ruta al retiro (falló el proveedor) o sin posición, la planificada entera como antes", () => {
     expect(liveRouteLines({ phase: "pickup", planned: PLANNED, trace: [], carrier: P(-31.45, -64.2) })).toEqual({
       remaining: PLANNED,
       trace: [],
       segment: 0,
       toPickup: [],
+      toPickupGapM: 0,
     });
     expect(liveRouteLines({ phase: "pickup", planned: PLANNED, trace: [], carrier: null, approach: APPROACH }).remaining).toEqual(
       PLANNED,
@@ -120,6 +128,21 @@ describe("liveArrivalEstimate al retiro con ruta por calle", () => {
     expect(estimate).toEqual(expect.objectContaining({ kind: "eta", target: "pickup" }));
     expect((estimate as { km: number }).km).toBeCloseTo(polylineLengthKm(toPickup), 1);
     expect((estimate as { km: number }).km).toBeGreaterThan(polylineLengthKm([carrier, pickup]));
+  });
+
+  it("con el auto lejos de la línea suma ese tramo a la distancia al retiro", () => {
+    const base = liveArrivalEstimate({ phase: "pickup", viewer: "sender", remaining: [], toPickup, carrier, pickup, delivery: null });
+    const withGap = liveArrivalEstimate({
+      phase: "pickup",
+      viewer: "sender",
+      remaining: [],
+      toPickup,
+      toPickupGapM: 400,
+      carrier,
+      pickup,
+      delivery: null,
+    });
+    expect((withGap as { km: number }).km).toBeCloseTo((base as { km: number }).km + 0.4, 1);
   });
 
   it("sin ruta por calle cae a la recta, y el receptor sigue sin ver la llegada al retiro", () => {
