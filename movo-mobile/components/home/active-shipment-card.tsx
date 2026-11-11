@@ -109,11 +109,8 @@ export function ActiveShipmentCard({
   const handleCta = () => {
     if (!cta) return;
     if (cta.action === "live_tracking") {
-      router.push(
-        isDemo
-          ? (`/(app)/shipments/${shipment.id}/tracking?demo=true` as any)
-          : (`/(app)/shipments/${shipment.id}/tracking` as any)
-      );
+      // MOVO-361: el seguimiento vive en el mapa del detalle; `map=live` lo abre a pantalla completa.
+      router.push({ pathname: "/(app)/shipments/[id]", params: { id: shipment.id, map: "live" } });
       return;
     }
     // Generar retiro / Confirmar recepción abren la misma pantalla que el CTA del detalle.

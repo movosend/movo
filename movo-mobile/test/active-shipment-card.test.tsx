@@ -154,7 +154,7 @@ describe("ActiveShipmentCard (MOVO-193)", () => {
     alertSpy.mockRestore();
   });
 
-  it("emisor + in_transit muestra el CTA 'Ver en el mapa' y navega a tracking al presionarlo", async () => {
+  it("MOVO-361: emisor + in_transit muestra 'Ver en el mapa' y abre el detalle con el mapa a pantalla completa", async () => {
     const { getByText, getByTestId } = await render(
       <ActiveShipmentCard shipment={makeShipment({ status: "in_transit" })} role="sending" testID="card" />,
     );
@@ -163,7 +163,7 @@ describe("ActiveShipmentCard (MOVO-193)", () => {
     expect(getByText("Ver en el mapa")).toBeTruthy();
 
     await fireEvent.press(getByTestId("card-cta"));
-    expect(router.push).toHaveBeenCalledWith("/(app)/shipments/s1/tracking");
+    expect(router.push).toHaveBeenCalledWith({ pathname: "/(app)/shipments/[id]", params: { id: "s1", map: "live" } });
   });
 
   describe("MOVO-346: acceso al detalle", () => {
@@ -194,18 +194,9 @@ describe("ActiveShipmentCard (MOVO-193)", () => {
       await fireEvent.press(getByTestId("card-chat"));
       await fireEvent.press(getByTestId("card-cta"));
       expect(router.push).toHaveBeenCalledWith("/(app)/shipments/s1/chat");
-      expect(router.push).toHaveBeenCalledWith("/(app)/shipments/s1/tracking");
+      expect(router.push).toHaveBeenCalledWith({ pathname: "/(app)/shipments/[id]", params: { id: "s1", map: "live" } });
       expect(router.push).not.toHaveBeenCalledWith("/(app)/shipments/s1");
     });
-  });
-
-  it("un envío demo navega con ?demo=true al presionar 'Ver en el mapa'", async () => {
-    const { getByTestId } = await render(
-      <ActiveShipmentCard shipment={makeShipment({ id: "demo-in-transit", status: "in_transit" })} role="sending" testID="card" />,
-    );
-
-    await fireEvent.press(getByTestId("card-cta"));
-    expect(router.push).toHaveBeenCalledWith("/(app)/shipments/demo-in-transit/tracking?demo=true");
   });
 
   it("el nodo pulsante ('En camino' actual) no lleva elevation — en Android tapaba por completo el halo detrás", async () => {

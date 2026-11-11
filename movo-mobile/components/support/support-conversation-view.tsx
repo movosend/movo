@@ -147,6 +147,7 @@ export function SupportConversationView(props: SupportConversationViewProps) {
         showName={item.showName}
         showAvatar={item.showAvatar}
         groupStart={item.groupStart}
+        showTime={item.showTime}
         animateIn={liveKeys.has(item.key)}
         avatarNode={<MovoIsotype size={AVATAR} borderRadius={AVATAR / 2} testID="support-agent-isotype" />}
         attachments={item.message.attachments}

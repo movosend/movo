@@ -15,7 +15,7 @@ import {
   Truck,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AcceptSuccessModal } from "../../../components/shipments/accept-success-modal";
@@ -45,7 +45,8 @@ import { ShipmentPartiesCard } from "../../../components/shipments/shipment-part
 import { ShipmentRatingsCard } from "../../../components/shipments/shipment-ratings-card";
 import { ShipmentStatusBadge } from "../../../components/shipments/status-badge";
 import { TimelineSection } from "../../../components/shipments/timeline-section";
-import { RouteMapCard, type RouteMapLive } from "../../../components/send/route-map-card";
+import { RouteMapCard, type RouteMapLive, type RouteMapNotice } from "../../../components/send/route-map-card";
+import { LiveTrackingSheet } from "../../../components/shipments/live-tracking-sheet";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { GridPattern } from "../../../components/ui/grid-pattern";
 import { DebtDiscount } from "../../../components/payments/debt-discount";
@@ -69,6 +70,7 @@ import {
   getClientCommissionRate,
 } from "../../../src/lib/commission-config";
 import { chatAvailability } from "../../../src/lib/chat-format";
+import { pushOnce } from "../../../src/lib/navigation-guard";
 import {
   FULFILLED_SHIPMENT_STATUSES,
   canCancelShipment,
@@ -142,7 +144,10 @@ const CANCELLATION_PENALTY_POLL_MS = 15_000;
  * post-entrega (MOVO-153).
  */
 export default function ShipmentDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // `map=live`: se llega desde "Seguir en vivo" del inicio o desde el `/tracking` viejo (MOVO-361), y
+  // el mapa se abre a pantalla completa.
+  const { id, map: mapParam } = useLocalSearchParams<{ id: string; map?: string }>();
+  const clearMapParam = useCallback(() => router.setParams({ map: undefined }), []);
   const colors = useThemeColors();
   const currentUser = useAuthStore((state) => state.user);
   // MOVO-271 AC5: mientras el seguimiento espera a que arranque el recorrido, el detalle
@@ -386,11 +391,19 @@ export default function ShipmentDetailScreen() {
   // pantalla de seguimiento es la versión a pantalla completa. Solo con la pantalla enfocada, así
   // no queda un segundo WS abierto debajo de la de seguimiento.
   const liveEnabled = liveTracking === "available" && isFocused;
-  const { position: livePosition, isStale: liveStale } = useLivePosition(liveEnabled ? shipment?.id : undefined, {
+  const {
+    position: livePosition,
+    isStale: liveStale,
+    isLoadingInitial: liveLoadingInitial,
+    isDelivered: liveClosed,
+  } = useLivePosition(liveEnabled ? shipment?.id : undefined, {
     enabled: liveEnabled,
   });
   const partyTracking = useShipmentTracking(shipment?.id, { enabled: liveEnabled, status: shipment?.status });
-  const routeLive: RouteMapLive | null = liveEnabled
+  // Cuando el WS avisa `delivered`/`cancelled` el seguimiento se apaga ya, sin esperar el refetch del
+  // envío (DD-023: se muestra solo mientras está en curso).
+  const liveActive = liveEnabled && !liveClosed;
+  const routeLive: RouteMapLive | null = liveActive
     ? {
         position: livePosition ? { lat: livePosition.lat, lng: livePosition.lng } : null,
         stale: liveStale || partyTracking.data?.signalLost === true,
@@ -398,8 +411,36 @@ export default function ShipmentDetailScreen() {
         trace: partyTracking.trace,
         planned: partyTracking.planned,
         phase: shipment?.status === ShipmentStatus.IN_TRANSIT ? "delivery" : "pickup",
+        viewer: seesReceiverView ? "receiver" : "sender",
+        loadingInitial: liveLoadingInitial,
       }
     : null;
+
+  // MOVO-361 AC7: el estado del seguimiento va dentro del mapa, sin tarjeta aparte. MOVO-278 (DD-045):
+  // en tránsito sin posición (o demorado) el mapa dice qué pasa; antes de salir es normal no tenerla.
+  const liveNotice: RouteMapNotice | null =
+    liveTracking === "pending"
+      ? { title: "Seguimiento en vivo", body: "Se activa cuando el transportista inicia el recorrido.", tone: "neutral" }
+      : liveActive && shipment?.status === ShipmentStatus.IN_TRANSIT && !liveLoadingInitial && !livePosition
+        ? {
+            title: "No tenemos la ubicación del transportista",
+            body: "Cuando vuelva a compartirla, la vas a ver en el mapa.",
+            tone: "warning",
+          }
+        : null;
+  // `map=live` se consume la primera vez que se resuelve el envío, abra o no el mapa: si no, un link viejo
+  // con el seguimiento en `pending` lo abriría solo cuando el transportista inicie el viaje.
+  const [liveMapRequested, setLiveMapRequested] = useState(mapParam === "live");
+  useEffect(() => {
+    if (!liveMapRequested || shipment === undefined || liveTracking === "available") return;
+    setLiveMapRequested(false);
+    clearMapParam();
+  }, [liveMapRequested, shipment, liveTracking, clearMapParam]);
+  const openLiveMapOnMount = liveMapRequested && liveTracking === "available";
+  const onLiveMapOpened = useCallback(() => {
+    setLiveMapRequested(false);
+    clearMapParam();
+  }, [clearMapParam]);
 
   // Espejo para el transportista: si su ubicación ya se comparte con emisor y receptor.
   const carrierSharing =
@@ -673,7 +714,6 @@ export default function ShipmentDetailScreen() {
                 <Eyebrow>Ruta</Eyebrow>
                 <RouteTrackingChatCard
                   shipmentId={shipment.id}
-                  tracking={liveTracking}
                   sharing={carrierSharing}
                   chat={chatAccess}
                   status={shipment.status}
@@ -696,6 +736,26 @@ export default function ShipmentDetailScreen() {
                     }}
                     paused={!isFocused}
                     live={routeLive}
+                    notice={liveNotice}
+                    openFullscreenOnMount={openLiveMapOnMount}
+                    // Una sola vez: al volver al detalle (o con un refetch) no se reabre.
+                    onOpenedFullscreenOnMount={onLiveMapOpened}
+                    renderFullscreenSheet={
+                      routeLive
+                        ? ({ close, estimate, estimateLoading, onHeightChange }) => (
+                            <LiveTrackingSheet
+                              shipmentId={shipment.id}
+                              estimate={estimate}
+                              estimateLoading={estimateLoading}
+                              carrierId={shipment.carrierId}
+                              chat={chatAccess}
+                              onNavigate={(path) => close(() => pushOnce(path))}
+                              onHeightChange={onHeightChange}
+                              testID="shipment-detail-live-sheet"
+                            />
+                          )
+                        : undefined
+                    }
                     testID="shipment-detail-route-map"
                   />
                 </RouteTrackingChatCard>

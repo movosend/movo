@@ -1,9 +1,10 @@
 import { Pencil } from "lucide-react-native";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState, Pressable, Text, View } from "react-native";
 import MapView, { Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
 import Animated, { processColor, useAnimatedProps, useFrameCallback, useSharedValue } from "react-native-reanimated";
 import { useColorScheme } from "nativewind";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   MAP_EDGE_BLEED,
   MAP_GEOMETRY_COLOR_DARK,
@@ -18,7 +19,9 @@ import { cumulativeFractions, decodePolyline, simplifyPolyline } from "../../src
 import {
   LIVE_REMAINING_LINE_WIDTH,
   LIVE_TRACE_LINE_WIDTH,
+  liveArrivalEstimate,
   liveRouteLines,
+  type LiveArrivalEstimate,
   type LivePhase,
 } from "../../src/lib/live-route-lines";
 import { ExpandableMap } from "../map/expandable-map";
@@ -28,6 +31,7 @@ import { SkeletonBlock } from "../ui/skeleton-block";
 
 const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
 const NO_TRACE: LatLng[] = [];
+const NO_POINTS: LatLng[] = [];
 
 const MAP_HEIGHT = 220;
 const EDGE_PADDING = { top: 64, right: 48, bottom: 40, left: 48 };
@@ -123,7 +127,32 @@ interface RouteMapCardProps {
   /** Seguimiento en vivo sobre este mismo mapa (MOVO-346, puntos 12 y 18): el detalle del envío
    * tiene un solo mapa, con la ruta y el transportista. Sin esto, el mapa es solo la ruta. */
   live?: RouteMapLive | null;
+  /** Estado del seguimiento sin tarjeta aparte (MOVO-361 AC7): todavía no disponible, sin
+   * ubicación, demorado. Va dentro del mapa, en la card y a pantalla completa. */
+  notice?: RouteMapNotice | null;
+  /** Contenido sobre el mapa a pantalla completa (el bottom sheet del seguimiento, MOVO-361). */
+  renderFullscreenSheet?: (ctx: RouteMapSheetContext) => ReactNode;
+  /** Abre la pantalla completa al montar (llegar desde "Seguir en vivo" del inicio). */
+  openFullscreenOnMount?: boolean;
+  onOpenedFullscreenOnMount?: () => void;
   testID?: string;
+}
+
+export interface RouteMapNotice {
+  title: string;
+  body?: string;
+  tone: "neutral" | "warning";
+}
+
+export interface RouteMapSheetContext {
+  /** Cierra la pantalla completa y, al terminar la animación, corre `then`. */
+  close: (then?: () => void) => void;
+  /** Llegada estimada y km desde las mismas líneas que dibuja el mapa. */
+  estimate: LiveArrivalEstimate;
+  /** La posición inicial todavía se está pidiendo. */
+  estimateLoading: boolean;
+  /** El sheet avisa su alto: el encuadre y el botón de recentrar quedan por encima. */
+  onHeightChange: (height: number) => void;
 }
 
 export interface RouteMapLive {
@@ -141,6 +170,11 @@ export interface RouteMapLive {
   /** `pickup` (`assigned`): la ruta se dibuja entera, sin recortarla desde el transportista, que
    * todavía no la recorre. `delivery` (`in_transit`, el default): lo que falta desde el transportista. */
   phase?: LivePhase;
+  /** Quién mira, para el sheet: antes del retiro solo el emisor ve la llegada estimada al retiro
+   * (MOVO-361). Default `sender`. */
+  viewer?: "sender" | "receiver";
+  /** Todavía se pide la última posición guardada: la llegada estimada dice "Calculando…" solo mientras tanto. */
+  loadingInitial?: boolean;
 }
 
 /**
@@ -163,6 +197,10 @@ export function RouteMapCard({
   paused = false,
   bare = false,
   live = null,
+  notice = null,
+  renderFullscreenSheet,
+  openFullscreenOnMount = false,
+  onOpenedFullscreenOnMount,
   testID,
 }: RouteMapCardProps) {
   const { colorScheme } = useColorScheme();
@@ -317,6 +355,11 @@ export function RouteMapCard({
   const liveTrace = pickup && live ? live.trace : NO_TRACE;
   const liveLat = livePosition?.lat;
   const liveLng = livePosition?.lng;
+  // Tramo de la última proyección del vehículo (`startSegment`): con ruido de GPS la proyección no
+  // salta a un tramo anterior de la ruta. Va en estado (no en un ref escrito en el render, MOVO-357)
+  // y se descarta con una ruta nueva.
+  const [segmentState, setSegmentState] = useState({ route: livePlanned, segment: 0 });
+  const startSegment = segmentState.route === livePlanned ? segmentState.segment : 0;
   const liveLines = useMemo(
     () =>
       liveRouteLines({
@@ -325,12 +368,67 @@ export function RouteMapCard({
         // La traza no se dibuja sin `pickup`: arranca en el retiro (MOVO-194 AC4).
         trace: liveTrace,
         carrier: liveLat !== undefined && liveLng !== undefined ? { latitude: liveLat, longitude: liveLng } : null,
+        startSegment,
       }),
-    [livePhase, livePlanned, liveTrace, liveLat, liveLng],
+    [livePhase, livePlanned, liveTrace, liveLat, liveLng, startSegment],
   );
+  useEffect(() => {
+    if (liveLines.segment !== startSegment || segmentState.route !== livePlanned) {
+      setSegmentState({ route: livePlanned, segment: liveLines.segment });
+    }
+  }, [liveLines.segment, startSegment, livePlanned, segmentState.route]);
   // El receptor (sin `pickup`) solo ve lo que falta desde el transportista ya en camino.
-  const remainingPoints = !pickup && (!livePosition || livePhase === "pickup") ? [] : liveLines.remaining;
+  const remainingPoints = !pickup && (!livePosition || livePhase === "pickup") ? NO_POINTS : liveLines.remaining;
   const tracePoints = liveLines.trace;
+
+  const [sheetHeight, setSheetHeight] = useState(0);
+  const liveEstimate = useMemo(
+    () =>
+      liveArrivalEstimate({
+        phase: livePhase,
+        viewer: live?.viewer ?? "sender",
+        remaining: remainingPoints,
+        carrier: liveLat !== undefined && liveLng !== undefined ? { latitude: liveLat, longitude: liveLng } : null,
+        pickup: pickup ? { latitude: pickup.lat, longitude: pickup.lng } : null,
+        delivery: delivery ? { latitude: delivery.lat, longitude: delivery.lng } : null,
+      }),
+    [livePhase, live?.viewer, pickup?.lat, pickup?.lng, delivery?.lat, delivery?.lng, remainingPoints, liveLat, liveLng],
+  );
+
+  // A pantalla completa con seguimiento: transportista y entrega, más el retiro mientras va a buscarlo
+  // (el criterio del mapa de la pantalla de seguimiento que reemplaza). Sin seguimiento, la ruta.
+  const fullscreenFitPoints: LatLng[] = [];
+  if (live && livePosition) fullscreenFitPoints.push({ latitude: livePosition.lat, longitude: livePosition.lng });
+  if (pickup && (!live || !livePosition || livePhase === "pickup")) {
+    fullscreenFitPoints.push({ latitude: pickup.lat, longitude: pickup.lng });
+  }
+  if (delivery) fullscreenFitPoints.push({ latitude: delivery.lat, longitude: delivery.lng });
+
+  const noticeView = (prefix: string, top: number) =>
+    notice ? (
+      <View
+        testID={testID ? `${testID}-${prefix}notice` : undefined}
+        pointerEvents="none"
+        className={`absolute left-3 right-14 rounded-[12px] px-3 py-2 ${
+          notice.tone === "warning" ? "bg-warning-100" : "bg-bg"
+        }`}
+        style={{ top, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } }}
+      >
+        <Text
+          className={`font-sans-semibold text-caption ${notice.tone === "warning" ? "text-warning-700" : "text-fg"}`}
+        >
+          {notice.title}
+        </Text>
+        {notice.body ? (
+          <Text
+            className={`mt-0.5 font-sans text-caption ${notice.tone === "warning" ? "text-warning-700" : "text-fg-2"}`}
+            numberOfLines={3}
+          >
+            {notice.body}
+          </Text>
+        ) : null}
+      </View>
+    ) : null;
 
   const liveLayer = (prefix: string) =>
     live ? (
@@ -392,11 +490,21 @@ export function RouteMapCard({
         backgroundColor={mapBackgroundColor}
         borderRadius={bare ? 0 : 14}
         testID={testID ? `${testID}-frame` : undefined}
+        openOnMount={openFullscreenOnMount}
+        onOpenedOnMount={onOpenedFullscreenOnMount}
         renderFullscreen={(close) => (
           <FullscreenMap
             testID={testID ? `${testID}-fullscreen` : undefined}
             onClose={close}
-            fitPoints={[pickup, delivery].flatMap((p) => (p ? [{ latitude: p.lat, longitude: p.lng }] : []))}
+            fitPoints={fullscreenFitPoints}
+            bottomInset={renderFullscreenSheet ? sheetHeight : 0}
+            overlay={
+              <>
+                {/* Debajo del botón de cerrar (arriba a la izquierda, 44 px). */}
+                <FullscreenNotice>{noticeView("fs-", 0)}</FullscreenNotice>
+                {renderFullscreenSheet?.({ close, estimate: liveEstimate, estimateLoading: live?.loadingInitial ?? false, onHeightChange: setSheetHeight })}
+              </>
+            }
           >
             {pickup ? (
               <>
@@ -543,7 +651,9 @@ export function RouteMapCard({
           {liveLayer("")}
         </MapView>
 
-        {live?.stale && live.lastSignalLabel ? (
+        {notice ? (
+          noticeView("", 12)
+        ) : live?.stale && live.lastSignalLabel ? (
           <View
             testID={testID ? `${testID}-last-signal` : undefined}
             className="absolute left-3 top-3 rounded-full bg-warning-100 px-2.5 py-1"
@@ -583,6 +693,17 @@ export function RouteMapCard({
           </Text>
         </View>
       ) : null}
+    </View>
+  );
+}
+
+/** El aviso a pantalla completa va debajo de la zona segura y del botón de cerrar. */
+function FullscreenNotice({ children }: { children: ReactNode }) {
+  const insets = useSafeAreaInsets();
+  if (!children) return null;
+  return (
+    <View pointerEvents="none" className="absolute left-1 right-1" style={{ top: insets.top + 60 }}>
+      {children}
     </View>
   );
 }

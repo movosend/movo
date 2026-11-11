@@ -189,6 +189,54 @@ describe("buildChatTimeline", () => {
     expect(third.groupStart).toBe(true);
   });
 
+  it("la hora va una vez por racha de la misma persona en el mismo minuto, en la última burbuja", () => {
+    const items = buildChatTimeline({
+      messages: [
+        msg("1", "pedro", T(19, 35)),
+        msg("2", "pedro", T(19, 35)),
+        msg("3", "pedro", T(19, 35)),
+        msg("4", "pedro", T(19, 36)),
+        msg("5", ME, T(19, 36)),
+      ],
+      events: [],
+      currentUserId: ME,
+      now: NOW,
+    });
+    const times = items.flatMap((i) => (i.kind === "message" ? [[i.message.id, i.showTime] as const] : []));
+    // Nuevo → viejo. La 3 cierra la racha de las 19:35 (la 4 es de otro minuto); la 4 la cierra el cambio de autor.
+    expect(times).toEqual([
+      ["5", true],
+      ["4", true],
+      ["3", true],
+      ["2", false],
+      ["1", false],
+    ]);
+  });
+
+  it("un mensaje siguiente enviando o fallido no se lleva la hora de la burbuja confirmada", () => {
+    const items = buildChatTimeline({
+      messages: [msg("1", ME, T(19, 35)), { ...msg("2", ME, T(19, 35)), localState: "failed" }],
+      events: [],
+      currentUserId: ME,
+      now: NOW,
+    });
+    const times = items.flatMap((i) => (i.kind === "message" ? [[i.message.id, i.showTime] as const] : []));
+    expect(times).toEqual([
+      ["2", true],
+      ["1", true],
+    ]);
+  });
+
+  it("una tarjeta de evento en el medio corta la racha y cada mensaje lleva su hora", () => {
+    const items = buildChatTimeline({
+      messages: [msg("1", "pedro", T(19, 35)), msg("2", "pedro", new Date(T(19, 35).getTime() + 30_000))],
+      events: [{ id: "e1", text: "Retiro confirmado", live: false, createdAt: new Date(T(19, 35).getTime() + 10_000).toISOString() }],
+      currentUserId: ME,
+      now: NOW,
+    });
+    expect(items.every((i) => i.kind !== "message" || i.showTime)).toBe(true);
+  });
+
   it("intercala las tarjetas de evento por fecha entre los mensajes", () => {
     const items = buildChatTimeline({
       messages: [msg("1", "diego", T(9, 0)), msg("2", ME, T(9, 30))],
