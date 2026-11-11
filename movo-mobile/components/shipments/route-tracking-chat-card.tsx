@@ -1,11 +1,9 @@
-import * as Haptics from "expo-haptics";
-import { MessageCircle } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { useChatList } from "../../src/hooks/use-chat";
-import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { useShipmentChatUnread } from "../../src/hooks/use-shipment-chat-unread";
 import { chatReadOnlyCopy } from "../../src/lib/chat-format";
+import { ShipmentChatButton } from "./shipment-chat-button";
 import { pushOnce } from "../../src/lib/navigation-guard";
 import type { LiveTrackingAvailability } from "../../src/lib/shipment-format";
 
@@ -47,9 +45,7 @@ export function RouteTrackingChatCard({
   trackingTestID = "route-tracking",
   chatTestID = "route-chat",
 }: RouteTrackingChatCardProps) {
-  const colors = useThemeColors();
-  const { data: chats } = useChatList({ enabled: chat !== null });
-  const unread = chat ? (chats ?? []).find((item) => item.shipmentId === shipmentId)?.unreadCount ?? 0 : 0;
+  const unread = useShipmentChatUnread(shipmentId, chat);
   const showFooter = sharing !== null || chat !== null;
   // En solo lectura se dice por qué (entregado, transferiste la recepción) y que se archiva, a la vista y no solo para lectores de pantalla.
   const readOnlyCopy = chat === "read_only" ? chatReadOnlyCopy({ archived: false, status, isFormerReceiver }) : null;
@@ -105,33 +101,14 @@ export function RouteTrackingChatCard({
           )}
 
           {chat ? (
-            <Pressable
+            <ShipmentChatButton
+              chat={chat}
+              unread={unread}
+              layout="inline"
               testID={chatTestID}
-              onPress={() => {
-                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                pushOnce(`/(app)/shipments/${shipmentId}/chat`);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel={
-                chat === "open"
-                  ? unread > 0
-                    ? `Abrir el chat del envío, ${unread} sin leer`
-                    : "Abrir el chat del envío"
-                  : "Ver la conversación del envío"
-              }
-              className={`h-11 flex-row items-center gap-2 rounded-[10px] px-4 active:opacity-80 ${
-                chat === "open" ? "bg-fg" : "border border-border-strong bg-bg"
-              }`}
-            >
-              <MessageCircle size={17} color={chat === "open" ? colors.bg : colors.fg1} strokeWidth={2} />
-              <Text className={`font-sans-semibold text-body ${chat === "open" ? "text-bg" : "text-fg"}`}>Chat</Text>
-              {unread > 0 ? (
-                <View
-                  testID={`${chatTestID}-unread`}
-                  className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-bg bg-lime-500"
-                />
-              ) : null}
-            </Pressable>
+              unreadTestID={`${chatTestID}-unread`}
+              onPress={() => pushOnce(`/(app)/shipments/${shipmentId}/chat`)}
+            />
           ) : null}
         </View>
       ) : null}

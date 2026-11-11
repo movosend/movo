@@ -15,7 +15,7 @@ import {
   Truck,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AcceptSuccessModal } from "../../../components/shipments/accept-success-modal";
@@ -395,11 +395,15 @@ export default function ShipmentDetailScreen() {
     position: livePosition,
     isStale: liveStale,
     isLoadingInitial: liveLoadingInitial,
+    isDelivered: liveClosed,
   } = useLivePosition(liveEnabled ? shipment?.id : undefined, {
     enabled: liveEnabled,
   });
   const partyTracking = useShipmentTracking(shipment?.id, { enabled: liveEnabled, status: shipment?.status });
-  const routeLive: RouteMapLive | null = liveEnabled
+  // Cuando el WS avisa `delivered`/`cancelled` el seguimiento se apaga ya, sin esperar el refetch del
+  // envío (DD-023: se muestra solo mientras está en curso).
+  const liveActive = liveEnabled && !liveClosed;
+  const routeLive: RouteMapLive | null = liveActive
     ? {
         position: livePosition ? { lat: livePosition.lat, lng: livePosition.lng } : null,
         stale: liveStale || partyTracking.data?.signalLost === true,
@@ -408,6 +412,7 @@ export default function ShipmentDetailScreen() {
         planned: partyTracking.planned,
         phase: shipment?.status === ShipmentStatus.IN_TRANSIT ? "delivery" : "pickup",
         viewer: seesReceiverView ? "receiver" : "sender",
+        loadingInitial: liveLoadingInitial,
       }
     : null;
 
@@ -416,14 +421,26 @@ export default function ShipmentDetailScreen() {
   const liveNotice: RouteMapNotice | null =
     liveTracking === "pending"
       ? { title: "Seguimiento en vivo", body: "Se activa cuando el transportista inicia el recorrido.", tone: "neutral" }
-      : liveEnabled && shipment?.status === ShipmentStatus.IN_TRANSIT && !liveLoadingInitial && !livePosition
+      : liveActive && shipment?.status === ShipmentStatus.IN_TRANSIT && !liveLoadingInitial && !livePosition
         ? {
             title: "No tenemos la ubicación del transportista",
             body: "Cuando vuelva a compartirla, la vas a ver en el mapa.",
             tone: "warning",
           }
         : null;
-  const openLiveMapOnMount = mapParam === "live" && liveTracking === "available";
+  // `map=live` se consume la primera vez que se resuelve el envío, abra o no el mapa: si no, un link viejo
+  // con el seguimiento en `pending` lo abriría solo cuando el transportista inicie el viaje.
+  const [liveMapRequested, setLiveMapRequested] = useState(mapParam === "live");
+  useEffect(() => {
+    if (!liveMapRequested || shipment === undefined || liveTracking === "available") return;
+    setLiveMapRequested(false);
+    clearMapParam();
+  }, [liveMapRequested, shipment, liveTracking, clearMapParam]);
+  const openLiveMapOnMount = liveMapRequested && liveTracking === "available";
+  const onLiveMapOpened = useCallback(() => {
+    setLiveMapRequested(false);
+    clearMapParam();
+  }, [clearMapParam]);
 
   // Espejo para el transportista: si su ubicación ya se comparte con emisor y receptor.
   const carrierSharing =
@@ -722,13 +739,14 @@ export default function ShipmentDetailScreen() {
                     notice={liveNotice}
                     openFullscreenOnMount={openLiveMapOnMount}
                     // Una sola vez: al volver al detalle (o con un refetch) no se reabre.
-                    onOpenedFullscreenOnMount={clearMapParam}
+                    onOpenedFullscreenOnMount={onLiveMapOpened}
                     renderFullscreenSheet={
                       routeLive
-                        ? ({ close, estimate, onHeightChange }) => (
+                        ? ({ close, estimate, estimateLoading, onHeightChange }) => (
                             <LiveTrackingSheet
                               shipmentId={shipment.id}
                               estimate={estimate}
+                              estimateLoading={estimateLoading}
                               carrierId={shipment.carrierId}
                               chat={chatAccess}
                               onNavigate={(path) => close(() => pushOnce(path))}

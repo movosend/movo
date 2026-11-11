@@ -68,7 +68,9 @@ export function ExpandableMap({
   const origin = useSharedValue<Rect>({ x: 0, y: 0, width: windowW, height: windowH });
   const progress = useSharedValue(0);
 
+  const closing = useRef(false);
   const open = useCallback(() => {
+    closing.current = false;
     frameRef.current?.measureInWindow((x, y, width, height) => {
       origin.value = { x, y, width, height };
       progress.value = 0;
@@ -81,6 +83,7 @@ export function ExpandableMap({
   // `then` queda del lado de JS: pasar una función de JS por el worklet a `runOnJS` no es seguro.
   const afterClose = useRef<(() => void) | undefined>(undefined);
   const finishClose = useCallback(() => {
+    closing.current = false;
     setVisible(false);
     const then = afterClose.current;
     afterClose.current = undefined;
@@ -88,6 +91,9 @@ export function ExpandableMap({
   }, []);
 
   const close = (then?: () => void) => {
+    // Un segundo `close()` durante la animación no pisa la navegación del primero.
+    if (closing.current) return;
+    closing.current = true;
     afterClose.current = then;
     progress.value = withTiming(0, { duration: CLOSE_MS, easing: EASING }, (finished) => {
       if (finished) runOnJS(finishClose)();

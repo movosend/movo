@@ -10,8 +10,6 @@ import {
   type RealtimeStatusEvent,
   type ConnectionState,
 } from "./use-shipment-channel";
-import { formatRelativeDuration } from "../lib/time-format";
-import { estimateArrivalMinutes } from "../lib/live-route-lines";
 
 export interface LiveCarrierPosition {
   lat: number;
@@ -23,53 +21,10 @@ export interface LiveCarrierPosition {
 }
 
 export interface UseLivePositionOptions {
-  destination?: { lat: number; lng: number } | null;
   enabled?: boolean;
 }
 
-export type TrackingStatus =
-  | "connecting"
-  | "live"
-  | "reconnecting"
-  | "stale"
-  | "closed"
-  | "no_position";
-
 const STALE_THRESHOLD_MS = 120_000; // 2 minutos (AC5)
-
-/**
- * Distancia Haversine en kilómetros entre dos coordenadas geográficas.
- */
-export function calculateHaversineKm(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number {
-  const R = 6371; // Radio de la Tierra en km
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-    Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLon / 2) *
-    Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return Number((R * c).toFixed(1));
-}
-
-/**
- * Formatea el tiempo transcurrido desde `capturedAt`.
- */
-export function formatTimeAgo(isoDateString?: string | null): string {
-  if (!isoDateString) return "Sin datos";
-  const diffMs = Date.now() - new Date(isoDateString).getTime();
-  if (diffMs < 0) return "hace unos segundos";
-  const diffSeconds = Math.floor(diffMs / 1000);
-  if (diffSeconds < 45) return "hace unos segundos";
-  return `hace ${formatRelativeDuration(diffSeconds / 60)}`;
-}
 
 /**
  * Hook para emisor y receptor que sincroniza la posición en tiempo real del transportista (MOVO-204).
@@ -85,7 +40,7 @@ export function useLivePosition(
   shipmentId: string | undefined,
   options: UseLivePositionOptions = {}
 ) {
-  const { destination, enabled = true } = options;
+  const { enabled = true } = options;
 
   const [livePosition, setLivePosition] = useState<LiveCarrierPosition | null>(null);
   const [isDelivered, setIsDelivered] = useState(false);
@@ -160,45 +115,10 @@ export function useLivePosition(
     return elapsed > STALE_THRESHOLD_MS;
   }, [livePosition?.capturedAt, ticker]);
 
-  // Derivar el estado general de tracking
-  const trackingStatus: TrackingStatus = useMemo(() => {
-    if (isDelivered || isTerminalClosed) return "closed";
-    if (connectionState === "reconnecting") return "reconnecting";
-    if (!livePosition) return "no_position";
-    if (isStale) return "stale";
-    if (connectionState === "connected") return "live";
-    return "connecting";
-  }, [isDelivered, isTerminalClosed, connectionState, livePosition, isStale]);
-
-  // Texto amigable de última actualización
-  const lastUpdateText = useMemo(() => {
-    return formatTimeAgo(livePosition?.capturedAt);
-  }, [livePosition?.capturedAt, ticker]);
-
-  // Distancia restante en km al destino
-  const distanceKm = useMemo(() => {
-    if (!livePosition || !destination) return null;
-    return calculateHaversineKm(
-      livePosition.lat,
-      livePosition.lng,
-      destination.lat,
-      destination.lng
-    );
-  }, [livePosition, destination]);
-
-  const estimatedArrivalMinutes = useMemo(
-    () => (distanceKm == null ? null : estimateArrivalMinutes(distanceKm)),
-    [distanceKm],
-  );
-
   return {
     position: livePosition,
-    trackingStatus,
     isStale,
     isDelivered: isDelivered || isTerminalClosed,
-    distanceKm,
-    estimatedArrivalMinutes,
-    lastUpdateText,
     isLoadingInitial,
     refetchInitial,
     reconnectWs: reconnect,

@@ -1,12 +1,13 @@
 import * as Haptics from "expo-haptics";
-import { Clock, MessageCircle, ShieldCheck } from "lucide-react-native";
+import { Clock, ShieldCheck } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Dimensions, PanResponder, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useChatList } from "../../src/hooks/use-chat";
+import { useShipmentChatUnread } from "../../src/hooks/use-shipment-chat-unread";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import type { LiveArrivalEstimate } from "../../src/lib/live-route-lines";
 import { formatDuration, formatTimeOfDay } from "../../src/lib/time-format";
+import { ShipmentChatButton } from "./shipment-chat-button";
 import { CounterpartCard } from "./counterpart-card";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
@@ -19,6 +20,8 @@ export const LIVE_TRACKING_PRIVACY_TEXT =
 export interface LiveTrackingSheetProps {
   shipmentId: string;
   estimate: LiveArrivalEstimate;
+  /** La posición inicial todavía se está pidiendo: "Calculando…" solo mientras tanto. */
+  estimateLoading?: boolean;
   carrierId: string | null;
   /** `null`: sin chat (no debería pasar con transportista asignado, pero no se inventa el botón). */
   chat: "open" | "read_only" | null;
@@ -38,6 +41,7 @@ export interface LiveTrackingSheetProps {
 export function LiveTrackingSheet({
   shipmentId,
   estimate,
+  estimateLoading = false,
   carrierId,
   chat,
   onNavigate,
@@ -48,8 +52,7 @@ export function LiveTrackingSheet({
   const insets = useSafeAreaInsets();
   const collapsedHeight = LIVE_SHEET_COLLAPSED_HEIGHT + insets.bottom;
   const expandedHeight = EXPANDED_HEIGHT + insets.bottom;
-  const { data: chats } = useChatList({ enabled: chat !== null });
-  const unread = chat ? (chats ?? []).find((item) => item.shipmentId === shipmentId)?.unreadCount ?? 0 : 0;
+  const unread = useShipmentChatUnread(shipmentId, chat);
 
   const [isExpanded, setIsExpanded] = useState(false);
   const heightAnim = useRef(new Animated.Value(collapsedHeight)).current;
@@ -142,40 +145,21 @@ export function LiveTrackingSheet({
       </Pressable>
 
       <View className="gap-3 px-4 pb-6">
-        <ArrivalCard estimate={estimate} testID={`${testID}-eta`} />
+        <ArrivalCard estimate={estimate} loading={estimateLoading} testID={`${testID}-eta`} />
 
         {carrierId ? (
           <View testID={`${testID}-carrier`} className="rounded-2xl border border-border bg-bg-mute p-4">
             <Text className="mb-2 font-sans-semibold text-caption uppercase text-fg-3">Transportista</Text>
             <CounterpartCard userId={carrierId} onPress={() => onNavigate(`/profile/${carrierId}`)} />
             {chat ? (
-              <Pressable
+              <ShipmentChatButton
+                chat={chat}
+                unread={unread}
+                layout="block"
                 testID={`${testID}-chat`}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
-                  onNavigate(`/(app)/shipments/${shipmentId}/chat`);
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  chat === "open"
-                    ? unread > 0
-                      ? `Abrir el chat del envío, ${unread} sin leer`
-                      : "Abrir el chat del envío"
-                    : "Ver la conversación del envío"
-                }
-                className={`mt-3 h-11 flex-row items-center justify-center gap-2 rounded-[10px] active:opacity-80 ${
-                  chat === "open" ? "bg-fg" : "border border-border-strong bg-bg"
-                }`}
-              >
-                <MessageCircle size={17} color={chat === "open" ? colors.bg : colors.fg1} strokeWidth={2} />
-                <Text className={`font-sans-semibold text-body ${chat === "open" ? "text-bg" : "text-fg"}`}>Chat</Text>
-                {unread > 0 ? (
-                  <View
-                    testID={`${testID}-chat-unread`}
-                    className="h-2.5 w-2.5 rounded-full bg-lime-500"
-                  />
-                ) : null}
-              </Pressable>
+                unreadTestID={`${testID}-chat-unread`}
+                onPress={() => onNavigate(`/(app)/shipments/${shipmentId}/chat`)}
+              />
             ) : null}
           </View>
         ) : null}
@@ -192,7 +176,7 @@ export function LiveTrackingSheet({
   );
 }
 
-function ArrivalCard({ estimate, testID }: { estimate: LiveArrivalEstimate; testID: string }) {
+function ArrivalCard({ estimate, loading, testID }: { estimate: LiveArrivalEstimate; loading: boolean; testID: string }) {
   const colors = useThemeColors();
   if (estimate.kind === "stage") {
     return (
@@ -207,7 +191,9 @@ function ArrivalCard({ estimate, testID }: { estimate: LiveArrivalEstimate; test
   const label = eta?.target === "pickup" ? "Llegada estimada al retiro" : "Llegada estimada";
   const kmText = eta
     ? `${eta.km.toLocaleString("es-AR")} km ${eta.target === "pickup" ? "hasta el retiro" : "hasta el destino"}`
-    : "Calculando distancia…";
+    : loading
+      ? "Calculando distancia…"
+      : "Sin ubicación del transportista";
   return (
     <View testID={testID} className="flex-row items-start justify-between rounded-2xl border border-border bg-bg-mute p-4">
       <View className="flex-1 pr-2">
@@ -216,7 +202,7 @@ function ArrivalCard({ estimate, testID }: { estimate: LiveArrivalEstimate; test
           <Text className="font-sans-semibold text-title leading-none tracking-tight text-fg">{etaTime}</Text>
           <View className="rounded-full border border-border bg-bg px-2.5 py-0.5">
             <Text className="font-sans-semibold text-small text-fg">
-              {eta ? `~${formatDuration(eta.minutes)} (aprox.)` : "Calculando…"}
+              {eta ? `~${formatDuration(eta.minutes)} (aprox.)` : loading ? "Calculando…" : "Sin ubicación"}
             </Text>
           </View>
         </View>

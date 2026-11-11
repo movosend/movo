@@ -31,6 +31,7 @@ import { SkeletonBlock } from "../ui/skeleton-block";
 
 const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
 const NO_TRACE: LatLng[] = [];
+const NO_POINTS: LatLng[] = [];
 
 const MAP_HEIGHT = 220;
 const EDGE_PADDING = { top: 64, right: 48, bottom: 40, left: 48 };
@@ -148,6 +149,8 @@ export interface RouteMapSheetContext {
   close: (then?: () => void) => void;
   /** Llegada estimada y km desde las mismas líneas que dibuja el mapa. */
   estimate: LiveArrivalEstimate;
+  /** La posición inicial todavía se está pidiendo. */
+  estimateLoading: boolean;
   /** El sheet avisa su alto: el encuadre y el botón de recentrar quedan por encima. */
   onHeightChange: (height: number) => void;
 }
@@ -170,6 +173,8 @@ export interface RouteMapLive {
   /** Quién mira, para el sheet: antes del retiro solo el emisor ve la llegada estimada al retiro
    * (MOVO-361). Default `sender`. */
   viewer?: "sender" | "receiver";
+  /** Todavía se pide la última posición guardada: la llegada estimada dice "Calculando…" solo mientras tanto. */
+  loadingInitial?: boolean;
 }
 
 /**
@@ -351,27 +356,29 @@ export function RouteMapCard({
   const liveLat = livePosition?.lat;
   const liveLng = livePosition?.lng;
   // Tramo de la última proyección del vehículo (`startSegment`): con ruido de GPS la proyección no
-  // salta a un tramo anterior de la ruta. Se reinicia con una ruta nueva.
-  const segmentRef = useRef(0);
-  const segmentRouteRef = useRef(livePlanned);
-  if (segmentRouteRef.current !== livePlanned) {
-    segmentRouteRef.current = livePlanned;
-    segmentRef.current = 0;
-  }
-  const liveLines = useMemo(() => {
-    const lines = liveRouteLines({
-      phase: livePhase,
-      planned: livePlanned,
-      // La traza no se dibuja sin `pickup`: arranca en el retiro (MOVO-194 AC4).
-      trace: liveTrace,
-      carrier: liveLat !== undefined && liveLng !== undefined ? { latitude: liveLat, longitude: liveLng } : null,
-      startSegment: segmentRef.current,
-    });
-    segmentRef.current = lines.segment;
-    return lines;
-  }, [livePhase, livePlanned, liveTrace, liveLat, liveLng]);
+  // salta a un tramo anterior de la ruta. Va en estado (no en un ref escrito en el render, MOVO-357)
+  // y se descarta con una ruta nueva.
+  const [segmentState, setSegmentState] = useState({ route: livePlanned, segment: 0 });
+  const startSegment = segmentState.route === livePlanned ? segmentState.segment : 0;
+  const liveLines = useMemo(
+    () =>
+      liveRouteLines({
+        phase: livePhase,
+        planned: livePlanned,
+        // La traza no se dibuja sin `pickup`: arranca en el retiro (MOVO-194 AC4).
+        trace: liveTrace,
+        carrier: liveLat !== undefined && liveLng !== undefined ? { latitude: liveLat, longitude: liveLng } : null,
+        startSegment,
+      }),
+    [livePhase, livePlanned, liveTrace, liveLat, liveLng, startSegment],
+  );
+  useEffect(() => {
+    if (liveLines.segment !== startSegment || segmentState.route !== livePlanned) {
+      setSegmentState({ route: livePlanned, segment: liveLines.segment });
+    }
+  }, [liveLines.segment, startSegment, livePlanned, segmentState.route]);
   // El receptor (sin `pickup`) solo ve lo que falta desde el transportista ya en camino.
-  const remainingPoints = !pickup && (!livePosition || livePhase === "pickup") ? [] : liveLines.remaining;
+  const remainingPoints = !pickup && (!livePosition || livePhase === "pickup") ? NO_POINTS : liveLines.remaining;
   const tracePoints = liveLines.trace;
 
   const [sheetHeight, setSheetHeight] = useState(0);
@@ -385,7 +392,7 @@ export function RouteMapCard({
         pickup: pickup ? { latitude: pickup.lat, longitude: pickup.lng } : null,
         delivery: delivery ? { latitude: delivery.lat, longitude: delivery.lng } : null,
       }),
-    [livePhase, live?.viewer, pickup, delivery, remainingPoints, liveLat, liveLng],
+    [livePhase, live?.viewer, pickup?.lat, pickup?.lng, delivery?.lat, delivery?.lng, remainingPoints, liveLat, liveLng],
   );
 
   // A pantalla completa con seguimiento: transportista y entrega, más el retiro mientras va a buscarlo
@@ -495,7 +502,7 @@ export function RouteMapCard({
               <>
                 {/* Debajo del botón de cerrar (arriba a la izquierda, 44 px). */}
                 <FullscreenNotice>{noticeView("fs-", 0)}</FullscreenNotice>
-                {renderFullscreenSheet?.({ close, estimate: liveEstimate, onHeightChange: setSheetHeight })}
+                {renderFullscreenSheet?.({ close, estimate: liveEstimate, estimateLoading: live?.loadingInitial ?? false, onHeightChange: setSheetHeight })}
               </>
             }
           >

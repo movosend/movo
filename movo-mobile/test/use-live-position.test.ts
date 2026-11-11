@@ -1,9 +1,5 @@
 import { renderHook, act } from "@testing-library/react-native";
-import {
-  calculateHaversineKm,
-  formatTimeAgo,
-  useLivePosition,
-} from "../src/hooks/use-live-position";
+import { useLivePosition } from "../src/hooks/use-live-position";
 import { useShipmentChannel } from "../src/hooks/use-shipment-channel";
 
 const mockUseQuery = jest.fn();
@@ -25,23 +21,6 @@ describe("useLivePosition (MOVO-204 Live Tracking Hook)", () => {
     });
   });
 
-  describe("Cálculos y utilidades", () => {
-    it("calculateHaversineKm calcula la distancia correcta entre dos puntos", () => {
-      const distance = calculateHaversineKm(-31.4201, -64.1888, -31.9140, -63.6820);
-      expect(distance).toBeGreaterThan(70);
-      expect(distance).toBeLessThan(80);
-    });
-
-    it("formatTimeAgo devuelve etiquetas correctas según el tiempo transcurrido", () => {
-      const now = Date.now();
-      expect(formatTimeAgo(new Date(now - 10_000).toISOString())).toBe("hace unos segundos");
-      expect(formatTimeAgo(new Date(now - 70_000).toISOString())).toBe("hace 1 min");
-      expect(formatTimeAgo(new Date(now - 150_000).toISOString())).toBe("hace 2 min");
-      expect(formatTimeAgo(new Date(now - 3_700_000).toISOString())).toBe("hace 1 h");
-      expect(formatTimeAgo(null)).toBe("Sin datos");
-    });
-  });
-
   describe("Comportamiento del hook", () => {
     it("inicializa con la posición obtenida por HTTP", async () => {
       const mockInitialPosition = {
@@ -59,17 +38,12 @@ describe("useLivePosition (MOVO-204 Live Tracking Hook)", () => {
       });
 
       const { result } = await renderHook(() =>
-        useLivePosition("shipment-123", {
-          destination: { lat: -31.9140, lng: -63.6820 },
-        })
+        useLivePosition("shipment-123")
       );
 
       expect(result.current.position?.lat).toBe(-31.4201);
       expect(result.current.position?.lng).toBe(-64.1888);
-      expect(result.current.trackingStatus).toBe("live");
       expect(result.current.isStale).toBe(false);
-      expect(result.current.distanceKm).toBeGreaterThan(0);
-      expect(result.current.estimatedArrivalMinutes).toBeGreaterThan(0);
     });
 
     it("marca la posición como stale si la captura tiene más de 120 segundos", async () => {
@@ -89,14 +63,11 @@ describe("useLivePosition (MOVO-204 Live Tracking Hook)", () => {
       });
 
       const { result } = await renderHook(() =>
-        useLivePosition("shipment-123", {
-          destination: { lat: -31.9140, lng: -63.6820 },
-        })
+        useLivePosition("shipment-123")
       );
 
       expect(result.current.position?.lat).toBe(-31.4201);
       expect(result.current.isStale).toBe(true);
-      expect(result.current.trackingStatus).toBe("stale");
     });
 
     it("marca el estado como closed cuando el canal reporta entrega finalizada", async () => {
@@ -118,9 +89,7 @@ describe("useLivePosition (MOVO-204 Live Tracking Hook)", () => {
       });
 
       const { result } = await renderHook(() =>
-        useLivePosition("shipment-123", {
-          destination: { lat: -31.9140, lng: -63.6820 },
-        })
+        useLivePosition("shipment-123")
       );
 
       await act(async () => {
@@ -132,10 +101,9 @@ describe("useLivePosition (MOVO-204 Live Tracking Hook)", () => {
       });
 
       expect(result.current.isDelivered).toBe(true);
-      expect(result.current.trackingStatus).toBe("closed");
     });
 
-    it("retorna trackingStatus 'no_position' cuando el canal está conectado pero no hay posición registrada (AC6)", async () => {
+    it("no tiene posición cuando el canal está conectado pero no hay posición registrada (AC6)", async () => {
       mockUseQuery.mockReturnValue({
         data: null,
         isLoading: false,
@@ -143,13 +111,10 @@ describe("useLivePosition (MOVO-204 Live Tracking Hook)", () => {
       });
 
       const { result } = await renderHook(() =>
-        useLivePosition("shipment-123", {
-          destination: { lat: -31.9140, lng: -63.6820 },
-        })
+        useLivePosition("shipment-123")
       );
 
       expect(result.current.position).toBeNull();
-      expect(result.current.trackingStatus).toBe("no_position");
     });
 
     it("transiciona a stale con fake timers al pasar 121 segundos sin actualizaciones", async () => {
@@ -169,12 +134,9 @@ describe("useLivePosition (MOVO-204 Live Tracking Hook)", () => {
       });
 
       const { result } = await renderHook(() =>
-        useLivePosition("shipment-123", {
-          destination: { lat: -31.9140, lng: -63.6820 },
-        })
+        useLivePosition("shipment-123")
       );
 
-      expect(result.current.trackingStatus).toBe("live");
       expect(result.current.isStale).toBe(false);
 
       // Avanzar 121 segundos
@@ -183,7 +145,6 @@ describe("useLivePosition (MOVO-204 Live Tracking Hook)", () => {
       });
 
       expect(result.current.isStale).toBe(true);
-      expect(result.current.trackingStatus).toBe("stale");
       jest.useRealTimers();
     });
   });
