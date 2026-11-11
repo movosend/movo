@@ -2,6 +2,7 @@ import {
   AuditTargetsRequest,
   AuditTargetsResponse,
   AdminReportById,
+  OperationsReport,
   DisputesReportRowsResponse,
   DisputesReportSource,
   DistanceBand,
@@ -112,6 +113,8 @@ export interface ShipmentsClient extends InternalClient {
   // MOVO-35: los reportes que calcula este servicio, y los envíos para Cashflow y Precio.
   getOwnedReport<R extends ShipmentsOwnedReport>(id: R, range: ReportRange, ctx: RequestContext, band?: DistanceBand): Promise<ReportSource<AdminReportById[R]>>;
   getShipmentReportFacts(range: ReportRange, ctx: RequestContext): Promise<ShipmentReportFactsResponse>;
+  /** MOVO-35 B1-B3: `GET /internal/admin/reports/operations`, con la ciudad del retiro opcional. */
+  getOperationsReport(range: ReportRange, ctx: RequestContext, city?: string): Promise<ReportSource<OperationsReport>>;
   /** MOVO-341: `GET /internal/admin/disputes/counts` (menú lateral y home). */
   getDisputeCounts(ctx: RequestContext): Promise<AdminDisputeCounts>;
   /** `GET /internal/admin/disputes/:id`. `null` si la disputa no existe. */
@@ -460,6 +463,16 @@ export function createShipmentsClient(config: { SHIPMENTS_SERVICE_URL: string })
       });
       if (!facts) throw new Error("getShipmentReportFacts: respuesta vacía");
       return facts;
+    },
+    async getOperationsReport(range, ctx, city) {
+      const query = new URLSearchParams({ ...range, ...(city ? { city } : {}) });
+      const report = await client.request(`/internal/admin/reports/operations?${query}`, ctx, {
+        isValid: (body: unknown): body is ReportSource<OperationsReport> =>
+          isRecord(body) && isRecord(body.meta) && isRecord(body.kpis) && isRecord(body.series) && Array.isArray(body.breakdowns) && Array.isArray(body.cities),
+        notFoundCodes: [],
+      });
+      if (!report) throw new Error("getOperationsReport: respuesta vacía");
+      return report;
     },
     async getDisputesReport(range, ctx, band) {
       const report = await client.request(`/internal/admin/reports/disputes?${reportQuery(range, band)}`, ctx, {
