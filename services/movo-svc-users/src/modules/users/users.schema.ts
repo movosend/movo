@@ -94,6 +94,7 @@ const recentRatingComment = {
     id: { type: "string" },
     raterId: { type: "string" },
     raterName: { type: "string" },
+    raterRole: { type: ["string", "null"], enum: ["sender", "carrier", "receiver", null] },
     score: { type: "integer" },
     comment: { type: ["string", "null"] },
     createdAt: { type: "string", format: "date-time" },
