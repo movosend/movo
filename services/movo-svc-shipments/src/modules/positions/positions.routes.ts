@@ -210,8 +210,9 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
           "(desde el retiro, submuestreada a 500 puntos) y última posición conocida con métricas de avance. Mismo " +
           "contrato que el seguimiento del panel (`ShipmentPartyTracking`), salvo que con el envío cerrado la traza " +
           "sale vacía. Solo el tramo de este envío, nunca el viaje entero. MOVO-359: con el envío `assigned` y el viaje " +
-          "iniciado suma `approachRoute`, la ruta por calle del transportista al punto de retiro (cache de 2 min por " +
-          "celda de ~110 m; `null` si el proveedor falló o no hay posición reciente). 403 si el caller no es parte del envío. " +
+          "iniciado suma, solo al emisor, `approachRoute`, la ruta por calle del transportista al punto de retiro (cache " +
+          "de 2 min por celda de ~110 m; `null` si el proveedor falló, no hay posición reciente o el viaje tiene otro " +
+          "retiro pendiente; ausente para el receptor). 403 si el caller no es parte del envío. " +
           "La posición en vivo sigue llegando por el WS `/shipments/:id/track`.",
         tags: ["positions"],
         params: positionsSchemas.shipmentIdParam,
@@ -231,7 +232,8 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
       assertShipmentAccess(shipment, callerId, callerRoles, "No tenés permiso para ver el tracking de este envío.");
 
       reply.header("Cache-Control", "no-store");
-      return getPartyTracking().get(row, { closedTrace: false, approachRoute: true });
+      // La llegada estimada al retiro es solo del emisor (MOVO-194 AC4): al receptor no se le calcula ni se le factura.
+      return getPartyTracking().get(row, { closedTrace: false, approachRoute: callerId === shipment.senderId });
     }
   );
 }

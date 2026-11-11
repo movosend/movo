@@ -946,6 +946,9 @@ export interface ShipmentTrackingContext {
    * ordenados por id. Una posición se guarda solo si hay alguno, asociada al primero (o al
    * reportado, si es uno de ellos). Ausente: se decide solo con el estado del envío reportado. */
   persistableShipmentIds?: string[];
+  /** MOVO-359: envíos del viaje que todavía esperan su retiro (`assigned`), ordenados por
+   * id. Si hay más de uno no se sabe en qué orden pasa el vehículo por los retiros. Ausente: se asume uno solo. */
+  pendingPickupShipmentIds?: string[];
 }
 
 export class ShipmentNotFoundError extends Error {
@@ -2216,7 +2219,13 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         persistableShipmentIds: activeRows
           .filter((r) => POSITION_PERSISTABLE_SHIPMENT_STATUSES.includes(r.status as ShipmentStatus))
           .map((r) => r.id),
+        pendingPickupShipmentIds: activeRows
+          .filter((r) => PENDING_PICKUP_STATUSES.includes(r.status as ShipmentStatus))
+          .map((r) => r.id),
       };
     },
   };
 }
+
+// `assigned_unfunded` no es trackeable (no entra en `activeRows`), así que no cuenta como retiro pendiente.
+const PENDING_PICKUP_STATUSES: ShipmentStatus[] = [ShipmentStatus.ASSIGNED];

@@ -20,7 +20,9 @@ export interface PlannedRouteStoreDeps {
   redis: Pick<Redis, "get" | "set">;
   routesProvider: Pick<RoutesProvider, "getRoute">;
   provider: string;
-  logger?: Pick<FastifyBaseLogger, "warn">;
+  logger?: Pick<FastifyBaseLogger, "warn"> & Partial<Pick<FastifyBaseLogger, "info">>;
+  /** Prefijo de los logs (`<tag>_unavailable`, `<tag>_cache_failed`, `<tag>_provider_call`). Default `admin_tracking_route`. */
+  logTag?: string;
   /** Vida de una ruta cacheada. Default `PLANNED_ROUTE_TTL_SECONDS`. */
   successTtlSeconds?: number;
   /** Clave de cache. Default: `admin_tracking_route:<proveedor>:<envío>:<origen>:<destino>`, con las coordenadas exactas. */
@@ -35,23 +37,26 @@ const isRouteResult = (value: unknown): value is RouteResult =>
   typeof (value as RouteResult).durationSeconds === "number";
 
 export function createPlannedRouteStore(deps: PlannedRouteStoreDeps): PlannedRouteStore {
+  const logTag = deps.logTag ?? "admin_tracking_route";
   // Dos admins que abren el mismo envío a la vez comparten el pedido (alcanza con una instancia del servicio).
   const inFlight = new Map<string, Promise<RouteResult | null>>();
 
   async function fetchAndCache(key: string, shipmentId: string, origin: RouteLatLng, destination: RouteLatLng) {
     let route: RouteResult;
+    // Una línea por llamada real al proveedor (se factura, ADR-015): permite medir el gasto por tipo de ruta.
+    deps.logger?.info?.({ shipmentId }, `${logTag}_provider_call`);
     try {
       route = await deps.routesProvider.getRoute({ origin, destination, mode: "per_trip" });
     } catch (err) {
-      deps.logger?.warn({ err, shipmentId }, "admin_tracking_route_unavailable");
+      deps.logger?.warn({ err, shipmentId }, `${logTag}_unavailable`);
       await deps.redis
         .set(`${key}:failed`, "1", "EX", PLANNED_ROUTE_FAILURE_TTL_SECONDS)
-        .catch((setErr: unknown) => deps.logger?.warn({ err: setErr, shipmentId }, "admin_tracking_route_cache_failed"));
+        .catch((setErr: unknown) => deps.logger?.warn({ err: setErr, shipmentId }, `${logTag}_cache_failed`));
       return null;
     }
     await deps.redis
       .set(key, JSON.stringify(route), "EX", deps.successTtlSeconds ?? PLANNED_ROUTE_TTL_SECONDS)
-      .catch((err: unknown) => deps.logger?.warn({ err, shipmentId }, "admin_tracking_route_cache_failed"));
+      .catch((err: unknown) => deps.logger?.warn({ err, shipmentId }, `${logTag}_cache_failed`));
     return route;
   }
 
@@ -65,7 +70,7 @@ export function createPlannedRouteStore(deps: PlannedRouteStoreDeps): PlannedRou
         deps.redis.get(key),
         deps.redis.get(`${key}:failed`),
       ]).catch((err: unknown) => {
-        deps.logger?.warn({ err, shipmentId }, "admin_tracking_route_cache_failed");
+        deps.logger?.warn({ err, shipmentId }, `${logTag}_cache_failed`);
         return [null, null] as const;
       });
       if (!raw && failed) return null;

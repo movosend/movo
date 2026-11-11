@@ -823,16 +823,17 @@ describe("Envíos para el panel (Postgres) — MOVO-325", () => {
         }
       });
 
-      it("MOVO-359: antes del retiro, con el viaje iniciado, suma la ruta del transportista al retiro; el panel no", async () => {
+      it("MOVO-359: antes del retiro, con el viaje iniciado, suma la ruta al retiro solo para el emisor (ni el receptor ni el panel)", async () => {
         const shipment = await seedWithTrip(ShipmentStatus.ASSIGNED);
         await setLastKnown(shipment.tripId, along(0.3), new Date());
 
-        for (const userId of [shipment.senderId, shipment.receiverId as string]) {
-          const response = await asUser(shipment.id, userId);
-          expect(response.statusCode).toBe(200);
-          const body: AdminShipmentTracking = response.json();
-          expect(body).toMatchObject({ state: "not_started", reason: "awaiting_pickup", approachRoute: plannedRoute });
-        }
+        const sender = await asUser(shipment.id, shipment.senderId);
+        expect(sender.statusCode).toBe(200);
+        expect(sender.json()).toMatchObject({ state: "not_started", reason: "awaiting_pickup", approachRoute: plannedRoute });
+
+        const receiver = await asUser(shipment.id, shipment.receiverId as string);
+        expect(receiver.statusCode).toBe(200);
+        expect("approachRoute" in receiver.json()).toBe(false);
         expect("approachRoute" in (await tracking(shipment.id))).toBe(false);
       });
 

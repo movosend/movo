@@ -59,6 +59,24 @@ describe("approach-route-store", () => {
     expect([...redis.store.keys()].every((k) => k.startsWith("approach_route:google:"))).toBe(true);
   });
 
+  it("los logs llevan su propio tag y una línea por llamada real al proveedor", async () => {
+    const info: string[] = [];
+    const warn: string[] = [];
+    const store = createApproachRouteStore({
+      redis: memoryRedis(),
+      provider: "google",
+      logger: { info: ((_o: unknown, m: string) => info.push(m)) as never, warn: ((_o: unknown, m: string) => warn.push(m)) as never },
+      routesProvider: createFakeRoutesProvider(route, {
+        async getRoute() {
+          throw new Error("boom");
+        },
+      }),
+    });
+    await store.get("s1", { lat: -31.45, lng: -64.19 }, PICKUP);
+    expect(info).toEqual(["approach_route_provider_call"]);
+    expect(warn).toEqual(["approach_route_unavailable"]);
+  });
+
   it("la ruta vive 2 minutos, no las 6 horas de la planificada", async () => {
     const { store, redis } = build();
     await store.get("s1", { lat: -31.45, lng: -64.19 }, PICKUP);

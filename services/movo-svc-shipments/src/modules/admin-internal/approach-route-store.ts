@@ -18,10 +18,11 @@ export function createApproachRouteStore(deps: {
   redis: Pick<Redis, "get" | "set">;
   routesProvider: Pick<RoutesProvider, "getRoute">;
   provider: string;
-  logger?: Pick<FastifyBaseLogger, "warn">;
+  logger?: Pick<FastifyBaseLogger, "warn"> & Partial<Pick<FastifyBaseLogger, "info">>;
 }): PlannedRouteStore {
   return createPlannedRouteStore({
     ...deps,
+    logTag: "approach_route",
     successTtlSeconds: APPROACH_ROUTE_TTL_SECONDS,
     keyFor: (shipmentId, origin, destination) =>
       `approach_route:${deps.provider}:${shipmentId}:${origin.lat.toFixed(APPROACH_CELL_DECIMALS)},${origin.lng.toFixed(APPROACH_CELL_DECIMALS)}:${destination.lat},${destination.lng}`,
