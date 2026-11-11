@@ -76,6 +76,7 @@ export type {
   ReputationBreakdown,
   ReputationCategoryScore,
   RecentRatingComment,
+  ShipmentPartyRole,
   RecentRatingCommentsByRole,
   ProfileRatingRole,
   MutualConnections,

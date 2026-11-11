@@ -94,10 +94,18 @@ export interface RecentRatingCommentsByRole {
  * lookup local, `raterId` es siempre un usuario del propio servicio). Cae a un label
  * genérico si la cuenta del calificador ya no existe (derecho de supresión, MOVO-39).
  */
+/** Parte de un envío, en el contrato de reseñas del perfil. */
+export type ShipmentPartyRole = "sender" | "carrier" | "receiver";
+
 export interface RecentRatingComment {
   id: string;
   raterId: string;
   raterName: string;
+  /**
+   * Rol que tenía quien calificó en ESE envío (no un rol de cuenta). `null` si el envío ya no lo ubica como parte.
+   * Opcional para no romper literales armados a mano ni respuestas de un `svc-users` anterior.
+   */
+  raterRole?: ShipmentPartyRole | null;
   score: number;
   comment: string | null;
   createdAt: string;
