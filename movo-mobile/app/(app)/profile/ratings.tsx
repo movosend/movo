@@ -1,4 +1,5 @@
-import { router, useLocalSearchParams } from "expo-router";
+import { router } from "expo-router";
+import { useEffect, useState } from "react";
 import { ChevronLeft } from "lucide-react-native";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -7,7 +8,8 @@ import { ProfileSkeleton } from "../../../components/profile/profile-skeleton";
 import { useAuthStore } from "../../../src/store/auth-store";
 import { usePublicProfile, useUserRatings } from "../../../src/hooks/use-profile";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
-import { formatRatingCount, formatReputationScore, ratingCommentsForRole } from "../../../src/lib/profile-format";
+import { RatingsSearchField } from "../../../components/profile/ratings-search-field";
+import { filterRatingsByRaterName, formatRatingCount, formatReputationScore } from "../../../src/lib/profile-format";
 import { StarRatingInput } from "../../../components/ui/star-rating-input";
 
 /**
@@ -18,21 +20,26 @@ import { StarRatingInput } from "../../../components/ui/star-rating-input";
  * Query dedupea).
  *
  * El perfil trae como mucho las últimas 10: esta pantalla las muestra al instante y pagina el resto con
- * `GET /users/:id/ratings` (MOVO-170), filtrado por la pestaña elegida (`?role=`).
+ * `GET /users/:id/ratings` (MOVO-170). Muestra TODAS, de cualquier rol, sin importar la pestaña desde la que se abrió (MOVO-354).
  */
 export default function ProfileRatingsScreen() {
   const colors = useThemeColors();
   const myId = useAuthStore((state) => state.user?.userId);
   const { data: profile, isLoading } = usePublicProfile(myId);
-  // Llega con la pestaña elegida en el perfil (`?role=`); sin ella, todas.
-  const { role } = useLocalSearchParams<{ role?: string }>();
-  const ratingRole = role === "carrier" || role === "sender" ? role : undefined;
-  const ratings = useUserRatings(myId, ratingRole);
+  const ratings = useUserRatings(myId);
   // Mientras llega la primera página, las que ya trajo el perfil.
-  const cachedComments = profile ? (ratingRole ? ratingCommentsForRole(profile, ratingRole) : profile.recentRatingComments) : [];
+  const cachedComments = profile?.recentRatingComments ?? [];
   const comments = ratings.data ? ratings.data.pages.flatMap((page) => page.items) : cachedComments;
-  // Con una pestaña elegida, el puntaje y el conteo son los de ese rol, los mismos que cuentan la lista.
-  const summary = profile ? (ratingRole ? (ratingRole === "carrier" ? profile.asCarrier : profile.asSender) : profile) : undefined;
+
+  // Buscador por nombre (MOVO-354): filtra en el cliente, así que mientras hay búsqueda se traen las páginas que faltan.
+  const [search, setSearch] = useState("");
+  const searching = search.trim().length > 0;
+  const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = ratings;
+  useEffect(() => {
+    if (searching && hasNextPage && !isFetchingNextPage && !isFetchNextPageError) void fetchNextPage();
+  }, [searching, hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
+  const visibleComments = filterRatingsByRaterName(comments, search);
+  const summary = profile;
 
   const handleBack = () => {
     if (router.canGoBack()) router.back();
@@ -68,28 +75,36 @@ export default function ProfileRatingsScreen() {
               <StarRatingInput score={summary.reputationScore ?? 0} readOnly size={13} gap={2} />
               {!summary.isNewProfile ? (
                 <Text className="font-sans text-caption text-fg-3">
-                  {formatRatingCount(summary.ratingCount)}
-                  {ratingRole ? (ratingRole === "carrier" ? " como transportista" : " como emisor") : " en total"}
+                  {formatRatingCount(summary.ratingCount)} en total
                 </Text>
               ) : null}
             </View>
           </View>
 
+          {comments.length > 0 ? (
+            <RatingsSearchField value={search} onChangeText={setSearch} testID="profile-ratings-search" />
+          ) : null}
+
           {comments.length === 0 ? (
             <Text testID="profile-ratings-empty" className="font-sans text-small text-fg-3">
               Todavía no tenés calificaciones.
             </Text>
+          ) : visibleComments.length === 0 ? (
+            <Text testID="profile-ratings-no-match" className="py-4 text-center font-sans text-small text-fg-3">
+              {hasNextPage ? "Buscando…" : `Ninguna calificación coincide con "${search.trim()}"`}
+            </Text>
           ) : (
-            comments.map((comment) => (
+            visibleComments.map((comment) => (
               <ReputationCommentCard
                 key={comment.id}
                 comment={comment}
                 variant="list"
+                showRaterRole={comment.raterRole !== "carrier"}
                 testID={`profile-ratings-comment-${comment.id}`}
               />
             ))
           )}
-          {ratings.hasNextPage ? (
+          {ratings.hasNextPage && !searching ? (
             <Pressable
               testID="profile-ratings-more"
               accessibilityRole="button"

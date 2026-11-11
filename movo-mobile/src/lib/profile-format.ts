@@ -1,7 +1,9 @@
+import { normalizeSearchText } from "../data/vehicle-catalog";
 import type {
   ProfileRatingRole,
   RecentRatingComment,
   RecentRatingCommentsByRole,
+  ShipmentPartyRole,
 } from "@movo/shared/dist/types/user-profile";
 
 /**
@@ -89,6 +91,21 @@ const RATING_DATE_FORMATTER = new Intl.DateTimeFormat("es-AR", {
 
 /** Fecha de un comentario de calificación (MOVO-154, AC6) — mismo patrón de
  * `Intl.DateTimeFormat("es-AR", ...)` que `shipment-format.ts`/`trip-format.ts`. */
+/** Rol de quien calificó, en el envío de esa reseña. `null`/ausente (envío que ya no lo ubica, o un backend anterior): no se muestra. */
+export function formatRaterRole(role: ShipmentPartyRole | null | undefined): string | null {
+  if (role === "sender") return "Emisor";
+  if (role === "carrier") return "Transportista";
+  if (role === "receiver") return "Receptor";
+  return null;
+}
+
+/** Reseñas cuyo calificador coincide con `query` (sin tildes ni mayúsculas, en cualquier parte del nombre). Búsqueda vacía: todas. */
+export function filterRatingsByRaterName(comments: RecentRatingComment[], query: string): RecentRatingComment[] {
+  const needle = normalizeSearchText(query.trim());
+  if (!needle) return comments;
+  return comments.filter((c) => normalizeSearchText(c.raterName ?? "").includes(needle));
+}
+
 export function formatRatingDate(createdAt: string): string {
   return RATING_DATE_FORMATTER.format(new Date(createdAt));
 }

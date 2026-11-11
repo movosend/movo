@@ -1,4 +1,6 @@
 import {
+  filterRatingsByRaterName,
+  formatRaterRole,
   hasSenderSide,
   ratingCommentsForRole,
   capitalizeName,
@@ -180,5 +182,32 @@ describe("hasSenderSide", () => {
   it("sin envíos ni reseñas, no", () => {
     expect(hasSenderSide({ asSender: 0 }, rep(0))).toBe(false);
     expect(hasSenderSide({ asSender: 0 })).toBe(false);
+  });
+});
+
+describe("filterRatingsByRaterName / formatRaterRole (MOVO-354)", () => {
+  const rows = [
+    { id: "1", raterId: "a", raterName: "Tomás Vergara", score: 5, comment: null, createdAt: "2026-01-01T00:00:00.000Z" },
+    { id: "2", raterId: "b", raterName: "Alena Ariza", score: 4, comment: null, createdAt: "2026-01-01T00:00:00.000Z" },
+  ];
+
+  it("filtra sin tildes ni mayúsculas, en cualquier parte del nombre", () => {
+    expect(filterRatingsByRaterName(rows, "tomas").map((r) => r.id)).toEqual(["1"]);
+    expect(filterRatingsByRaterName(rows, "ARIZA").map((r) => r.id)).toEqual(["2"]);
+    expect(filterRatingsByRaterName(rows, "ale").map((r) => r.id)).toEqual(["2"]);
+    expect(filterRatingsByRaterName(rows, "zzz")).toEqual([]);
+  });
+
+  it("una búsqueda vacía o de espacios devuelve todas", () => {
+    expect(filterRatingsByRaterName(rows, "")).toHaveLength(2);
+    expect(filterRatingsByRaterName(rows, "   ")).toHaveLength(2);
+  });
+
+  it("traduce el rol de quien calificó y no inventa uno si falta", () => {
+    expect(formatRaterRole("sender")).toBe("Emisor");
+    expect(formatRaterRole("carrier")).toBe("Transportista");
+    expect(formatRaterRole("receiver")).toBe("Receptor");
+    expect(formatRaterRole(null)).toBeNull();
+    expect(formatRaterRole(undefined)).toBeNull();
   });
 });

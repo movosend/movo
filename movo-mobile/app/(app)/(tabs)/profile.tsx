@@ -145,7 +145,7 @@ export default function ProfileScreen() {
               reputationLoading={reputationLoading}
               reputationError={reputationError}
               onRetryReputation={() => void refetchReputation()}
-              onViewAllRatings={(role) => router.push(`/profile/ratings?role=${role}`)}
+              onViewAllRatings={() => router.push("/profile/ratings")}
             />
           </>
         )}
