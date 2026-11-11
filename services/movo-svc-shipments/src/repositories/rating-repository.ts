@@ -1,6 +1,7 @@
 import { PrismaClient, Rating as RatingRow } from "../generated/prisma/client";
 import {
   Rating,
+  RatingWithRaterRole,
   CreateRatingInput,
   RatingCategoryScores,
   RatingCategoryScoresInput,
@@ -139,7 +140,7 @@ export interface RatingRepository {
     cursor?: string,
     /** Solo las recibidas en esos roles; sin roles, todas. */
     roles?: readonly RatingRole[],
-  ): Promise<{ items: Rating[]; nextCursor: string | null }>;
+  ): Promise<{ items: RatingWithRaterRole[]; nextCursor: string | null }>;
   /**
    * MOVO-222: TODAS las calificaciones que `raterId` ya hizo, acotadas a los
    * `shipmentId` dados — batch en vez de un `findByPair` por candidato (mismo
@@ -220,7 +221,7 @@ export function createRatingRepository(db: PrismaClient): RatingRepository {
       limit: number,
       cursor?: string,
       roles?: readonly RatingRole[],
-    ): Promise<{ items: Rating[]; nextCursor: string | null }> {
+    ): Promise<{ items: RatingWithRaterRole[]; nextCursor: string | null }> {
       const cursorFilter = cursor ? decodeRatingCursor(cursor) : null;
       const rows = await db.rating.findMany({
         where: {
@@ -240,7 +241,21 @@ export function createRatingRepository(db: PrismaClient): RatingRepository {
         // Pide una de más para saber si hay próxima página sin una segunda query.
         take: limit + 1,
       });
-      const items = rows.slice(0, limit).map(mapRating);
+      const page = rows.slice(0, limit).map(mapRating);
+      // El rol de quien califica sale de las partes del envío: la tabla solo guarda el del calificado.
+      const shipments = await db.shipment.findMany({
+        where: { id: { in: [...new Set(page.map((r) => r.shipmentId))] } },
+        select: { id: true, senderId: true, carrierId: true, receiverId: true },
+      });
+      const parties = new Map(shipments.map((s) => [s.id, s]));
+      const items = page.map((rating) => {
+        const shipment = parties.get(rating.shipmentId);
+        let raterRole: RatingRole | null = null;
+        if (shipment?.senderId === rating.raterId) raterRole = RatingRole.sender;
+        else if (shipment?.carrierId === rating.raterId) raterRole = RatingRole.carrier;
+        else if (shipment?.receiverId === rating.raterId) raterRole = RatingRole.receiver;
+        return { ...rating, raterRole };
+      });
       const hasMore = rows.length > limit;
       return { items, nextCursor: hasMore ? encodeRatingCursor(items[items.length - 1]) : null };
     },

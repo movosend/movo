@@ -17,7 +17,7 @@ import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { RatingRepository } from "../../repositories/rating-repository";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { Shipment, ShipmentEvent } from "../../models/shipment";
-import { Rating, RatingCategoryScoresInput, RatingRole } from "../../models/rating";
+import { Rating, RatingCategoryScoresInput, RatingRole, RatingWithRaterRole } from "../../models/rating";
 import { isRatingWindowOpen, RATING_WINDOW_HOURS } from "../../domain/rating-window";
 import { computeCategoryScores, computeReputationScore, ReputationResult } from "../../domain/reputation";
 import { FULFILLED_SHIPMENT_STATUSES } from "../../domain/shipment-state-machine";
@@ -378,7 +378,7 @@ export function createRatingsService(
       limit: number,
       cursor?: string,
       roles?: readonly RatingRole[],
-    ): Promise<{ items: Rating[]; nextCursor: string | null }> {
+    ): Promise<{ items: RatingWithRaterRole[]; nextCursor: string | null }> {
       return ratingRepository.listRecentByRateePaginated(userId, limit, cursor, roles);
     },
 
@@ -390,7 +390,7 @@ export function createRatingsService(
     async listRecentRatingsByRoleForUser(
       userId: string,
       limit: number,
-    ): Promise<{ all: Rating[]; asSender: Rating[]; asCarrier: Rating[] }> {
+    ): Promise<{ all: RatingWithRaterRole[]; asSender: RatingWithRaterRole[]; asCarrier: RatingWithRaterRole[] }> {
       const [all, asSender, asCarrier] = await Promise.all([
         ratingRepository.listRecentByRateePaginated(userId, limit),
         ratingRepository.listRecentByRateePaginated(userId, limit, undefined, PROFILE_SENDER_RATING_ROLES),

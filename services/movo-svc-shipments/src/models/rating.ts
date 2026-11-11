@@ -24,6 +24,14 @@ export interface Rating extends RatingCategoryScores {
 }
 
 /**
+ * Una calificación recibida tal como la lee el perfil: suma el rol que tenía en ESE envío quien la hizo (`raterRole`),
+ * que la tabla no guarda (solo guarda el del calificado). `null` si el envío ya no lo ubica como parte.
+ */
+export interface RatingWithRaterRole extends Rating {
+  raterRole: RatingRole | null;
+}
+
+/**
  * MOVO-173: sub-scores de una calificación, `null` cuando no se cargó (filas anteriores
  * a MOVO-173, o el calificador no tocó esa categoría). Cuáles aplican depende de `role`
  * -- ver `@movo/shared` `config/rating-categories.ts`.
