@@ -34,6 +34,8 @@ interface ExpandableMapProps {
   openOnMount?: boolean;
   /** Se llama al terminar de abrirse sola con `openOnMount`. */
   onOpenedOnMount?: () => void;
+  /** Avisa si el modal está abierto (incluida la animación de cierre), p. ej. para pausar lo que anima la card tapada. */
+  onVisibleChange?: (visible: boolean) => void;
   /** Color de fondo mientras el mapa nativo carga, para que la expansión no muestre un hueco. */
   backgroundColor: string;
   /** Radio de la card, para que el rectángulo animado parta con las mismas esquinas. */
@@ -57,6 +59,7 @@ export function ExpandableMap({
   borderRadius = 0,
   openOnMount = false,
   onOpenedOnMount,
+  onVisibleChange,
   className,
   style,
   testID,
@@ -65,6 +68,9 @@ export function ExpandableMap({
   const { width: windowW, height: windowH } = useWindowDimensions();
   const frameRef = useRef<View>(null);
   const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    onVisibleChange?.(visible);
+  }, [visible, onVisibleChange]);
   const origin = useSharedValue<Rect>({ x: 0, y: 0, width: windowW, height: windowH });
   const progress = useSharedValue(0);
 

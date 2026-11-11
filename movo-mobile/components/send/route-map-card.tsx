@@ -2,7 +2,13 @@ import { Pencil } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState, Pressable, Text, View } from "react-native";
 import MapView, { Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
-import Animated, { processColor, useAnimatedProps, useFrameCallback, useSharedValue } from "react-native-reanimated";
+import Animated, {
+  processColor,
+  useAnimatedProps,
+  useDerivedValue,
+  useFrameCallback,
+  useSharedValue,
+} from "react-native-reanimated";
 import { useColorScheme } from "nativewind";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -266,6 +272,7 @@ export function RouteMapCard({
   // el mismo cálculo de barrido en el UI thread sin tocar React; `useAnimatedProps`
   // empuja el resultado directo a `AnimatedPolyline` vía `setNativeProps`, también sin
   // re-render de React.
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const sweepLength = useSharedValue(0);
   const sweepOpacity = useSharedValue(1);
   const startedAt = useSharedValue<number | null>(null);
@@ -352,15 +359,14 @@ export function RouteMapCard({
   // defecto — se ve como un bug de color pero es un string sin procesar.
   const sweepPoints = sweepPath.points;
   const sweepFractions = sweepPath.fractions;
-  // Uno por mapa (la card y la pantalla completa): un `animatedProps` va a un solo componente.
-  const animatedSweepProps = useAnimatedProps<{ coordinates: LatLng[]; strokeColor: string }>(
+  // El frame se calcula una sola vez por cambio (`useDerivedValue`); cada mapa (la card y la pantalla
+  // completa) tiene su `animatedProps`, porque uno solo va a un componente, y solo copia el resultado.
+  const sweep = useDerivedValue(
     () => sweepFrame(sweepPoints, sweepFractions, sweepLength.value, sweepOpacity.value, colors.fg1),
     [sweepPoints, sweepFractions, colors.fg1],
   );
-  const fullscreenSweepProps = useAnimatedProps<{ coordinates: LatLng[]; strokeColor: string }>(
-    () => sweepFrame(sweepPoints, sweepFractions, sweepLength.value, sweepOpacity.value, colors.fg1),
-    [sweepPoints, sweepFractions, colors.fg1],
-  );
+  const animatedSweepProps = useAnimatedProps<{ coordinates: LatLng[]; strokeColor: string }>(() => sweep.value);
+  const fullscreenSweepProps = useAnimatedProps<{ coordinates: LatLng[]; strokeColor: string }>(() => sweep.value);
 
   const deliveryOnly = !pickup && !!delivery && pickupLabel !== undefined;
 
@@ -451,7 +457,7 @@ export function RouteMapCard({
     ) : null;
 
   // La ruta sin seguimiento: base gris (la de toda la app) y el barrido en tinta encima.
-  const routeLayer = (prefix: string, sweepProps: typeof animatedSweepProps) => (
+  const routeLayer = (prefix: string, sweepProps: typeof animatedSweepProps | null) => (
     <>
       <Polyline
         testID={testID ? `${testID}-${prefix}route-base` : undefined}
@@ -460,14 +466,16 @@ export function RouteMapCard({
         strokeWidth={ROUTE_LINE_WIDTH}
         zIndex={ROUTE_BELOW_Z_INDEX}
       />
-      <AnimatedPolyline
-        testID={testID ? `${testID}-${prefix}route-sweep` : undefined}
-        coordinates={routePoints}
-        strokeColor={hexToRgba(colors.fg1, 1)}
-        strokeWidth={ROUTE_LINE_WIDTH}
-        zIndex={ROUTE_ABOVE_Z_INDEX}
-        animatedProps={sweepProps}
-      />
+      {sweepProps ? (
+        <AnimatedPolyline
+          testID={testID ? `${testID}-${prefix}route-sweep` : undefined}
+          coordinates={routePoints}
+          strokeColor={hexToRgba(colors.fg1, 1)}
+          strokeWidth={ROUTE_LINE_WIDTH}
+          zIndex={ROUTE_ABOVE_Z_INDEX}
+          animatedProps={sweepProps}
+        />
+      ) : null}
     </>
   );
 
@@ -536,6 +544,7 @@ export function RouteMapCard({
         backgroundColor={mapBackgroundColor}
         borderRadius={bare ? 0 : 14}
         testID={testID ? `${testID}-frame` : undefined}
+        onVisibleChange={setFullscreenOpen}
         openOnMount={openFullscreenOnMount}
         onOpenedOnMount={onOpenedFullscreenOnMount}
         renderFullscreen={(close) => (
@@ -651,7 +660,8 @@ export function RouteMapCard({
           {pickup ? (
             <>
               {/* Con seguimiento en vivo ni la base ni el barrido: la ruta la dibuja `liveLayer`. */}
-              {live ? null : routeLayer("", animatedSweepProps)}
+              {/* Con la pantalla completa abierta el barrido de la card (tapada) no se anima: serían dos mapas redibujando. */}
+              {live ? null : routeLayer("", fullscreenOpen ? null : animatedSweepProps)}
 
               <StaticMarker
                 key={`pickup-${pickup.address}`}

@@ -29,6 +29,8 @@ function Polyline(props) {
     strokeWidth: props.strokeWidth,
     zIndex: props.zIndex,
     lineDashPattern: props.lineDashPattern,
+    // Para verificar que cada mapa recibe su propio objeto (MOVO-355).
+    animatedProps: props.animatedProps,
   });
 }
 
