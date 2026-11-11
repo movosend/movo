@@ -9,6 +9,7 @@ import {
   ADMIN_OVERVIEW_BLOCKS,
   DISTANCE_BANDS,
   auditTargetKey,
+  reportAppliesBand,
   type AdminAuditAction,
   type AdminAuditLogPage,
   type AdminOverview,
@@ -91,6 +92,8 @@ interface Gen extends MockMetric {
 const SAME_AS: Record<string, [AdminReportId, string]> = {
   "pricing.completed": ["cashflow", "completed"],
   "pricing.avgTicket": ["cashflow", "avgTicket"],
+  "operations.published": ["distances", "published"],
+  "operations.completed": ["cashflow", "completed"],
 }
 
 function gen(report: AdminReportId, key: string): Gen {
@@ -182,7 +185,7 @@ function buildReport(
   const prev = previousRange(range)
   const len = diffDays(range.from, range.to) + 1
   const granularity = granularityOf(range)
-  const bandApplied = id !== "support"
+  const bandApplied = reportAppliesBand(id)
   const band = bandApplied ? (query.band ?? null) : null
   const shift = (day: string) => {
     const date = new Date(`${day}T12:00:00Z`)
@@ -379,6 +382,31 @@ function buildReport(
       ...base,
       pendingCapture: { count: 3, amountArs: 41500 },
     } as AdminReportById["cashflow"]
+  if (id === "operations") {
+    // La ciudad solo recorta su desglose: los números de demostración no se filtran de verdad.
+    const city = query.city ?? null
+    const byCity = base.breakdowns.find((b) => b.dimension === "city")
+    const cities = (byCity?.rows ?? [])
+      .filter((r) => !r.key.startsWith("__"))
+      .map((r) => ({ city: r.key, published: r.value ?? 0 }))
+    return {
+      ...base,
+      breakdowns: base.breakdowns.map((b) =>
+        b.dimension === "city" && city
+          ? { ...b, rows: b.rows.filter((r) => r.key === city) }
+          : b
+      ),
+      city,
+      cities,
+    } as AdminReportById["operations"]
+  }
+  if (id === "finance")
+    return {
+      ...base,
+      pendingConfirmation: { count: 4, amountArs: 52300 },
+      escalated: { count: 1, amountArs: 18700 },
+      debt: { debtorUsers: 37, creditUsers: 5, creditArs: 6200 },
+    } as AdminReportById["finance"]
   if (id === "distances") {
     const pub = gen("distances", "published")
     const comp = gen("distances", "completionRate")

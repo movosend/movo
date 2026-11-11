@@ -9,6 +9,8 @@ import type {
   CashflowReport,
   DisputesReport,
   DistanceBand,
+  FinanceReport,
+  OperationsReport,
   PricingReport,
   Report,
   ReportBreakdown,
@@ -21,6 +23,7 @@ import {
   type BreakdownPanel,
 } from "@/lib/reports/catalog"
 import { demoFileName, reportFileName } from "@/lib/reports/csv"
+import type { MetricsState } from "@/lib/reports/params"
 import {
   deltaOf,
   formatMetric,
@@ -33,6 +36,8 @@ import { DeltaChip, seriesColor, seriesInk, Sparkline } from "./chart-bits"
 import { SupplyCard } from "./carriers"
 import { CorridorMap, Scorecard } from "./distances"
 import { DisputesFlow } from "./disputes-flow"
+import { DebtSnapshot, FinanceNotices } from "./finance"
+import { CityPicker } from "./operations"
 import { BridgeCard, LeakageCard } from "./pricing"
 import { TrendChart } from "./trend-chart"
 
@@ -41,6 +46,7 @@ export function MetricsView<R extends AdminReportId>({
   report,
   highlight,
   demo = false,
+  state,
 }: {
   id: R
   report: AdminReportById[R]
@@ -48,11 +54,16 @@ export function MetricsView<R extends AdminReportId>({
   highlight: string | null
   /** Datos de demostración: los CSV piden lo mismo (`datos=demo`). */
   demo?: boolean
+  /** Filtros de la URL: el selector de ciudad de Operación arma su link con ellos. */
+  state: MetricsState
 }) {
   const tab = tabOf(id)
   const base = report as Report<string>
   const [trendKey, setTrendKey] = useState(tab.kpis[0])
   const { meta } = base
+  const operations = tab.city ? (report as OperationsReport) : null
+  const finance = tab.finance ? (report as FinanceReport) : null
+  const city = operations?.city ?? null
   const exportHref = (section: string) => {
     const q = new URLSearchParams({
       from: meta.range.from,
@@ -60,21 +71,33 @@ export function MetricsView<R extends AdminReportId>({
       section,
     })
     if (meta.band) q.set("band", meta.band)
+    if (city) q.set("city", city)
     if (demo) q.set("datos", "demo")
     return `/api/reports/${id}/export?${q}`
   }
   const fallback = (section: string) => {
-    const name = reportFileName(id, section, meta.range, meta.band)
+    const name = reportFileName(id, section, meta.range, meta.band, city)
     return demo ? demoFileName(name) : name
   }
   const trend = metricOf(id, trendKey)
   const rows = tab.kpiRows ?? [{ keys: tab.kpis }]
   const pending =
     id === "cashflow" ? (report as CashflowReport).pendingCapture : null
+  const scope = city ? ` Solo los retirados en ${city}.` : ""
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-[15px] font-medium">{tab.question}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-[15px] font-medium">{tab.question}</p>
+        {operations && <CityPicker report={operations} state={state} />}
+        {finance && (
+          <CsvButton
+            href={exportHref("settlements")}
+            fallbackName={fallback("settlements")}
+            label="CSV de liquidaciones"
+          />
+        )}
+      </div>
 
       <div className="flex flex-col gap-3">
         {rows.map((row, ri) => (
@@ -107,6 +130,8 @@ export function MetricsView<R extends AdminReportId>({
         </p>
       )}
 
+      {finance && <FinanceNotices report={finance} />}
+
       {tab.flow && <DisputesFlow report={report as DisputesReport} />}
 
       <div className="flex flex-wrap items-stretch gap-4">
@@ -121,6 +146,7 @@ export function MetricsView<R extends AdminReportId>({
                 {meta.band && meta.bandApplied
                   ? ` Solo ${bandLabelOf(meta.band)}.`
                   : ""}
+                {scope}
               </span>
             </div>
             <CsvButton
@@ -153,6 +179,7 @@ export function MetricsView<R extends AdminReportId>({
                   panel={panel}
                   breakdown={bd}
                   band={meta.bandApplied ? meta.band : null}
+                  bandApplied={meta.bandApplied}
                   highlight={panel.dimension === "reason" ? highlight : null}
                   csv={
                     <CsvButton
@@ -166,6 +193,8 @@ export function MetricsView<R extends AdminReportId>({
           </div>
         )}
       </div>
+
+      {finance && <DebtSnapshot report={finance} />}
 
       {tab.supply && (
         <SupplyCard
@@ -322,6 +351,7 @@ function BreakdownCard({
   panel,
   breakdown,
   band,
+  bandApplied,
   highlight,
   csv,
 }: {
@@ -329,6 +359,8 @@ function BreakdownCard({
   panel: BreakdownPanel
   breakdown: ReportBreakdown | undefined
   band: DistanceBand | null
+  /** Sin filtro de distancia (Operación, Finanzas), el subtítulo no habla de distancias. */
+  bandApplied: boolean
   highlight: string | null
   csv: React.ReactNode
 }) {
@@ -348,7 +380,7 @@ function BreakdownCard({
     1,
     ...breakdown.rows.flatMap((r) => [r.value ?? 0, r.previous ?? 0])
   )
-  const sub = `${m.sums ? `${formatMetric(m.unit, breakdown.total.value, true)} en total` : `${m.label} promedio ${formatMetric(m.unit, breakdown.total.value)}`}${isBand ? "" : ` · ${bandLabelOf(band)}`}`
+  const sub = `${m.sums ? `${formatMetric(m.unit, breakdown.total.value, true)} en total` : `${m.label} promedio ${formatMetric(m.unit, breakdown.total.value)}`}${isBand || !bandApplied ? "" : ` · ${bandLabelOf(band)}`}`
   const color = (key: string) => seriesColor(panel.dimension, key)
   return (
     <section className="flex flex-1 flex-col gap-1.5 rounded-[10px] border bg-card p-[18px]">

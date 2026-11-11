@@ -181,8 +181,28 @@ export function reportSectionCsv<R extends AdminReportId>(
     ]
     return { csv: toCsv([head, ...body]), rows: body.length }
   }
+  // Las mismas columnas que `financeRowsCsv` de `svc-admin`. Sin filas por liquidación en los datos de
+  // demostración: sale solo el encabezado.
+  if (id === "finance" && section === "settlements")
+    return { csv: toCsv([FINANCE_ROW_HEADERS]), rows: 0 }
   throw new UnknownSectionError(section)
 }
+
+/** Columnas del CSV de liquidaciones de Finanzas: ids, estado, fechas y montos (MOVO-35 B9). */
+export const FINANCE_ROW_HEADERS = [
+  "settlement_id",
+  "shipment_id",
+  "kind",
+  "status",
+  "created_at",
+  "captured_at",
+  "gross_ars",
+  "debt_surcharge_ars",
+  "commission_ars",
+  "mp_fee_ars",
+  "net_ars",
+  "refunded_ars",
+]
 
 /** El CSV de datos de demostración lo dice en el nombre: `movo-demo-…`. */
 export const demoFileName = (name: string) =>
@@ -193,8 +213,17 @@ export function reportFileName(
   id: AdminReportId,
   section: string,
   range: { from: string; to: string },
-  band: string | null
+  band: string | null,
+  city: string | null = null
 ) {
   const part = section.replace(".", "-")
-  return `movo-${id}-${part}${band ? `-${band}` : ""}_${range.from}_${range.to}.csv`
+  const place = city
+    ? `-${city
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")}`
+    : ""
+  return `movo-${id}-${part}${band ? `-${band}` : ""}${place}_${range.from}_${range.to}.csv`
 }
