@@ -456,8 +456,18 @@ export function distanceBandOf(distanceKm: number): DistanceBand {
   return distanceKm < 500 ? "200_500" : "500_plus";
 }
 
-export type AdminReportId = "cashflow" | "pricing" | "deliveries" | "carriers" | "distances" | "support" | "disputes";
-export const ADMIN_REPORT_IDS: readonly AdminReportId[] = ["cashflow", "pricing", "deliveries", "carriers", "distances", "support", "disputes"];
+export type AdminReportId = "cashflow" | "pricing" | "deliveries" | "carriers" | "distances" | "support" | "disputes" | "operations" | "finance";
+export const ADMIN_REPORT_IDS: readonly AdminReportId[] = [
+  "cashflow",
+  "pricing",
+  "deliveries",
+  "carriers",
+  "distances",
+  "support",
+  "disputes",
+  "operations",
+  "finance",
+];
 
 /** Montos en ARS, porcentajes 0-100, duraciones como mediana. `avgTicket` es `gmv / completed`. */
 export const CASHFLOW_KPIS = ["gmv", "completed", "avgTicket", "commission", "takeRate"] as const;
@@ -589,6 +599,134 @@ export interface PricingReport extends Report<PricingKpi> {
   leakage: CaptureLeakage | null;
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// Operación: `GET /admin/reports/operations` (MOVO-35 B1-B4)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/**
+ * `published` y `completed` por la primera vez que el envío llegó a ese estado; `cancelled` por la fecha de la
+ * cancelación. La señal de demanda es la que contó el pricing al publicar, guardada con el envío (DD-059):
+ * `demandRatio` es la media del `demandRatio` de la cotización, `highDemandRate` el % que llevó recargo y
+ * `availableCarriers` la media de transportistas que contó `countAvailableCarriersNear` (solo los envíos que lo
+ * guardaron; los anteriores a esa columna tienen solo el ratio).
+ */
+export const OPERATIONS_KPIS = ["published", "completed", "cancelled", "demandRatio", "highDemandRate", "availableCarriers"] as const;
+export type OperationsKpi = (typeof OPERATIONS_KPIS)[number];
+
+/**
+ * Por qué se canceló un envío, del evento de la cancelación (DD-059). Un transportista no cancela un envío: su causa
+ * es un retiro no realizado que se le atribuye o la sanción de su cuenta. `receiver`: el receptor no confirmó o no se
+ * eligió otro dentro del plazo. `expired`: un barrido del sistema por falta de retiro o de transportista.
+ */
+export type CancellationCause =
+  | "sender"
+  | "receiver"
+  | "expired"
+  | "pickup_missed_carrier"
+  | "pickup_missed_other"
+  | "sanction"
+  | "dispute"
+  | "admin"
+  | "other";
+export const CANCELLATION_CAUSES: readonly CancellationCause[] = [
+  "sender",
+  "receiver",
+  "expired",
+  "pickup_missed_carrier",
+  "pickup_missed_other",
+  "sanction",
+  "dispute",
+  "admin",
+  "other",
+];
+
+/** Claves reservadas del desglose por ciudad: envíos sin ciudad de retiro y el resto fuera del top. */
+export const OPERATIONS_UNKNOWN_CITY = "__unknown__";
+export const OPERATIONS_OTHER_CITIES = "__other__";
+/** Ciudades con fila propia en el desglose `city`; el resto se suma en `OPERATIONS_OTHER_CITIES`. */
+export const OPERATIONS_CITY_ROWS = 20;
+/** Largo máximo de `?city=`. */
+export const OPERATIONS_CITY_MAX_LENGTH = 120;
+
+export interface OperationsCityOption {
+  city: string;
+  published: number;
+}
+
+export interface OperationsReport extends Report<OperationsKpi> {
+  /** La ciudad del retiro pedida, o `null` sin filtro. */
+  city: string | null;
+  /** Ciudades con envíos publicados en el rango, de más a menos. Ignora el filtro: es la lista del selector. */
+  cities: OperationsCityOption[];
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Finanzas: `GET /admin/reports/finance` (MOVO-35 B7-B9)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/**
+ * Desde `svc-payments`, sin cruzar con envíos. Las cinco primeras van por fecha de acreditación y solo con la captura
+ * confirmada por MP (`mpFeeArs` y `netAmountArs` ya no son `null`); lo que no se confirmó va en `pendingConfirmation`,
+ * no como cero. `collected` es lo que pagó el emisor (incluye el recargo por deuda de MOVO-311) y `shipmentPrice` lo
+ * mismo sin ese recargo. `refunded`: reembolsos terminados (a MP o a la cuenta corriente). `debtGenerated` y
+ * `debtCollected`: movimientos de la cuenta corriente creados en el período, positivos y negativos. `openDebt`: lo que
+ * deben los usuarios con saldo deudor al cierre del período.
+ */
+export const FINANCE_KPIS = [
+  "collected",
+  "shipmentPrice",
+  "commission",
+  "mpFee",
+  "carrierNet",
+  "refunded",
+  "debtGenerated",
+  "debtCollected",
+  "openDebt",
+] as const;
+export type FinanceKpi = (typeof FINANCE_KPIS)[number];
+
+export interface FinanceAmount {
+  count: number;
+  amountArs: number;
+}
+
+export interface FinanceDebtSnapshot {
+  /** Usuarios con saldo deudor al cierre del rango. */
+  debtorUsers: number;
+  /** Saldo a favor de los usuarios (Movo les debe), en positivo. */
+  creditArs: number;
+  creditUsers: number;
+}
+
+export interface FinanceReport extends Report<FinanceKpi> {
+  /** Creadas en el rango y todavía `processing`: MP no confirmó la captura. */
+  pendingConfirmation: FinanceAmount;
+  /** Creadas en el rango y pasadas a proceso manual (`escalated`). */
+  escalated: FinanceAmount;
+  debt: FinanceDebtSnapshot;
+}
+
+/** Una liquidación del rango, para el CSV: ids, estado, fechas y montos, sin datos personales (B9). */
+export interface FinanceReportRow {
+  settlementId: string;
+  shipmentId: string;
+  kind: string;
+  status: string;
+  createdAt: string;
+  capturedAt: string | null;
+  grossArs: number;
+  debtSurchargeArs: number;
+  commissionArs: number;
+  mpFeeArs: number | null;
+  netArs: number | null;
+  refundedArs: number;
+}
+
+export interface FinanceReportRowsResponse {
+  items: FinanceReportRow[];
+  truncated: boolean;
+}
+
 export interface AdminReportById {
   cashflow: CashflowReport;
   pricing: PricingReport;
@@ -597,17 +735,21 @@ export interface AdminReportById {
   distances: DistancesReport;
   support: SupportReport;
   disputes: DisputesReport;
+  operations: OperationsReport;
+  finance: FinanceReport;
 }
 
 export interface AdminReportQuery extends ReportRange {
   band?: DistanceBand;
+  /** Solo `operations`: ciudad del punto de retiro. */
+  city?: string;
 }
 
 /** Lo que manda el servicio dueño: el filtro de distancia en `meta` lo agrega `svc-admin`. */
 export type ReportSource<R extends { meta: ReportMeta }> = Omit<R, "meta"> & { meta: Omit<ReportMeta, "band" | "bandApplied"> };
 
 /** `?section=` de `GET /admin/reports/:report/export`. */
-export type AdminReportExportSection = `trend.${string}` | `breakdown.${string}` | "scorecard" | "corridors" | "bridge" | "leakage" | "backlog" | "disputes";
+export type AdminReportExportSection = `trend.${string}` | `breakdown.${string}` | "scorecard" | "corridors" | "bridge" | "leakage" | "backlog" | "disputes" | "settlements";
 
 const REPORT_KPIS: Readonly<Record<AdminReportId, readonly string[]>> = {
   cashflow: CASHFLOW_KPIS,
@@ -617,11 +759,13 @@ const REPORT_KPIS: Readonly<Record<AdminReportId, readonly string[]>> = {
   distances: DISTANCES_KPIS,
   support: SUPPORT_KPIS,
   disputes: DISPUTES_REPORT_KPIS,
+  operations: OPERATIONS_KPIS,
+  finance: FINANCE_KPIS,
 };
 export const reportKpis = (id: AdminReportId): readonly string[] => REPORT_KPIS[id];
 
 /** KPIs en porcentaje: su `change` va en puntos (`reportChange`). */
-const REPORT_PERCENTAGE_KPIS: ReadonlySet<string> = new Set(["takeRate", "captureRate", "onTimeRate", "incidentRate", "assignedWithin24hRate", "completionRate", "firstContactResolutionRate", "disputeRate"]);
+const REPORT_PERCENTAGE_KPIS: ReadonlySet<string> = new Set(["takeRate", "captureRate", "onTimeRate", "incidentRate", "assignedWithin24hRate", "completionRate", "firstContactResolutionRate", "disputeRate", "highDemandRate"]);
 export const isReportPercentageMetric = (metric: string): boolean => REPORT_PERCENTAGE_KPIS.has(metric);
 
 const REPORT_BREAKDOWNS: Readonly<Record<AdminReportId, readonly string[]>> = {
@@ -632,6 +776,8 @@ const REPORT_BREAKDOWNS: Readonly<Record<AdminReportId, readonly string[]>> = {
   distances: [],
   support: ["topic"],
   disputes: DISPUTES_REPORT_BREAKDOWNS,
+  operations: ["cancelCause", "city"],
+  finance: ["kind", "refundStatus", "ledgerType"],
 };
 const REPORT_EXTRA_SECTIONS: Readonly<Record<AdminReportId, readonly AdminReportExportSection[]>> = {
   cashflow: [],
@@ -641,6 +787,8 @@ const REPORT_EXTRA_SECTIONS: Readonly<Record<AdminReportId, readonly AdminReport
   distances: ["scorecard", "corridors"],
   support: [],
   disputes: ["backlog", "disputes"],
+  operations: [],
+  finance: ["settlements"],
 };
 
 export function reportExportSections(id: AdminReportId): AdminReportExportSection[] {
@@ -651,8 +799,11 @@ export function reportExportSections(id: AdminReportId): AdminReportExportSectio
   ];
 }
 
-/** Soporte no tiene envío del cual sacar una distancia. */
-export const reportAppliesBand = (id: AdminReportId): boolean => id !== "support";
+/** Soporte no tiene envío del cual sacar una distancia; Operación se filtra por ciudad y Finanzas no cruza con envíos. */
+export const reportAppliesBand = (id: AdminReportId): boolean => id !== "support" && id !== "operations" && id !== "finance";
+
+/** Solo Operación se filtra por la ciudad del punto de retiro (MOVO-35). */
+export const reportAppliesCity = (id: AdminReportId): boolean => id === "operations";
 
 export const reportRound = (value: number): number => Math.round(value * 100) / 100;
 
