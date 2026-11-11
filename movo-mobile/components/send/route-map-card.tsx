@@ -2,7 +2,13 @@ import { Pencil } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState, Pressable, Text, View } from "react-native";
 import MapView, { Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
-import Animated, { processColor, useAnimatedProps, useFrameCallback, useSharedValue } from "react-native-reanimated";
+import Animated, {
+  processColor,
+  useAnimatedProps,
+  useDerivedValue,
+  useFrameCallback,
+  useSharedValue,
+} from "react-native-reanimated";
 import { useColorScheme } from "nativewind";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -19,6 +25,9 @@ import { cumulativeFractions, decodePolyline, simplifyPolyline } from "../../src
 import {
   LIVE_REMAINING_LINE_WIDTH,
   LIVE_TRACE_LINE_WIDTH,
+  ROUTE_ABOVE_Z_INDEX,
+  ROUTE_BELOW_Z_INDEX,
+  ROUTE_LINE_WIDTH,
   liveArrivalEstimate,
   liveRouteLines,
   type LiveArrivalEstimate,
@@ -93,6 +102,48 @@ function buildFallbackRoutePoints(pickup: RoutePoint, delivery: RoutePoint): Lat
     });
   }
   return points;
+}
+
+/** Trazo del barrido para un frame: lo recorrido hasta `progress` (0..1 del largo), con la punta
+ * interpolada. Worklet compartido por los dos mapas (la card y la pantalla completa). */
+function sweepFrame(
+  points: LatLng[],
+  fractions: number[],
+  progress: number,
+  opacity: number,
+  color: string,
+): { coordinates: LatLng[]; strokeColor: string } {
+  "worklet";
+  // `processColor` devuelve el int nativo que espera el view manager, no un string —
+  // el tipo de `Polyline#strokeColor` (react-native-maps) sigue siendo `string` porque
+  // así lo tipa la librería para el caso no-animado, así que se castea acá.
+  const nativeStrokeColor = processColor(
+    hexToRgba(color, opacity),
+  ) as unknown as string;
+  const count = points.length;
+  if (count < 2) return { coordinates: [], strokeColor: nativeStrokeColor };
+  // Último punto del trazo que la punta del barrido ya pasó (búsqueda binaria sobre el
+  // largo acumulado).
+  let low = 0;
+  let high = count - 1;
+  while (low < high) {
+    const mid = (low + high + 1) >> 1;
+    if (fractions[mid] <= progress) low = mid;
+    else high = mid - 1;
+  }
+  const coordinates = points.slice(0, low + 1);
+  if (low < count - 1) {
+    // La punta interpola entre los dos puntos vecinos en vez de saltar de punto en punto.
+    const segment = fractions[low + 1] - fractions[low];
+    const frac = segment > 0 ? (progress - fractions[low]) / segment : 0;
+    const from = points[low];
+    const to = points[low + 1];
+    coordinates.push({
+      latitude: interpolate(from.latitude, to.latitude, frac),
+      longitude: interpolate(from.longitude, to.longitude, frac),
+    });
+  }
+  return { coordinates, strokeColor: nativeStrokeColor };
 }
 
 function RouteBadge({ label }: { label: string }) {
@@ -221,6 +272,7 @@ export function RouteMapCard({
   // el mismo cálculo de barrido en el UI thread sin tocar React; `useAnimatedProps`
   // empuja el resultado directo a `AnimatedPolyline` vía `setNativeProps`, también sin
   // re-render de React.
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const sweepLength = useSharedValue(0);
   const sweepOpacity = useSharedValue(1);
   const startedAt = useSharedValue<number | null>(null);
@@ -307,40 +359,14 @@ export function RouteMapCard({
   // defecto — se ve como un bug de color pero es un string sin procesar.
   const sweepPoints = sweepPath.points;
   const sweepFractions = sweepPath.fractions;
-  const animatedSweepProps = useAnimatedProps<{ coordinates: LatLng[]; strokeColor: string }>(() => {
-    "worklet";
-    // `processColor` devuelve el int nativo que espera el view manager, no un string —
-    // el tipo de `Polyline#strokeColor` (react-native-maps) sigue siendo `string` porque
-    // así lo tipa la librería para el caso no-animado, así que se castea acá.
-    const nativeStrokeColor = processColor(
-      hexToRgba(colors.fg1, sweepOpacity.value),
-    ) as unknown as string;
-    const count = sweepPoints.length;
-    if (count < 2) return { coordinates: [], strokeColor: nativeStrokeColor };
-    // Último punto del trazo que la punta del barrido ya pasó (búsqueda binaria sobre el
-    // largo acumulado).
-    const progress = sweepLength.value;
-    let low = 0;
-    let high = count - 1;
-    while (low < high) {
-      const mid = (low + high + 1) >> 1;
-      if (sweepFractions[mid] <= progress) low = mid;
-      else high = mid - 1;
-    }
-    const coordinates = sweepPoints.slice(0, low + 1);
-    if (low < count - 1) {
-      // La punta interpola entre los dos puntos vecinos en vez de saltar de punto en punto.
-      const segment = sweepFractions[low + 1] - sweepFractions[low];
-      const frac = segment > 0 ? (progress - sweepFractions[low]) / segment : 0;
-      const from = sweepPoints[low];
-      const to = sweepPoints[low + 1];
-      coordinates.push({
-        latitude: interpolate(from.latitude, to.latitude, frac),
-        longitude: interpolate(from.longitude, to.longitude, frac),
-      });
-    }
-    return { coordinates, strokeColor: nativeStrokeColor };
-  }, [sweepPoints, sweepFractions, colors.fg1]);
+  // El frame se calcula una sola vez por cambio (`useDerivedValue`); cada mapa (la card y la pantalla
+  // completa) tiene su `animatedProps`, porque uno solo va a un componente, y solo copia el resultado.
+  const sweep = useDerivedValue(
+    () => sweepFrame(sweepPoints, sweepFractions, sweepLength.value, sweepOpacity.value, colors.fg1),
+    [sweepPoints, sweepFractions, colors.fg1],
+  );
+  const animatedSweepProps = useAnimatedProps<{ coordinates: LatLng[]; strokeColor: string }>(() => sweep.value);
+  const fullscreenSweepProps = useAnimatedProps<{ coordinates: LatLng[]; strokeColor: string }>(() => sweep.value);
 
   const deliveryOnly = !pickup && !!delivery && pickupLabel !== undefined;
 
@@ -430,6 +456,32 @@ export function RouteMapCard({
       </View>
     ) : null;
 
+  // La ruta sin seguimiento: base gris (la de toda la app) y el barrido en tinta encima.
+  const routeLayer = (prefix: string, sweepProps: typeof animatedSweepProps | null) => (
+    <>
+      <Polyline
+        testID={testID ? `${testID}-${prefix}route-base` : undefined}
+        coordinates={routePoints}
+        strokeColor={colors.fg3}
+        strokeWidth={ROUTE_LINE_WIDTH}
+        zIndex={ROUTE_BELOW_Z_INDEX}
+      />
+      {sweepProps ? (
+        <AnimatedPolyline
+          testID={testID ? `${testID}-${prefix}route-sweep` : undefined}
+          coordinates={routePoints}
+          strokeColor={hexToRgba(colors.fg1, 1)}
+          strokeWidth={ROUTE_LINE_WIDTH}
+          zIndex={ROUTE_ABOVE_Z_INDEX}
+          animatedProps={sweepProps}
+        />
+      ) : null}
+    </>
+  );
+
+  // MOVO-355 (AC4): el recorrido siempre encima de lo que falta. Donde se cruzan (una vuelta, un
+  // desvío), Google Maps no garantiza el orden entre líneas con el mismo zIndex. El auto es un
+  // marcador: Google Maps los dibuja siempre encima de las líneas.
   const liveLayer = (prefix: string) =>
     live ? (
       <>
@@ -439,6 +491,7 @@ export function RouteMapCard({
             coordinates={remainingPoints}
             strokeColor={colors.fg3}
             strokeWidth={LIVE_REMAINING_LINE_WIDTH}
+            zIndex={ROUTE_BELOW_Z_INDEX}
           />
         ) : null}
         {tracePoints.length > 1 ? (
@@ -447,6 +500,7 @@ export function RouteMapCard({
             coordinates={tracePoints}
             strokeColor={colors.fg1}
             strokeWidth={LIVE_TRACE_LINE_WIDTH}
+            zIndex={ROUTE_ABOVE_Z_INDEX}
           />
         ) : null}
         {livePosition ? (
@@ -490,6 +544,7 @@ export function RouteMapCard({
         backgroundColor={mapBackgroundColor}
         borderRadius={bare ? 0 : 14}
         testID={testID ? `${testID}-frame` : undefined}
+        onVisibleChange={setFullscreenOpen}
         openOnMount={openFullscreenOnMount}
         onOpenedOnMount={onOpenedFullscreenOnMount}
         renderFullscreen={(close) => (
@@ -508,7 +563,8 @@ export function RouteMapCard({
           >
             {pickup ? (
               <>
-                {live ? null : <Polyline coordinates={routePoints} strokeColor={colors.fg1} strokeWidth={3.5} />}
+                {/* La misma ruta que la card (MOVO-355): base gris y barrido, no una línea en tinta. */}
+                {live ? null : routeLayer("fs-", fullscreenSweepProps)}
                 <StaticMarker
                   key={`fs-pickup-${pickup.address}`}
                   coordinate={{ latitude: pickup.lat, longitude: pickup.lng }}
@@ -604,23 +660,8 @@ export function RouteMapCard({
           {pickup ? (
             <>
               {/* Con seguimiento en vivo ni la base ni el barrido: la ruta la dibuja `liveLayer`. */}
-              {live ? null : (
-                <>
-                  <Polyline
-                    testID={testID ? `${testID}-route-base` : undefined}
-                    coordinates={routePoints}
-                    strokeColor={colors.fg3}
-                    strokeWidth={3.5}
-                  />
-                  <AnimatedPolyline
-                    testID={testID ? `${testID}-route-sweep` : undefined}
-                    coordinates={routePoints}
-                    strokeColor={hexToRgba(colors.fg1, 1)}
-                    strokeWidth={3.5}
-                    animatedProps={animatedSweepProps}
-                  />
-                </>
-              )}
+              {/* Con la pantalla completa abierta el barrido de la card (tapada) no se anima: serían dos mapas redibujando. */}
+              {live ? null : routeLayer("", fullscreenOpen ? null : animatedSweepProps)}
 
               <StaticMarker
                 key={`pickup-${pickup.address}`}

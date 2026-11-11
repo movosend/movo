@@ -1,6 +1,7 @@
-import { fireEvent, render } from "@testing-library/react-native";
+import { fireEvent, render, renderHook } from "@testing-library/react-native";
 import { Text } from "react-native";
 import { RouteMapCard } from "../components/send/route-map-card";
+import { useThemeColors } from "../src/hooks/use-theme-colors";
 
 // `ExpandableMap` abre midiendo la card con `measureInWindow`, que no dispara en jest-expo (ver
 // `avatar-peek-viewer.test.tsx`). Se reemplaza por uno que monta la pantalla completa al tocar el
@@ -14,18 +15,23 @@ jest.mock("../components/map/expandable-map", () => {
       renderFullscreen,
       openOnMount,
       onOpenedOnMount,
+      onVisibleChange,
       testID,
     }: {
       children: unknown;
       renderFullscreen: (close: (then?: () => void) => void) => unknown;
       openOnMount?: boolean;
       onOpenedOnMount?: () => void;
+      onVisibleChange?: (visible: boolean) => void;
       testID?: string;
     }) => {
       const [open, setOpen] = React.useState(Boolean(openOnMount));
       React.useEffect(() => {
         if (openOnMount) onOpenedOnMount?.();
       }, []);
+      React.useEffect(() => {
+        onVisibleChange?.(open);
+      }, [open, onVisibleChange]);
       return (
         <View testID={testID}>
           {children}
@@ -210,6 +216,64 @@ describe("RouteMapCard", () => {
 
       expect(queryByTestId("map-trace")).toBeNull();
       expect(getByTestId("map-carrier")).toBeTruthy();
+    });
+  });
+
+  describe("MOVO-355: la línea de la ruta", () => {
+    const TRACE = [
+      { latitude: PICKUP.lat, longitude: PICKUP.lng },
+      { latitude: -31.415, longitude: -64.185 },
+    ];
+    const LIVE = { position: { lat: -31.415, lng: -64.185 }, stale: false, trace: TRACE, planned: [] };
+
+    it("lo recorrido va encima de lo que falta, en tinta sobre gris y sin punteado", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      const { getByTestId } = await render(<RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} live={LIVE} />);
+
+      const remaining = getByTestId("map-remaining").props;
+      const trace = getByTestId("map-trace").props;
+      expect(trace.zIndex).toBeGreaterThan(remaining.zIndex);
+      const { result } = await renderHook(() => useThemeColors());
+      expect(remaining.strokeColor).toBe(result.current.fg3);
+      expect(trace.strokeColor).toBe(result.current.fg1);
+      expect(remaining.lineDashPattern).toBeUndefined();
+      expect(trace.lineDashPattern).toBeUndefined();
+    });
+
+    it("a pantalla completa el orden es el mismo", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      const { getByTestId } = await render(<RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} live={LIVE} />);
+      await fireEvent.press(getByTestId("map-frame-expand"));
+
+      expect(getByTestId("map-fs-trace").props.zIndex).toBeGreaterThan(getByTestId("map-fs-remaining").props.zIndex);
+    });
+
+    it("sin seguimiento, a pantalla completa va la misma base gris con el barrido que en la card", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      const { getByTestId } = await render(<RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} />);
+      await fireEvent.press(getByTestId("map-frame-expand"));
+
+      const cardBase = getByTestId("map-route-base").props;
+      const fsBase = getByTestId("map-fs-route-base").props;
+      expect(fsBase.strokeColor).toBe(cardBase.strokeColor);
+      expect(fsBase.strokeWidth).toBe(cardBase.strokeWidth);
+      expect(getByTestId("map-fs-route-sweep").props.zIndex).toBeGreaterThan(fsBase.zIndex);
+    });
+
+    it("con la pantalla completa abierta solo se anima ese mapa, y cada mapa tiene su propio animatedProps", async () => {
+      mockUseShipmentRoute.mockReturnValue({ data: ROUTE, isError: false });
+      const { getByTestId, queryByTestId } = await render(<RouteMapCard testID="map" pickup={PICKUP} delivery={DELIVERY} />);
+      const cardProps = getByTestId("map-route-sweep").props.animatedProps;
+      expect(cardProps).toBeDefined();
+
+      await fireEvent.press(getByTestId("map-frame-expand"));
+
+      const fsProps = getByTestId("map-fs-route-sweep").props.animatedProps;
+      expect(fsProps).toBeDefined();
+      expect(fsProps).not.toBe(cardProps);
+      // La card, tapada por el modal, deja de animar el barrido.
+      expect(queryByTestId("map-route-sweep")).toBeNull();
+      expect(getByTestId("map-route-base")).toBeTruthy();
     });
   });
 
