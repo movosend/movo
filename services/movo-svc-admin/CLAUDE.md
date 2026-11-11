@@ -281,7 +281,8 @@ Misma PR que MOVO-344. `modules/reports/` registra `GET /admin/reports/:report` 
 - **Cashflow y Precio se arman acá** (`financial-reports.ts`): cruzan envíos de `svc-shipments` (`shipment-facts`) con cobros de `svc-payments` (`report-facts`), que viven en servicios distintos, así que no hay un servicio dueño de esos números. Los dos clientes fallan cerrado: mejor un error que un reporte en cero.
 - **El puente y la cascada cierran exacto**: se calculan en centavos; el redondeo del puente lo absorbe `other`.
 - `report-csv.ts` reemplaza a `disputes-report-csv.ts`, con las columnas de `movo-admin/lib/reports/csv.ts`.
-- Pendiente: probarlo contra el panel en dev (el modo fixtures de MOVO-345 sigue siendo la referencia). Del alcance propio de MOVO-35 no se hizo la segmentación por ciudad, oferta y demanda por ciudad, el desglose de cancelaciones ni el reporte financiero con fee de MP y deuda abierta (B1-B3, B7).
+- **`operations` y `finance`** (resto de MOVO-35): `operations` lo calcula `svc-shipments` (`getOperationsReport`) y es el único reporte con `city`, la ciudad del retiro; `finance` lo calcula `svc-payments` (`getFinanceReport`), sin cruzar con envíos. Ninguno se filtra por distancia (`reportAppliesBand`). La sección `settlements` del export pide las filas aparte (`listFinanceReportRows`, con el tope de `CSV_MAX_ROWS` y aviso) y su CSV es de ids y montos. Fastify descarta un `city` en otro reporte en vez de responder 400, igual que el resto de los parámetros que el schema no declara.
+- Pendiente: probarlo contra el panel en dev.
 
 ### Cola de revisión manual de KYC — `/admin/kyc/reviews` (DD-064)
 
