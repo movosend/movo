@@ -7,6 +7,7 @@ import {
   DisputesReportBacklogRow,
   DisputesReportRow,
   DistancesReport,
+  FinanceReportRow,
   isReportPercentageMetric,
   PricingReport,
   Report,
@@ -79,6 +80,24 @@ const ROW_COLUMNS: readonly CsvColumn<DisputesReportRow>[] = [
 ];
 
 export const disputeRowsCsv = (rows: readonly DisputesReportRow[]): CsvSection => ({ body: toCsv(ROW_COLUMNS, rows), rows: rows.length });
+
+/** Una fila por liquidación: ids, estado, fechas y montos, sin el transportista ni ningún dato personal (MOVO-35 B9). */
+const FINANCE_ROW_COLUMNS: readonly CsvColumn<FinanceReportRow>[] = [
+  { header: "settlement_id", value: (row) => row.settlementId },
+  { header: "shipment_id", value: (row) => row.shipmentId },
+  { header: "kind", value: (row) => row.kind },
+  { header: "status", value: (row) => row.status },
+  { header: "created_at", value: (row) => row.createdAt },
+  { header: "captured_at", value: (row) => row.capturedAt },
+  { header: "gross_ars", value: (row) => row.grossArs },
+  { header: "debt_surcharge_ars", value: (row) => row.debtSurchargeArs },
+  { header: "commission_ars", value: (row) => row.commissionArs },
+  { header: "mp_fee_ars", value: (row) => row.mpFeeArs },
+  { header: "net_ars", value: (row) => row.netArs },
+  { header: "refunded_ars", value: (row) => row.refundedArs },
+];
+
+export const financeRowsCsv = (rows: readonly FinanceReportRow[]): CsvSection => ({ body: toCsv(FINANCE_ROW_COLUMNS, rows), rows: rows.length });
 
 const SCORECARD_METRICS: readonly ReportScorecardMetric[] = ["published", "completionRate", "onTimeRate", "assignedWithin24hRate", "doorToDoorHours", "avgTicket"];
 
@@ -155,7 +174,7 @@ function leakageCsv({ leakage }: PricingReport): CsvSection {
 }
 
 /** Salen del mismo objeto que devuelve el JSON: así el CSV no puede diferir de la pantalla. `disputes` se pide aparte. */
-export function reportSectionCsv<R extends AdminReportId>(id: R, report: AdminReportById[R], section: Exclude<AdminReportExportSection, "disputes">): CsvSection {
+export function reportSectionCsv<R extends AdminReportId>(id: R, report: AdminReportById[R], section: Exclude<AdminReportExportSection, "disputes" | "settlements">): CsvSection {
   const generic = report as unknown as Report<string>;
   if (section.startsWith("trend.")) return trendCsv(generic, section.slice("trend.".length));
   if (section.startsWith("breakdown.")) return breakdownCsv(generic, section.slice("breakdown.".length));

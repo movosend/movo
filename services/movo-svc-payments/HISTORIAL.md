@@ -897,3 +897,7 @@ un hold se pasa de plazo cuando le quedan menos de 6 h, no por antigüedad. Una 
 ### Feedback de TestFlight build 18 — lo que le quedó al transportista en Cobros
 
 `TransactionListItem.receivedArs`/`receivedIsEstimate`, solo con `role=carrier` (`receivedAmount` en `transactions.service.ts`): neto real si está acreditado, estimado (precio menos `hold_commission_ars` menos `estimateReceivedArs`) si no, precio menos comisión en efectivo, y `null` si se liberó, se reembolsó o está en disputa, aunque se haya acreditado antes. El estimado no usa `holds.mp_fee_ars` porque ese fee es sobre el total con el recargo del emisor (MOVO-311).
+
+### MOVO-35 — Reporte financiero para el panel (DD-059)
+
+`GET /internal/payments/admin/reports/finance` y `/rows` (`modules/settlements/admin-finance-report.routes.ts`), solo con lo de este servicio. Lo cobrado, la comisión, el fee de MP y el neto van por `captured_at` y solo con la liquidación `credited`, que es cuando esos campos se completan juntos. `processing` y `escalated` se cuentan aparte. Los reembolsos terminados se suman por `completed_at` (`succeeded` y `fallback_to_ledger`). La deuda abierta se calcula al cierre de cada período con el criterio de `readLedgerBalance`. Las filas del CSV llevan ids y montos, sin el transportista. Todo se calcula en SQL por intervalo, así el total y sus buckets no pueden medir distinto.

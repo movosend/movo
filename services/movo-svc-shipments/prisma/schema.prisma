@@ -223,6 +223,10 @@ model Shipment {
   // pricing no respondió. `quote_breakdown` es la misma foto que `suggestedPriceArs`; `null` en los envíos anteriores.
   distanceKm        Decimal?      @map("distance_km") @db.Decimal(10, 2)
   quoteBreakdown    Json?         @map("quote_breakdown")
+  // MOVO-35 (DD-059): el `DemandContext` que contó el pricing al cotizar, para la oferta/demanda de Métricas. `null`
+  // si no se pudo contar (cotiza sin recargo) o en los envíos anteriores, que solo tienen el `demandRatio` del desglose.
+  demandPublishedShipments Int?  @map("demand_published_shipments")
+  demandAvailableCarriers  Int?  @map("demand_available_carriers")
   // MOVO-37: modalidad de pago elegida al crear el envío (`PaymentMethod` de @movo/shared). Con `cash` no hay
   // hold ni saga: al aceptar una oferta pasa directo a `assigned`. Solo cambia mientras no haya ofertas.
   paymentMethod     PaymentMethod @default(card) @map("payment_method")

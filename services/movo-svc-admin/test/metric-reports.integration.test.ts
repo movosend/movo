@@ -50,6 +50,47 @@ const ownedReports = {
     ...body(["firstResponseMinutes", "conversations", "firstContactResolutionRate"]),
     breakdowns: [{ dimension: "topic", metric: "conversations", total: value, rows: [{ key: "shipment", ...value, share: 100 }] }],
   },
+  operations: {
+    ...body(["published", "completed", "cancelled", "demandRatio", "highDemandRate", "availableCarriers"]),
+    breakdowns: [
+      { dimension: "cancelCause", metric: "cancelled", total: value, rows: [{ key: "sender", ...value, share: 100 }] },
+      { dimension: "city", metric: "published", total: value, rows: [{ key: "Córdoba", ...value, share: 100, extra: { demandRatio: 1.5, availableCarriers: null } }] },
+    ],
+    city: null,
+    cities: [{ city: "Córdoba", published: 1 }],
+  },
+};
+
+const finance = {
+  ...body(["collected", "shipmentPrice", "commission", "mpFee", "carrierNet", "refunded", "debtGenerated", "debtCollected", "openDebt"]),
+  breakdowns: [
+    { dimension: "kind", metric: "collected", total: value, rows: [] },
+    { dimension: "refundStatus", metric: "refunded", total: value, rows: [] },
+    { dimension: "ledgerType", metric: "debtGenerated", total: value, rows: [] },
+  ],
+  pendingConfirmation: { count: 2, amountArs: 2300 },
+  escalated: { count: 0, amountArs: 0 },
+  debt: { debtorUsers: 3, creditUsers: 1, creditArs: 150 },
+};
+
+const financeRows = {
+  items: [
+    {
+      settlementId: randomUUID(),
+      shipmentId: randomUUID(),
+      kind: "delivery",
+      status: "processing",
+      createdAt: "2026-10-01T15:00:00.000Z",
+      capturedAt: null,
+      grossArs: 1150,
+      debtSurchargeArs: 150,
+      commissionArs: 150,
+      mpFeeArs: null,
+      netArs: null,
+      refundedArs: 0,
+    },
+  ],
+  truncated: true,
 };
 
 const disputes = {
@@ -103,13 +144,13 @@ describe("GET /admin/reports/* — MOVO-35", () => {
   let app: FastifyInstance;
   const admin = randomUUID();
   const headers = { "x-user-id": admin, "x-user-roles": "sender,admin", "x-request-id": "req-metric-reports" };
-  const seen: Array<{ id: string; band?: string }> = [];
+  const seen: Array<{ id: string; band?: string; city?: string }> = [];
 
   const buildWith = (down = false) =>
     buildApp({
       usersClient: createFakeUsersClient({}),
       supportClient: createFakeSupportClient({}).client,
-      paymentsClient: createFakePaymentsClient({ reportFacts: [], ...(down ? { down: true } : {}) }).client,
+      paymentsClient: createFakePaymentsClient({ reportFacts: [], financeReport: finance, financeRows, ...(down ? { down: true } : {}) }).client,
       shipmentsClient: createFakeShipmentsClient({ ownedReports, ownedReportsSeen: seen, reportFacts: facts, disputesReport: disputes as never }),
     });
 
@@ -195,6 +236,37 @@ describe("GET /admin/reports/* — MOVO-35", () => {
     expect(leakage.at(-1)).toBe("captured,,2,6000,900,100");
 
     expect(lines((await get(`/admin/reports/pricing/export?${QUERY}&section=bridge`)).body)).toEqual(["step,amount_ars,cumulative_ars"]);
+  });
+
+  it("Operación pasa la ciudad al servicio dueño, ignora el tramo y no recorta sus campos", async () => {
+    seen.length = 0;
+    const res = await get(`/admin/reports/operations?${QUERY}&city=${encodeURIComponent("Córdoba")}&band=200_500`);
+    expect(res.statusCode).toBe(200);
+    expect(seen).toEqual([{ id: "operations", city: "Córdoba" }]);
+    const report = res.json();
+    expect(report.meta).toMatchObject({ band: null, bandApplied: false });
+    expect(report.cities).toEqual(ownedReports.operations.cities);
+    expect(report.breakdowns[1].rows[0].extra).toEqual({ demandRatio: 1.5, availableCarriers: null });
+  });
+
+  it("la ciudad solo existe en Operación: en otro reporte se descarta y no llega al servicio dueño", async () => {
+    seen.length = 0;
+    expect((await get(`/admin/reports/deliveries?${QUERY}&city=C%C3%B3rdoba`)).statusCode).toBe(200);
+    expect(seen).toEqual([{ id: "deliveries" }]);
+    expect((await get(`/admin/reports/operations?${QUERY}&city=`)).statusCode).toBe(400);
+  });
+
+  it("Finanzas trae lo pendiente de MP aparte, y su CSV de liquidaciones es de ids y montos", async () => {
+    const report = (await get(`/admin/reports/finance?${QUERY}`)).json();
+    expect(report.pendingConfirmation).toEqual({ count: 2, amountArs: 2300 });
+    expect(report.debt).toEqual({ debtorUsers: 3, creditUsers: 1, creditArs: 150 });
+
+    const res = await get(`/admin/reports/finance/export?${QUERY}&section=settlements`);
+    expect(res.headers["x-export-truncated"]).toBe("true");
+    expect(res.headers["x-export-rows"]).toBe("1");
+    const csv = lines(res.body);
+    expect(csv[0]).toBe("settlement_id,shipment_id,kind,status,created_at,captured_at,gross_ars,debt_surcharge_ars,commission_ars,mp_fee_ars,net_ars,refunded_ars");
+    expect(csv[1]).toContain(",delivery,processing,2026-10-01T15:00:00.000Z,,1150,150,150,,,0");
   });
 
   it("una sección de otro reporte es 400", async () => {

@@ -11,6 +11,7 @@ import {
   PaymentReportFact,
   REPORT_RANGE_ERROR_MESSAGES,
   reportAppliesBand,
+  reportAppliesCity,
   ReportMeta,
   ReportRange,
   resolveReportRange,
@@ -19,13 +20,14 @@ import {
 import { CSV_MAX_ROWS, csvFileName } from "../../utils/csv";
 import { requireAdmin } from "../../utils/require-admin";
 import { cashflowReport, pricingReport } from "./financial-reports";
-import { disputeRowsCsv, reportSectionCsv } from "./report-csv";
+import { disputeRowsCsv, financeRowsCsv, reportSectionCsv } from "./report-csv";
 import { reportsSchemas } from "./reports.schema";
 
 interface ReportQuery {
   from?: string;
   to?: string;
   band?: DistanceBand;
+  city?: string;
 }
 
 interface RequestCtx {
@@ -45,6 +47,8 @@ const FILE_LABELS: Readonly<Record<AdminReportId, string>> = {
   distances: "distancias",
   support: "soporte",
   disputes: "disputas",
+  operations: "operacion",
+  finance: "finanzas",
 };
 
 const REPORT_DESCRIPTIONS: Readonly<Record<AdminReportId, string>> = {
@@ -60,6 +64,10 @@ const REPORT_DESCRIPTIONS: Readonly<Record<AdminReportId, string>> = {
   support: "MOVO-35: conversaciones abiertas en el rango. No se filtra por distancia (`meta.bandApplied` es `false`).",
   disputes:
     "MOVO-344: `opened` y `disputeRate` por fecha de apertura. `disputeRate` es disputas abiertas cada 100 envíos completados en el mismo período: no es una cohorte y puede pasar de 100. `resolved`, `resolutionHours` y los montos por fecha de resolución, solo con la disputa `resolved` (una `resolving` no cuenta). `backlog` es lo que sigue sin resolverse ahora y no depende del rango. `funnel` sigue a las disputas abiertas en el período hasta su estado actual.",
+  operations:
+    "MOVO-35: `published` y `completed` por la primera vez que el envío llegó a ese estado, `cancelled` por la fecha de la cancelación. La demanda es la que contó el pricing al publicar cada envío (DD-059): `availableCarriers` solo existe en los envíos creados después de guardarla. `city` filtra por la ciudad del retiro; `cities` la ignora y es la lista del selector. No se filtra por distancia.",
+  finance:
+    "MOVO-35: desde `svc-payments`, sin cruzar con envíos. Lo cobrado va por fecha de acreditación y solo con la captura confirmada por MP; lo que sigue `processing` va en `pendingConfirmation` y lo escalado a proceso manual en `escalated`, no como cero. `collected` incluye el recargo por deuda del emisor y `shipmentPrice` no. `openDebt` es lo que deben los usuarios con saldo deudor al cierre de cada período. No se filtra por distancia.",
 };
 
 function rangeOf({ from, to }: ReportQuery): ReportRange {
@@ -87,7 +95,9 @@ export default async function reportsRoutes(app: FastifyInstance, opts: ReportsR
     return { facts, payments: new Map<string, PaymentReportFact>(payments.map((payment) => [payment.shipmentId, payment])) };
   }
 
-  async function sourceOf<R extends AdminReportId>(id: R, range: ReportRange, band: DistanceBand | undefined, ctx: RequestCtx) {
+  async function sourceOf<R extends AdminReportId>(id: R, range: ReportRange, band: DistanceBand | undefined, city: string | undefined, ctx: RequestCtx) {
+    if (id === "operations") return app.shipmentsClient.getOperationsReport(range, ctx, city);
+    if (id === "finance") return app.paymentsClient.getFinanceReport(range, ctx);
     if (id === "cashflow" || id === "pricing") {
       const { facts, payments } = await crossedFacts(range, band, ctx);
       return id === "cashflow" ? cashflowReport(facts, payments, range, new Date()) : pricingReport(facts, payments, range, new Date());
@@ -96,10 +106,11 @@ export default async function reportsRoutes(app: FastifyInstance, opts: ReportsR
     return app.shipmentsClient.getOwnedReport(id, range, ctx, band);
   }
 
-  async function reportOf<R extends AdminReportId>(id: R, range: ReportRange, requestedBand: DistanceBand | undefined, ctx: RequestCtx): Promise<AdminReportById[R]> {
+  async function reportOf<R extends AdminReportId>(id: R, range: ReportRange, query: ReportQuery, ctx: RequestCtx): Promise<AdminReportById[R]> {
     const applies = reportAppliesBand(id);
-    const band = applies ? requestedBand : undefined;
-    const source = await sourceOf(id, range, band, ctx);
+    const band = applies ? query.band : undefined;
+    const city = reportAppliesCity(id) ? query.city : undefined;
+    const source = await sourceOf(id, range, band, city, ctx);
     const meta: ReportMeta = { ...source.meta, band: band ?? null, bandApplied: applies };
     return { ...source, meta } as unknown as AdminReportById[R];
   }
@@ -124,7 +135,7 @@ export default async function reportsRoutes(app: FastifyInstance, opts: ReportsR
       async (request: FastifyRequest, reply: FastifyReply) => {
         requireAdmin(request);
         const query = request.query as ReportQuery;
-        const report = await reportOf(id, rangeOf(query), query.band, { requestId: request.requestId });
+        const report = await reportOf(id, rangeOf(query), query, { requestId: request.requestId });
         reply.header("cache-control", "no-store");
         return report;
       },
@@ -141,7 +152,9 @@ export default async function reportsRoutes(app: FastifyInstance, opts: ReportsR
             (id === "disputes"
               ? `\`disputes\` trae una fila por disputa abierta o resuelta en el rango (ids, fechas y montos, sin datos personales), con tope de ${CSV_MAX_ROWS} filas: ` +
                 "es otra cohorte que los KPIs, que cuentan cada dato por su propia fecha, así que sus montos no tienen por qué sumar lo mismo. "
-              : "") +
+              : id === "finance"
+                ? `\`settlements\` trae una fila por liquidación creada o acreditada en el rango (ids, estado, fechas y montos, sin datos personales), con tope de ${CSV_MAX_ROWS} filas. `
+                : "") +
             "`X-Export-Rows` dice cuántas filas trae, sin contar la de `Total`, y `X-Export-Truncated` si se cortó. Cada exportación queda en la " +
             "bitácora (`report.export`, objetivo `report`).",
           querystring: reportsSchemas.exportQuery(id),
@@ -175,7 +188,11 @@ export default async function reportsRoutes(app: FastifyInstance, opts: ReportsR
               const { items, truncated: cut } = await app.shipmentsClient.listDisputesReportRows(range, exportMaxRows, ctx, query.band);
               return { csv: disputeRowsCsv(items), truncated: cut };
             }
-            return { csv: reportSectionCsv(id, await reportOf(id, range, query.band, ctx), section), truncated: false };
+            if (section === "settlements") {
+              const { items, truncated: cut } = await app.paymentsClient.listFinanceReportRows(range, exportMaxRows, ctx);
+              return { csv: financeRowsCsv(items), truncated: cut };
+            }
+            return { csv: reportSectionCsv(id, await reportOf(id, range, query, ctx), section), truncated: false };
           },
         );
         return reply

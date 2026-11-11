@@ -1,15 +1,19 @@
-import type {
-  AdminReportId,
-  CaptureLeakageStep,
-  DeliveryDelayReason,
-  DistanceBand,
-  PriceComponent,
-  ReportCorridor,
-  ReportScorecardMetric,
+import {
+  OPERATIONS_OTHER_CITIES,
+  OPERATIONS_UNKNOWN_CITY,
+  type AdminReportId,
+  type CancellationCause,
+  type CaptureLeakageStep,
+  type DeliveryDelayReason,
+  type DistanceBand,
+  type PriceComponent,
+  type ReportCorridor,
+  type ReportScorecardMetric,
 } from "@movo/shared/src/types/admin-reports"
 import { DisputeReason } from "@movo/shared/src/types/dispute"
 import { DISPUTE_REASON_LABEL } from "@/lib/disputes/format"
 import { TOPIC_LABEL } from "@/lib/support/labels"
+import { LEDGER_TYPE } from "@/lib/users/format"
 import { BAND_LABEL, type MetricUnit } from "./format"
 
 /**
@@ -47,7 +51,15 @@ export interface ReportTab {
   label: string
   /** Nombre del ícono de lucide (se resuelve en `components/reports/metrics/tab-icon.tsx`). */
   icon:
-    "Wallet" | "Tag" | "PackageCheck" | "Truck" | "Route" | "Headset" | "Scale"
+    | "Wallet"
+    | "Tag"
+    | "PackageCheck"
+    | "Truck"
+    | "Route"
+    | "Headset"
+    | "Scale"
+    | "Activity"
+    | "Landmark"
   question: string
   kpis: string[]
   /**
@@ -64,6 +76,10 @@ export interface ReportTab {
   flow?: true
   /** Transportistas: publicados contra asignados en 24 h, en el tiempo. */
   supply?: true
+  /** Operación: selector de la ciudad del retiro (MOVO-35). */
+  city?: true
+  /** Finanzas: pendientes de Mercado Pago, saldo de la cuenta corriente y CSV de liquidaciones. */
+  finance?: true
 }
 
 export const METRICS: Record<AdminReportId, Record<string, MetricMeta>> = {
@@ -264,6 +280,115 @@ export const METRICS: Record<AdminReportId, Record<string, MetricMeta>> = {
       desc: "Disputas abiertas sobre envíos completados.",
     },
   },
+  operations: {
+    published: {
+      label: "Publicados",
+      unit: "n",
+      good: "up",
+      sums: true,
+      desc: "Envíos que se publicaron por primera vez en el período.",
+    },
+    completed: {
+      label: "Completados",
+      unit: "n",
+      good: "up",
+      sums: true,
+      desc: "Envíos que llegaron a completados por primera vez.",
+    },
+    cancelled: {
+      label: "Cancelados",
+      unit: "n",
+      good: "down",
+      sums: true,
+      desc: "Envíos cancelados, por la fecha de la cancelación.",
+    },
+    demandRatio: {
+      label: "Envíos por transportista",
+      unit: "ratio",
+      good: "down",
+      sums: false,
+      desc: "Lo que vio el precio al publicar cada envío: envíos esperando en la zona de retiro por cada transportista que pasa cerca. Arriba del umbral se cobra recargo.",
+    },
+    highDemandRate: {
+      label: "Con recargo por demanda",
+      unit: "pct",
+      good: "down",
+      sums: false,
+      desc: "Envíos publicados que se cotizaron con recargo por alta demanda.",
+    },
+    availableCarriers: {
+      label: "Transportistas cerca",
+      unit: "n",
+      good: "up",
+      sums: false,
+      desc: "Promedio de transportistas con viaje por la zona de retiro al publicar. Solo los envíos creados desde que se guarda este dato.",
+    },
+  },
+  finance: {
+    collected: {
+      label: "Cobrado",
+      unit: "ars",
+      good: "up",
+      sums: true,
+      desc: "Lo que pagaron los emisores en las capturas que Mercado Pago confirmó, con el recargo por deuda.",
+    },
+    shipmentPrice: {
+      label: "Precio de los envíos",
+      unit: "ars",
+      good: "up",
+      sums: true,
+      desc: "Lo cobrado sin el recargo por deuda del emisor.",
+    },
+    commission: {
+      label: "Comisión Movo",
+      unit: "ars",
+      good: "up",
+      sums: true,
+      desc: "Comisión de Movo en las capturas confirmadas.",
+    },
+    mpFee: {
+      label: "Fee de Mercado Pago",
+      unit: "ars",
+      good: "down",
+      sums: true,
+      desc: "Lo que descontó Mercado Pago, según su confirmación de cada captura.",
+    },
+    carrierNet: {
+      label: "Neto a transportistas",
+      unit: "ars",
+      good: "up",
+      sums: true,
+      desc: "Lo que les quedó a los transportistas después de la comisión y el fee.",
+    },
+    refunded: {
+      label: "Reembolsado",
+      unit: "ars",
+      good: "down",
+      sums: true,
+      desc: "Reembolsos terminados, a Mercado Pago o a la cuenta corriente.",
+    },
+    debtGenerated: {
+      label: "Deuda generada",
+      unit: "ars",
+      good: "down",
+      sums: true,
+      desc: "Movimientos de deuda nuevos en la cuenta corriente.",
+    },
+    debtCollected: {
+      label: "Deuda cobrada",
+      unit: "ars",
+      good: "up",
+      sums: true,
+      desc: "Pagos y descuentos que bajaron la deuda de la cuenta corriente.",
+    },
+    openDebt: {
+      label: "Deuda abierta",
+      unit: "ars",
+      good: "down",
+      sums: false,
+      desc: "Lo que deben los usuarios con saldo deudor, al cierre de cada período.",
+    },
+  },
 }
 
 export const REPORT_TABS: ReportTab[] = [
@@ -372,6 +497,76 @@ export const REPORT_TABS: ReportTab[] = [
     ],
     flow: true,
   },
+  {
+    id: "operations",
+    label: "Operación",
+    icon: "Activity",
+    question:
+      "Cuánto se publica, se completa y se cancela, y dónde falta gente para llevarlo.",
+    kpis: [
+      "published",
+      "completed",
+      "cancelled",
+      "demandRatio",
+      "highDemandRate",
+      "availableCarriers",
+    ],
+    kpiRows: [
+      { keys: ["published", "completed", "cancelled"] },
+      { keys: ["demandRatio", "highDemandRate", "availableCarriers"] },
+    ],
+    breakdowns: [
+      {
+        dimension: "cancelCause",
+        metric: "cancelled",
+        title: "Por qué se cancelan",
+      },
+      {
+        dimension: "city",
+        metric: "published",
+        title: "Publicados por ciudad de retiro",
+        extra: { key: "demandRatio", label: "Envíos por transportista" },
+      },
+    ],
+    city: true,
+  },
+  {
+    id: "finance",
+    label: "Finanzas",
+    icon: "Landmark",
+    question:
+      "Cuánto entró, cuánto se llevó Mercado Pago, cuánto quedó y cuánta deuda sigue abierta.",
+    kpis: [
+      "collected",
+      "shipmentPrice",
+      "commission",
+      "mpFee",
+      "carrierNet",
+      "refunded",
+      "debtGenerated",
+      "debtCollected",
+      "openDebt",
+    ],
+    kpiRows: [
+      { keys: ["collected", "shipmentPrice", "refunded"] },
+      { keys: ["commission", "mpFee", "carrierNet"] },
+      { keys: ["debtGenerated", "debtCollected", "openDebt"] },
+    ],
+    breakdowns: [
+      { dimension: "kind", metric: "collected", title: "Cobrado por tipo" },
+      {
+        dimension: "refundStatus",
+        metric: "refunded",
+        title: "Reembolsos por destino",
+      },
+      {
+        dimension: "ledgerType",
+        metric: "debtGenerated",
+        title: "Deuda generada por tipo",
+      },
+    ],
+    finance: true,
+  },
 ]
 
 export const DEFAULT_TAB: AdminReportId = "cashflow"
@@ -398,6 +593,41 @@ export const DIMENSION_LABEL: Record<string, string> = {
   topic: "Tema",
   reason: "Motivo",
   outcome: "Resultado",
+  cancelCause: "Causa",
+  city: "Ciudad de retiro",
+  kind: "Tipo de captura",
+  refundStatus: "Destino del reembolso",
+  ledgerType: "Tipo de movimiento",
+}
+
+/** Por qué se canceló un envío (DD-059). */
+export const CANCEL_CAUSE_LABEL: Record<CancellationCause, string> = {
+  sender: "Lo canceló el emisor",
+  receiver: "El receptor no confirmó",
+  expired: "Nadie lo tomó a tiempo",
+  pickup_missed_carrier: "El transportista no retiró",
+  pickup_missed_other: "Retiro no realizado",
+  sanction: "Cuenta suspendida",
+  dispute: "Disputa a favor del emisor",
+  admin: "Desde el panel",
+  other: "Otro",
+}
+
+/** Claves reservadas del desglose por ciudad; el resto son nombres de ciudad y se muestran tal cual. */
+export const CITY_KEY_LABEL: Record<string, string> = {
+  [OPERATIONS_UNKNOWN_CITY]: "Sin ciudad",
+  [OPERATIONS_OTHER_CITIES]: "Otras ciudades",
+}
+
+export const SETTLEMENT_KIND_LABEL: Record<string, string> = {
+  delivery: "Entregas",
+  cancellation_penalty: "Penalidades por cancelación",
+  dispute_partial: "Disputas parciales",
+}
+
+export const REFUND_STATUS_LABEL: Record<string, string> = {
+  succeeded: "A Mercado Pago",
+  fallback_to_ledger: "A la cuenta corriente",
 }
 
 export const DELAY_REASON_LABEL: Record<DeliveryDelayReason, string> = {
@@ -419,6 +649,11 @@ const KEY_LABELS: Record<string, Record<string, string>> = {
   topic: TOPIC_LABEL,
   reason: DISPUTE_REASON_LABEL,
   outcome: OUTCOME_LABEL,
+  cancelCause: CANCEL_CAUSE_LABEL,
+  city: CITY_KEY_LABEL,
+  kind: SETTLEMENT_KIND_LABEL,
+  refundStatus: REFUND_STATUS_LABEL,
+  ledgerType: LEDGER_TYPE,
 }
 
 /** Claves conocidas de una dimensión, en orden fijo (el color de cada una sale de acá). */

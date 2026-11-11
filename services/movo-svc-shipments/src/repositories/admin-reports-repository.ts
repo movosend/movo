@@ -23,6 +23,8 @@ import {
   ReportValue,
 } from "@movo/shared";
 import { CarrierActivityDay, ShipmentMetricFact, SupportMetricFact } from "../domain/admin-report-metrics";
+import { cancellationCauseOf } from "../domain/cancellation-cause";
+import { OperationsFact } from "../domain/operations-report";
 import { ROAD_DETOUR_FACTOR } from "../domain/geo";
 import { Prisma, PrismaClient } from "../generated/prisma/client";
 
@@ -114,6 +116,24 @@ export interface AdminReportsRepository {
   /** MOVO-35: transportistas activos por día. Con `band`, las ofertas a envíos de ese tramo y los viajes cuya ruta cae en él. */
   carrierActivity(range: ReportRange, band?: DistanceBand): Promise<CarrierActivityDay[]>;
   supportMetricFacts(range: ReportRange): Promise<SupportMetricFact[]>;
+  /** MOVO-35 B1-B3: los envíos publicados, completados o cancelados en el rango o en el período anterior. */
+  operationsFacts(range: ReportRange): Promise<OperationsFact[]>;
+}
+
+interface OperationsFactRow {
+  sender_id: string;
+  pickup_city: string | null;
+  high_demand: boolean | null;
+  demand_ratio: number | null;
+  available_carriers: number | null;
+  published_at: Date | null;
+  first_completed_at: Date | null;
+  cancelled_at: Date | null;
+  cancel_from_status: string | null;
+  cancel_actor_id: string | null;
+  cancel_kind: string | null;
+  cancel_attribution: string | null;
+  cancel_reason: string | null;
 }
 
 interface FactRow {
@@ -480,6 +500,62 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
         resolvedAt: iso(row.resolved_at),
         userWroteAfterAgent: row.user_wrote_after_agent,
       }));
+    },
+
+    async operationsFacts(range) {
+      const { start, end } = boundsOf({ from: previousReportRange(range).from, to: range.to });
+      // Un envío se cancela una sola vez (es terminal): el evento más reciente a `cancelled` es esa cancelación.
+      const rows = await db.$queryRaw<OperationsFactRow[]>`
+        WITH candidates AS MATERIALIZED (
+          SELECT DISTINCT e.shipment_id
+          FROM shipments.shipment_events e
+          WHERE e.to_status::text IN ('published', 'completed', 'cancelled') AND e.created_at >= ${start} AND e.created_at < ${end}
+        ),
+        events AS MATERIALIZED (
+          SELECT e.shipment_id,
+                 MIN(e.created_at) FILTER (WHERE e.to_status::text = 'published') AS published_at,
+                 MIN(e.created_at) FILTER (WHERE e.to_status::text = 'completed') AS first_completed_at
+          FROM shipments.shipment_events e
+          JOIN candidates c ON c.shipment_id = e.shipment_id
+          GROUP BY e.shipment_id
+        )
+        SELECT s.sender_id, s.pickup_city, s.high_demand,
+               CASE WHEN jsonb_typeof(s.quote_breakdown -> 'demandRatio') = 'number' THEN (s.quote_breakdown ->> 'demandRatio')::float8 END AS demand_ratio,
+               s.demand_available_carriers AS available_carriers,
+               ev.published_at, ev.first_completed_at,
+               x.created_at AS cancelled_at, x.from_status::text AS cancel_from_status, x.actor_id AS cancel_actor_id,
+               x.kind::text AS cancel_kind, x.attribution::text AS cancel_attribution, x.reason AS cancel_reason
+        FROM shipments.shipments s
+        JOIN events ev ON ev.shipment_id = s.id
+        LEFT JOIN LATERAL (
+          SELECT c.created_at, c.from_status, c.actor_id, c.kind, c.attribution, c.reason
+          FROM shipments.shipment_events c
+          WHERE c.shipment_id = s.id AND c.to_status::text = 'cancelled'
+          ORDER BY c.created_at DESC
+          LIMIT 1
+        ) x ON TRUE`;
+      return rows.map(
+        (row): OperationsFact => ({
+          pickupCity: row.pickup_city,
+          publishedAt: iso(row.published_at),
+          firstCompletedAt: iso(row.first_completed_at),
+          cancelledAt: iso(row.cancelled_at),
+          cancelCause: row.cancelled_at
+            ? cancellationCauseOf({
+                fromStatus: row.cancel_from_status,
+                actorId: row.cancel_actor_id,
+                senderId: row.sender_id,
+                kind: row.cancel_kind ?? "normal",
+                attribution: row.cancel_attribution,
+                reason: row.cancel_reason,
+              })
+            : null,
+          // Pricing manda 0 cuando cotizó sin `demandContext`: no es una medición.
+          demandRatio: row.demand_ratio !== null && row.demand_ratio > 0 ? row.demand_ratio : null,
+          highDemand: row.high_demand,
+          availableCarriers: row.available_carriers,
+        }),
+      );
     },
   };
 }

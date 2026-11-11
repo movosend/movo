@@ -1,4 +1,14 @@
-import { AdminReportId, CAPTURE_LEAKAGE_STEPS, DISTANCE_BANDS, PRICE_COMPONENTS, reportAppliesBand, reportExportSections, reportKpis } from "@movo/shared";
+import {
+  AdminReportId,
+  CAPTURE_LEAKAGE_STEPS,
+  DISTANCE_BANDS,
+  OPERATIONS_CITY_MAX_LENGTH,
+  PRICE_COMPONENTS,
+  reportAppliesBand,
+  reportAppliesCity,
+  reportExportSections,
+  reportKpis,
+} from "@movo/shared";
 
 // Autocontenido a propósito -- mismo criterio que el resto de los *.schema.ts del repo.
 const nullableNumber = { type: ["number", "null"] };
@@ -28,7 +38,12 @@ const queryProperties = (id: AdminReportId) => ({
   band: reportAppliesBand(id)
     ? { type: "string", enum: [...DISTANCE_BANDS], description: "Tramo de distancia del envío." }
     : { type: "string", enum: [...DISTANCE_BANDS], description: "Se ignora en este reporte: `meta.bandApplied` es `false`." },
+  ...(reportAppliesCity(id)
+    ? { city: { type: "string", minLength: 1, maxLength: OPERATIONS_CITY_MAX_LENGTH, description: "Ciudad del punto de retiro, como viene en `cities`." } }
+    : {}),
 });
+
+const financeAmount = { type: "object", required: ["count", "amountArs"], properties: { count: { type: "integer" }, amountArs: { type: "number" } } };
 
 const captureAmounts = {
   shipments: { type: "integer" },
@@ -143,6 +158,22 @@ const REPORT_EXTRAS: Readonly<Record<AdminReportId, Record<string, object>>> = {
     },
   },
   support: {},
+  operations: {
+    city: { type: ["string", "null"] },
+    cities: {
+      type: "array",
+      items: { type: "object", required: ["city", "published"], properties: { city: { type: "string" }, published: { type: "integer" } } },
+    },
+  },
+  finance: {
+    pendingConfirmation: financeAmount,
+    escalated: financeAmount,
+    debt: {
+      type: "object",
+      required: ["debtorUsers", "creditArs", "creditUsers"],
+      properties: { debtorUsers: { type: "integer" }, creditArs: { type: "number" }, creditUsers: { type: "integer" } },
+    },
+  },
   disputes: {
     backlog: {
       type: "array",

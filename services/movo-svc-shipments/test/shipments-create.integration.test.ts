@@ -310,6 +310,9 @@ describe("POST /shipments (Postgres)", () => {
     const id = created.json().id;
     const row = await app.db.shipment.findUniqueOrThrow({ where: { id } });
     expect(row.highDemand).toBe(true);
+    // MOVO-35: el conteo de la cotización queda guardado para la oferta/demanda del panel.
+    expect(row.demandPublishedShipments).toBe(0);
+    expect(row.demandAvailableCarriers).toBe(1);
 
     const detail = await app.inject({
       method: "GET",

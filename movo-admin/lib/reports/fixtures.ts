@@ -131,6 +131,26 @@ export const MOCK_METRICS: Record<AdminReportId, Record<string, MockMetric>> = {
       bandF: GEN_F,
     },
   },
+  /** `published` y `completed` salen de Distancias y Cashflow (mismos números en las pestañas). */
+  operations: {
+    published: { base: 7, trend: 0.35, agg: "sum" },
+    completed: { base: 7, trend: 0.32, agg: "sum" },
+    cancelled: { base: 0.9, trend: -0.1, agg: "sum" },
+    demandRatio: { base: 1.6, trend: 0.12, agg: "mean" },
+    highDemandRate: { base: 14, trend: 0.2, agg: "mean", pct: true },
+    availableCarriers: { base: 4.2, trend: 0.25, agg: "mean" },
+  },
+  finance: {
+    collected: { base: 79000, trend: 0.6, agg: "sum" },
+    shipmentPrice: { base: 76500, trend: 0.6, agg: "sum" },
+    commission: { base: 9900, trend: 0.42, agg: "sum" },
+    mpFee: { base: 3800, trend: 0.55, agg: "sum" },
+    carrierNet: { base: 65300, trend: 0.62, agg: "sum" },
+    refunded: { base: 1100, trend: -0.1, agg: "sum" },
+    debtGenerated: { base: 2600, trend: 0.3, agg: "sum" },
+    debtCollected: { base: 2300, trend: 0.4, agg: "sum" },
+    openDebt: { base: 48000, trend: 0.15, agg: "mean" },
+  },
 }
 
 /** Participación base de cada valor de un desglose. */
@@ -165,6 +185,43 @@ export const MOCK_DIMENSIONS: Record<string, [string, number][]> = {
     ["sender", 46],
     ["carrier", 31],
     ["partial", 23],
+  ],
+  cancelCause: [
+    ["sender", 38],
+    ["expired", 24],
+    ["receiver", 14],
+    ["pickup_missed_carrier", 10],
+    ["pickup_missed_other", 6],
+    ["admin", 4],
+    ["dispute", 3],
+    ["sanction", 1],
+    ["other", 0],
+  ],
+  city: [
+    ["Buenos Aires", 44],
+    ["Córdoba", 17],
+    ["Rosario", 14],
+    ["Mendoza", 7],
+    ["La Plata", 6],
+    ["Tucumán", 5],
+    ["Mar del Plata", 4],
+    ["__unknown__", 3],
+  ],
+  kind: [
+    ["delivery", 93],
+    ["cancellation_penalty", 5],
+    ["dispute_partial", 2],
+  ],
+  refundStatus: [
+    ["succeeded", 82],
+    ["fallback_to_ledger", 18],
+  ],
+  ledgerType: [
+    ["cash_commission", 46],
+    ["cancellation_penalty", 21],
+    ["payment_surcharge", 18],
+    ["manual_adjustment", 9],
+    ["cancellation_compensation", 6],
   ],
 }
 

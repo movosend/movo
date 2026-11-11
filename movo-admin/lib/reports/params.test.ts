@@ -34,6 +34,7 @@ describe("estado de Métricas en la URL", () => {
       from: "2026-10-01",
       to: "2026-10-20",
       band: "200_500",
+      city: null,
       dispute: DISPUTE,
       demo: true,
     })
@@ -47,6 +48,7 @@ describe("estado de Métricas en la URL", () => {
       from: "2026-10-01",
       to: "2026-10-20",
       band: "200_500",
+      city: null,
       dispute: DISPUTE,
       demo: true,
     })
@@ -54,6 +56,30 @@ describe("estado de Métricas en la URL", () => {
       from: "2026-10-01",
       to: "2026-10-20",
     })
+  })
+
+  it("la ciudad viaja en la URL solo en Operación", () => {
+    const href = metricsHref({
+      ...EMPTY_METRICS_STATE,
+      tab: "operations",
+      city: "Córdoba",
+    })
+    expect(href).toBe("/metrics?tab=operations&c=C%C3%B3rdoba")
+    expect(
+      parseMetricsState(
+        Object.fromEntries(new URL(href, "https://x").searchParams)
+      ).city
+    ).toBe("Córdoba")
+    // En otra pestaña no filtra nada: ni se lee ni se escribe.
+    expect(parseMetricsState({ tab: "deliveries", c: "Córdoba" }).city).toBe(
+      null
+    )
+    expect(
+      metricsHref({ ...EMPTY_METRICS_STATE, tab: "deliveries", city: "Córdoba" })
+    ).toBe("/metrics?tab=deliveries")
+    expect(
+      parseMetricsState({ tab: "operations", c: "x".repeat(121) }).city
+    ).toBe(null)
   })
 
   it("valores inválidos caen a los defaults, y el default no ensucia la URL", () => {

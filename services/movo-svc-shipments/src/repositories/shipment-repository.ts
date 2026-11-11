@@ -1061,6 +1061,8 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             highDemand: input.highDemand,
             distanceKm: input.distanceKm ?? null,
             ...(input.quoteBreakdown ? { quoteBreakdown: input.quoteBreakdown as unknown as Prisma.InputJsonValue } : {}),
+            demandPublishedShipments: input.demandPublishedShipments ?? null,
+            demandAvailableCarriers: input.demandAvailableCarriers ?? null,
             paymentMethod: input.paymentMethod ?? PaymentMethod.CARD,
             receiverConfirmationDeadline: input.receiverConfirmationDeadline ?? null,
             status: INITIAL_SHIPMENT_STATUS,
