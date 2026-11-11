@@ -15,7 +15,7 @@ import {
   Truck,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AcceptSuccessModal } from "../../../components/shipments/accept-success-modal";
@@ -396,23 +396,27 @@ export default function ShipmentDetailScreen() {
     position: livePosition,
     isStale: liveStale,
     isLoadingInitial: liveLoadingInitial,
+    isDelivered: liveClosed,
   } = useLivePosition(liveEnabled ? shipment?.id : undefined, {
     enabled: liveEnabled,
   });
   const partyTracking = useShipmentTracking(shipment?.id, { enabled: liveEnabled, status: shipment?.status });
+  // Cuando el WS avisa `delivered`/`cancelled` el seguimiento se apaga ya, sin esperar el refetch del
+  // envío (DD-023: se muestra solo mientras está en curso).
+  const liveActive = liveEnabled && !liveClosed;
   // MOVO-359: antes del retiro el mapa dibuja la ruta del transportista al punto de retiro. Se pide una vez y
   // solo se renueva si el auto se aleja de esa línea. Solo el emisor la ve (la llegada al retiro es dato suyo):
   // el receptor no la pide, así no se duplican las llamadas facturadas a Google Routes.
   const isPickupPhase = shipment?.status !== ShipmentStatus.IN_TRANSIT;
   useApproachRefresh({
-    active: liveEnabled && isPickupPhase && !seesReceiverView,
+    active: liveActive && isPickupPhase && !seesReceiverView,
     settled: partyTracking.isFetched && !partyTracking.isFetching,
     approach: partyTracking.approach,
     position: livePosition ? { lat: livePosition.lat, lng: livePosition.lng } : null,
     // Sin cancelar un pedido en curso: cancelarlo no evita la llamada del backend, solo la repite.
     refetch: () => partyTracking.refetch({ cancelRefetch: false }),
   });
-  const routeLive: RouteMapLive | null = liveEnabled
+  const routeLive: RouteMapLive | null = liveActive
     ? {
         position: livePosition ? { lat: livePosition.lat, lng: livePosition.lng } : null,
         stale: liveStale || partyTracking.data?.signalLost === true,
@@ -422,6 +426,7 @@ export default function ShipmentDetailScreen() {
         approach: partyTracking.approach,
         phase: isPickupPhase ? "pickup" : "delivery",
         viewer: seesReceiverView ? "receiver" : "sender",
+        loadingInitial: liveLoadingInitial,
       }
     : null;
 
@@ -430,14 +435,26 @@ export default function ShipmentDetailScreen() {
   const liveNotice: RouteMapNotice | null =
     liveTracking === "pending"
       ? { title: "Seguimiento en vivo", body: "Se activa cuando el transportista inicia el recorrido.", tone: "neutral" }
-      : liveEnabled && shipment?.status === ShipmentStatus.IN_TRANSIT && !liveLoadingInitial && !livePosition
+      : liveActive && shipment?.status === ShipmentStatus.IN_TRANSIT && !liveLoadingInitial && !livePosition
         ? {
             title: "No tenemos la ubicación del transportista",
             body: "Cuando vuelva a compartirla, la vas a ver en el mapa.",
             tone: "warning",
           }
         : null;
-  const openLiveMapOnMount = mapParam === "live" && liveTracking === "available";
+  // `map=live` se consume la primera vez que se resuelve el envío, abra o no el mapa: si no, un link viejo
+  // con el seguimiento en `pending` lo abriría solo cuando el transportista inicie el viaje.
+  const [liveMapRequested, setLiveMapRequested] = useState(mapParam === "live");
+  useEffect(() => {
+    if (!liveMapRequested || shipment === undefined || liveTracking === "available") return;
+    setLiveMapRequested(false);
+    clearMapParam();
+  }, [liveMapRequested, shipment, liveTracking, clearMapParam]);
+  const openLiveMapOnMount = liveMapRequested && liveTracking === "available";
+  const onLiveMapOpened = useCallback(() => {
+    setLiveMapRequested(false);
+    clearMapParam();
+  }, [clearMapParam]);
 
   // Espejo para el transportista: si su ubicación ya se comparte con emisor y receptor.
   const carrierSharing =
@@ -736,13 +753,14 @@ export default function ShipmentDetailScreen() {
                     notice={liveNotice}
                     openFullscreenOnMount={openLiveMapOnMount}
                     // Una sola vez: al volver al detalle (o con un refetch) no se reabre.
-                    onOpenedFullscreenOnMount={clearMapParam}
+                    onOpenedFullscreenOnMount={onLiveMapOpened}
                     renderFullscreenSheet={
                       routeLive
-                        ? ({ close, estimate, onHeightChange }) => (
+                        ? ({ close, estimate, estimateLoading, onHeightChange }) => (
                             <LiveTrackingSheet
                               shipmentId={shipment.id}
                               estimate={estimate}
+                              estimateLoading={estimateLoading}
                               carrierId={shipment.carrierId}
                               chat={chatAccess}
                               onNavigate={(path) => close(() => pushOnce(path))}

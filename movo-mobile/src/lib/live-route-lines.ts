@@ -10,8 +10,8 @@ import { splitRoute, type RoutePoint } from "./route-geometry";
  */
 export const LIVE_REMAINING_LINE_WIDTH = 3.5;
 export const LIVE_TRACE_LINE_WIDTH = 4;
-/** Grosor de la ruta sin seguimiento (base gris y barrido): el mismo gris que lo que falta en vivo. */
-export const ROUTE_LINE_WIDTH = LIVE_REMAINING_LINE_WIDTH;
+/** Grosor de la ruta sin seguimiento (base gris y barrido), propio: no sigue al de la línea en vivo. */
+export const ROUTE_LINE_WIDTH = 3.5;
 
 /** Capas del mapa (MOVO-355): lo que falta o la base abajo, lo recorrido o el barrido arriba. */
 export const ROUTE_BELOW_Z_INDEX = 1;

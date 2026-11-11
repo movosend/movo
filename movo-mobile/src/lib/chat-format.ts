@@ -230,6 +230,8 @@ export interface TimelineMessage {
   clientMessageId?: string;
   authorId: string;
   createdAt: string;
+  /** Mensaje local todavía sin confirmar (o fallido): no muestra hora. */
+  localState?: "sending" | "failed";
 }
 
 /** Tarjeta intercalada entre los mensajes (evento del envío, línea del sistema de soporte). */
@@ -296,7 +298,9 @@ export function buildTimeline<M extends TimelineMessage, C extends TimelineCard>
     const sameAsPrev = prev?.authorId === message.authorId && new Date(prev.createdAt).toDateString() === day;
     const sameAsNext = next?.authorId === message.authorId && new Date(next.createdAt).toDateString() === day;
     const mine = message.authorId === params.currentUserId;
-    const sameMinuteAsNext = sameAsNext && Math.floor(entries[index + 1].at / 60_000) === Math.floor(entry.at / 60_000);
+    // El siguiente solo cubre la hora de esta burbuja si está confirmado: enviando o fallido no la muestra.
+    const nextSettled = !next?.localState;
+    const sameMinuteAsNext = sameAsNext && nextSettled && Math.floor(entries[index + 1].at / 60_000) === Math.floor(entry.at / 60_000);
     chronological.push({
       kind: "message",
       key: `message-${message.clientMessageId || message.id}`,

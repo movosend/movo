@@ -2,7 +2,13 @@ import { Pencil } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState, Pressable, Text, View } from "react-native";
 import MapView, { Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
-import Animated, { processColor, useAnimatedProps, useFrameCallback, useSharedValue } from "react-native-reanimated";
+import Animated, {
+  processColor,
+  useAnimatedProps,
+  useDerivedValue,
+  useFrameCallback,
+  useSharedValue,
+} from "react-native-reanimated";
 import { useColorScheme } from "nativewind";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -34,6 +40,7 @@ import { SkeletonBlock } from "../ui/skeleton-block";
 
 const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
 const NO_TRACE: LatLng[] = [];
+const NO_POINTS: LatLng[] = [];
 
 const MAP_HEIGHT = 220;
 const EDGE_PADDING = { top: 64, right: 48, bottom: 40, left: 48 };
@@ -193,6 +200,8 @@ export interface RouteMapSheetContext {
   close: (then?: () => void) => void;
   /** Llegada estimada y km desde las mismas líneas que dibuja el mapa. */
   estimate: LiveArrivalEstimate;
+  /** La posición inicial todavía se está pidiendo. */
+  estimateLoading: boolean;
   /** El sheet avisa su alto: el encuadre y el botón de recentrar quedan por encima. */
   onHeightChange: (height: number) => void;
 }
@@ -218,6 +227,8 @@ export interface RouteMapLive {
   /** Quién mira, para el sheet: antes del retiro solo el emisor ve la llegada estimada al retiro
    * (MOVO-361). Default `sender`. */
   viewer?: "sender" | "receiver";
+  /** Todavía se pide la última posición guardada: la llegada estimada dice "Calculando…" solo mientras tanto. */
+  loadingInitial?: boolean;
 }
 
 /**
@@ -264,6 +275,7 @@ export function RouteMapCard({
   // el mismo cálculo de barrido en el UI thread sin tocar React; `useAnimatedProps`
   // empuja el resultado directo a `AnimatedPolyline` vía `setNativeProps`, también sin
   // re-render de React.
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const sweepLength = useSharedValue(0);
   const sweepOpacity = useSharedValue(1);
   const startedAt = useSharedValue<number | null>(null);
@@ -350,15 +362,14 @@ export function RouteMapCard({
   // defecto — se ve como un bug de color pero es un string sin procesar.
   const sweepPoints = sweepPath.points;
   const sweepFractions = sweepPath.fractions;
-  // Uno por mapa (la card y la pantalla completa): un `animatedProps` va a un solo componente.
-  const animatedSweepProps = useAnimatedProps<{ coordinates: LatLng[]; strokeColor: string }>(
+  // El frame se calcula una sola vez por cambio (`useDerivedValue`); cada mapa (la card y la pantalla
+  // completa) tiene su `animatedProps`, porque uno solo va a un componente, y solo copia el resultado.
+  const sweep = useDerivedValue(
     () => sweepFrame(sweepPoints, sweepFractions, sweepLength.value, sweepOpacity.value, colors.fg1),
     [sweepPoints, sweepFractions, colors.fg1],
   );
-  const fullscreenSweepProps = useAnimatedProps<{ coordinates: LatLng[]; strokeColor: string }>(
-    () => sweepFrame(sweepPoints, sweepFractions, sweepLength.value, sweepOpacity.value, colors.fg1),
-    [sweepPoints, sweepFractions, colors.fg1],
-  );
+  const animatedSweepProps = useAnimatedProps<{ coordinates: LatLng[]; strokeColor: string }>(() => sweep.value);
+  const fullscreenSweepProps = useAnimatedProps<{ coordinates: LatLng[]; strokeColor: string }>(() => sweep.value);
 
   const deliveryOnly = !pickup && !!delivery && pickupLabel !== undefined;
 
@@ -375,31 +386,38 @@ export function RouteMapCard({
   const liveLat = livePosition?.lat;
   const liveLng = livePosition?.lng;
   // Tramo de la última proyección del vehículo (`startSegment`): con ruido de GPS la proyección no
-  // salta a un tramo anterior de la ruta. Se reinicia con una ruta nueva.
-  // El tramo es el de la ruta al retiro antes del retiro y el de la planificada después: al cambiar de
-  // etapa o de ruta se reinicia, o el índice de una se usaría sobre la otra.
-  const segmentRef = useRef(0);
-  const segmentRouteRef = useRef({ planned: livePlanned, approach: liveApproach, phase: livePhase });
-  const segmentRoute = segmentRouteRef.current;
-  if (segmentRoute.planned !== livePlanned || segmentRoute.approach !== liveApproach || segmentRoute.phase !== livePhase) {
-    segmentRouteRef.current = { planned: livePlanned, approach: liveApproach, phase: livePhase };
-    segmentRef.current = 0;
-  }
-  const liveLines = useMemo(() => {
-    const lines = liveRouteLines({
-      phase: livePhase,
-      planned: livePlanned,
-      // La traza no se dibuja sin `pickup`: arranca en el retiro (MOVO-194 AC4).
-      trace: liveTrace,
-      carrier: liveLat !== undefined && liveLng !== undefined ? { latitude: liveLat, longitude: liveLng } : null,
-      approach: liveApproach,
-      startSegment: segmentRef.current,
-    });
-    segmentRef.current = lines.segment;
-    return lines;
-  }, [livePhase, livePlanned, liveApproach, liveTrace, liveLat, liveLng]);
+  // salta a un tramo anterior de la ruta. Va en estado (no en un ref escrito en el render, MOVO-357)
+  // y se descarta con una ruta nueva. El tramo es el de la ruta al retiro antes del retiro y el de la
+  // planificada después: al cambiar de etapa o de ruta se descarta, o el índice de una se usaría sobre la otra.
+  const [segmentState, setSegmentState] = useState({
+    planned: livePlanned,
+    approach: liveApproach,
+    phase: livePhase,
+    segment: 0,
+  });
+  const sameSegmentRoute =
+    segmentState.planned === livePlanned && segmentState.approach === liveApproach && segmentState.phase === livePhase;
+  const startSegment = sameSegmentRoute ? segmentState.segment : 0;
+  const liveLines = useMemo(
+    () =>
+      liveRouteLines({
+        phase: livePhase,
+        planned: livePlanned,
+        // La traza no se dibuja sin `pickup`: arranca en el retiro (MOVO-194 AC4).
+        trace: liveTrace,
+        carrier: liveLat !== undefined && liveLng !== undefined ? { latitude: liveLat, longitude: liveLng } : null,
+        approach: liveApproach,
+        startSegment,
+      }),
+    [livePhase, livePlanned, liveApproach, liveTrace, liveLat, liveLng, startSegment],
+  );
+  useEffect(() => {
+    if (liveLines.segment !== startSegment || !sameSegmentRoute) {
+      setSegmentState({ planned: livePlanned, approach: liveApproach, phase: livePhase, segment: liveLines.segment });
+    }
+  }, [liveLines.segment, startSegment, sameSegmentRoute, livePlanned, liveApproach, livePhase]);
   // El receptor (sin `pickup`) solo ve lo que falta desde el transportista ya en camino.
-  const remainingPoints = !pickup && (!livePosition || livePhase === "pickup") ? [] : liveLines.remaining;
+  const remainingPoints = !pickup && (!livePosition || livePhase === "pickup") ? NO_POINTS : liveLines.remaining;
   const tracePoints = liveLines.trace;
 
   const [sheetHeight, setSheetHeight] = useState(0);
@@ -415,7 +433,19 @@ export function RouteMapCard({
         pickup: pickup ? { latitude: pickup.lat, longitude: pickup.lng } : null,
         delivery: delivery ? { latitude: delivery.lat, longitude: delivery.lng } : null,
       }),
-    [livePhase, live?.viewer, pickup, delivery, remainingPoints, liveLines.toPickup, liveLines.toPickupGapM, liveLat, liveLng],
+    [
+      livePhase,
+      live?.viewer,
+      pickup?.lat,
+      pickup?.lng,
+      delivery?.lat,
+      delivery?.lng,
+      remainingPoints,
+      liveLines.toPickup,
+      liveLines.toPickupGapM,
+      liveLat,
+      liveLng,
+    ],
   );
 
   // A pantalla completa con seguimiento: transportista y entrega, más el retiro mientras va a buscarlo
@@ -454,7 +484,7 @@ export function RouteMapCard({
     ) : null;
 
   // La ruta sin seguimiento: base gris (la de toda la app) y el barrido en tinta encima.
-  const routeLayer = (prefix: string, sweepProps: typeof animatedSweepProps) => (
+  const routeLayer = (prefix: string, sweepProps: typeof animatedSweepProps | null) => (
     <>
       <Polyline
         testID={testID ? `${testID}-${prefix}route-base` : undefined}
@@ -463,14 +493,16 @@ export function RouteMapCard({
         strokeWidth={ROUTE_LINE_WIDTH}
         zIndex={ROUTE_BELOW_Z_INDEX}
       />
-      <AnimatedPolyline
-        testID={testID ? `${testID}-${prefix}route-sweep` : undefined}
-        coordinates={routePoints}
-        strokeColor={hexToRgba(colors.fg1, 1)}
-        strokeWidth={ROUTE_LINE_WIDTH}
-        zIndex={ROUTE_ABOVE_Z_INDEX}
-        animatedProps={sweepProps}
-      />
+      {sweepProps ? (
+        <AnimatedPolyline
+          testID={testID ? `${testID}-${prefix}route-sweep` : undefined}
+          coordinates={routePoints}
+          strokeColor={hexToRgba(colors.fg1, 1)}
+          strokeWidth={ROUTE_LINE_WIDTH}
+          zIndex={ROUTE_ABOVE_Z_INDEX}
+          animatedProps={sweepProps}
+        />
+      ) : null}
     </>
   );
 
@@ -539,6 +571,7 @@ export function RouteMapCard({
         backgroundColor={mapBackgroundColor}
         borderRadius={bare ? 0 : 14}
         testID={testID ? `${testID}-frame` : undefined}
+        onVisibleChange={setFullscreenOpen}
         openOnMount={openFullscreenOnMount}
         onOpenedOnMount={onOpenedFullscreenOnMount}
         renderFullscreen={(close) => (
@@ -551,7 +584,7 @@ export function RouteMapCard({
               <>
                 {/* Debajo del botón de cerrar (arriba a la izquierda, 44 px). */}
                 <FullscreenNotice>{noticeView("fs-", 0)}</FullscreenNotice>
-                {renderFullscreenSheet?.({ close, estimate: liveEstimate, onHeightChange: setSheetHeight })}
+                {renderFullscreenSheet?.({ close, estimate: liveEstimate, estimateLoading: live?.loadingInitial ?? false, onHeightChange: setSheetHeight })}
               </>
             }
           >
@@ -654,7 +687,8 @@ export function RouteMapCard({
           {pickup ? (
             <>
               {/* Con seguimiento en vivo ni la base ni el barrido: la ruta la dibuja `liveLayer`. */}
-              {live ? null : routeLayer("", animatedSweepProps)}
+              {/* Con la pantalla completa abierta el barrido de la card (tapada) no se anima: serían dos mapas redibujando. */}
+              {live ? null : routeLayer("", fullscreenOpen ? null : animatedSweepProps)}
 
               <StaticMarker
                 key={`pickup-${pickup.address}`}

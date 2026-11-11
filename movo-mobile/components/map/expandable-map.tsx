@@ -34,6 +34,8 @@ interface ExpandableMapProps {
   openOnMount?: boolean;
   /** Se llama al terminar de abrirse sola con `openOnMount`. */
   onOpenedOnMount?: () => void;
+  /** Avisa si el modal está abierto (incluida la animación de cierre), p. ej. para pausar lo que anima la card tapada. */
+  onVisibleChange?: (visible: boolean) => void;
   /** Color de fondo mientras el mapa nativo carga, para que la expansión no muestre un hueco. */
   backgroundColor: string;
   /** Radio de la card, para que el rectángulo animado parta con las mismas esquinas. */
@@ -57,6 +59,7 @@ export function ExpandableMap({
   borderRadius = 0,
   openOnMount = false,
   onOpenedOnMount,
+  onVisibleChange,
   className,
   style,
   testID,
@@ -65,10 +68,15 @@ export function ExpandableMap({
   const { width: windowW, height: windowH } = useWindowDimensions();
   const frameRef = useRef<View>(null);
   const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    onVisibleChange?.(visible);
+  }, [visible, onVisibleChange]);
   const origin = useSharedValue<Rect>({ x: 0, y: 0, width: windowW, height: windowH });
   const progress = useSharedValue(0);
 
+  const closing = useRef(false);
   const open = useCallback(() => {
+    closing.current = false;
     frameRef.current?.measureInWindow((x, y, width, height) => {
       origin.value = { x, y, width, height };
       progress.value = 0;
@@ -81,6 +89,7 @@ export function ExpandableMap({
   // `then` queda del lado de JS: pasar una función de JS por el worklet a `runOnJS` no es seguro.
   const afterClose = useRef<(() => void) | undefined>(undefined);
   const finishClose = useCallback(() => {
+    closing.current = false;
     setVisible(false);
     const then = afterClose.current;
     afterClose.current = undefined;
@@ -88,6 +97,9 @@ export function ExpandableMap({
   }, []);
 
   const close = (then?: () => void) => {
+    // Un segundo `close()` durante la animación no pisa la navegación del primero.
+    if (closing.current) return;
+    closing.current = true;
     afterClose.current = then;
     progress.value = withTiming(0, { duration: CLOSE_MS, easing: EASING }, (finished) => {
       if (finished) runOnJS(finishClose)();
