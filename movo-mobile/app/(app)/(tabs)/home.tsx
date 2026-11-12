@@ -27,6 +27,7 @@ import { useTransportGate } from '../../../src/hooks/use-transport-gate';
 import { useMyTrips } from '../../../src/hooks/use-trips';
 import { TripStatus } from '../../../src/api/trips-client';
 import { splitCarrierHomeTrips } from '../../../src/lib/trip-format';
+import { useResumeActiveTrip } from '../../../src/hooks/use-resume-active-trip';
 import {
   KYC_TONE_ICON_HEX,
   kycStatusIcon,
@@ -137,6 +138,8 @@ export default function AuthenticatedHomeScreen() {
   // MOVO-169: Tour 1 "Primeros pasos" en la primera llegada con la identidad aprobada
   // (sin ella no se puede enviar). Espera a saber si ya puede transportar: decide el último paso.
   const isFocused = useIsFocused();
+  // Al abrir la app con un viaje en curso, se vuelve a él en vez de quedarse en Inicio (feedback de TestFlight).
+  useResumeActiveTrip({ userId: user?.userId, isCarrier, isFocused, trips: tripsQuery.data?.items });
   const { canBrowse, isRequirementsLoading } = useTransportGate();
   useAutoStartTour('first_steps', {
     enabled: isFocused && currentKycStatus === KycStatus.APPROVED && !isRequirementsLoading,
