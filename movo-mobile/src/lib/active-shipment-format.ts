@@ -263,3 +263,52 @@ export const ACTIVE_SHIPMENT_STEPS = ["Retiro", "En camino", "Llegando", "Entreg
 export function activeShipmentStepIndex(status: ActiveShipmentSummary["status"]): number {
   return status === "in_transit" ? 1 : 0;
 }
+
+/** Un envío activo con el lado desde el que lo ve el usuario. */
+export interface ActiveShipmentItem {
+  shipment: ActiveShipmentSummary;
+  role: ActiveShipmentRole;
+}
+
+/** "Enviás" / "Recibís": de qué lado está el usuario, en la sección única de Inicio. */
+export const ACTIVE_SHIPMENT_ROLE_LABEL: Record<ActiveShipmentRole, string> = {
+  sending: "Enviás",
+  receiving: "Recibís",
+};
+
+/**
+ * Urgencia de un envío en "Envíos en curso" (menor = antes): lo que pide acción hoy o venció su ventana, lo que pide
+ * acción, lo que está en camino, lo asignado sin nada que hacer y lo que espera el pago.
+ */
+function activeShipmentUrgency({ shipment, role }: ActiveShipmentItem): number {
+  const cta = activeShipmentCta(role, shipment);
+  const needsAction = cta !== null && cta.variant !== "secondary";
+  if (shipment.pickupWindowExpired || (needsAction && shipment.isToday)) return 0;
+  if (needsAction) return 1;
+  if (shipment.status === "in_transit") return 2;
+  if (shipment.status === "assigned") return 3;
+  return 4;
+}
+
+/**
+ * Los envíos que mandás y los que recibís en una sola lista (feedback: dos secciones con su carrusel empujaban el resto
+ * de Inicio), ordenada por urgencia y, a igual urgencia, por fecha de retiro.
+ */
+export function mergeActiveShipments(
+  sending: ActiveShipmentSummary[],
+  receiving: ActiveShipmentSummary[],
+): ActiveShipmentItem[] {
+  const items: ActiveShipmentItem[] = [
+    ...sending.map((shipment) => ({ shipment, role: "sending" as const })),
+    ...receiving.map((shipment) => ({ shipment, role: "receiving" as const })),
+  ];
+  return items
+    .map((item, index) => ({ item, index, urgency: activeShipmentUrgency(item) }))
+    .sort(
+      (a, b) =>
+        a.urgency - b.urgency ||
+        (a.item.shipment.pickupDate ?? "").localeCompare(b.item.shipment.pickupDate ?? "") ||
+        a.index - b.index,
+    )
+    .map(({ item }) => item);
+}

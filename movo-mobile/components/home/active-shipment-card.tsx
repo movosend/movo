@@ -16,6 +16,7 @@ import {
   activeShipmentPickupWindowLabel,
   activeShipmentSubtitle,
   type ActiveShipmentRole,
+  ACTIVE_SHIPMENT_ROLE_LABEL,
 } from "../../src/lib/active-shipment-format";
 import { formatUnreadCount } from "../../src/lib/chat-format";
 import { pushOnce } from "../../src/lib/navigation-guard";
@@ -91,10 +92,13 @@ export function ActiveShipmentCard({
   shipment,
   role,
   chat,
+  showRole = false,
   testID,
 }: {
   shipment: ActiveShipmentSummary;
   role: ActiveShipmentRole;
+  /** En la sección única "Envíos en curso": un rótulo "Enviás"/"Recibís" arriba del código. */
+  showRole?: boolean;
   /** MOVO-284: presente solo si el envío ya tiene chat. */
   chat?: { unreadCount: number };
   testID?: string;
@@ -142,7 +146,13 @@ export function ActiveShipmentCard({
       {/* ── Encabezado: código (headline) + contraparte, pill de estado a la derecha ── */}
       <View className="flex-row items-start justify-between gap-3">
           <View className="min-w-0 flex-1 gap-0.5">
-            <Text className="font-mono-semibold text-[25px] text-fg" numberOfLines={1}>
+            {showRole ? (
+              <Text testID={testID ? `${testID}-role` : undefined} className="font-sans-semibold text-caption uppercase tracking-wider text-fg-3">
+                {ACTIVE_SHIPMENT_ROLE_LABEL[role]}
+              </Text>
+            ) : null}
+            {/* Con una pill ancha al lado ("Retira 09:00 h") achica la letra en vez de cortar el código. */}
+            <Text className="font-mono-semibold text-[25px] text-fg" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
               {activeShipmentDisplayCode(shipment.id)}
             </Text>
             <Text className="font-sans-medium text-small text-fg-2">
@@ -347,12 +357,14 @@ export function ActiveShipmentCard({
       <View
         testID={testID}
         className="mb-3 rounded-[22px] border border-border bg-bg-sub"
+        // La misma sombra que el resto de las tarjetas: en el carrusel de "Envíos en curso", una tarjeta sin relieve
+        // entre las demás parecía un error. Lo "pendiente" lo dicen el fondo plano y el estado.
         style={{
-          shadowColor: colors.chromeShadow,
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.05,
-          shadowRadius: 2,
-          elevation: 1,
+          shadowColor: colors.activeCardShadow,
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 1,
+          shadowRadius: 10,
+          elevation: 4,
         }}
       >
         {content}

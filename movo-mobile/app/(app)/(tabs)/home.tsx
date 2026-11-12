@@ -34,6 +34,7 @@ import {
   kycStatusTone,
 } from '../../../src/lib/kyc-status-ui';
 import { isStaleActiveShipment } from '../../../src/lib/home-visibility';
+import { mergeActiveShipments } from '../../../src/lib/active-shipment-format';
 import { capitalizeName, formatGreetingDateLabel, getFirstName } from '../../../src/lib/profile-format';
 import { useAuthStore } from '../../../src/store/auth-store';
 import { useTabBarScrollHandler } from '../../../src/store/tab-bar-store';
@@ -49,7 +50,7 @@ import { useTabBarScrollHandler } from '../../../src/store/tab-bar-store';
  * ticket aparte — acá solo se resuelve el punto de entrada, bloqueado hasta que el
  * KYC de identidad esté aprobado (mismo criterio que ya usaba el banner).
  *
- * MOVO-193: "Estoy enviando"/"Voy a recibir" (`RoleSection`) consumen `GET
+ * MOVO-193: "Envíos en curso" (`RoleSection`, antes "Estoy enviando"/"Voy a recibir") consume `GET
  * /shipments/sending`/`/receiving` (MOVO-192, ya desplegado — ver
  * `ActiveShipmentSummary` en `shipments-client.ts`); cada sección carga y falla por su
  * cuenta (MOVO-168), con skeleton y "Reintentar" locales. `CarrierTransportingSection`
@@ -81,6 +82,10 @@ export default function AuthenticatedHomeScreen() {
   const receivingQuery = useReceivingShipments();
   const receiving = receivingQuery.data;
   const visibleReceiving = useMemo(() => (receiving ?? []).filter((s) => !isStaleActiveShipment(s)), [receiving]);
+  const activeShipmentItems = useMemo(
+    () => mergeActiveShipments(visibleSending, visibleReceiving),
+    [visibleSending, visibleReceiving],
+  );
   const { data: chats } = useChatList();
   // Solo los envíos que ya tienen chat llevan el botón en su card.
   const chatByShipment = Object.fromEntries((chats ?? []).map((item) => [item.shipmentId, { unreadCount: item.unreadCount }]));
@@ -249,21 +254,14 @@ export default function AuthenticatedHomeScreen() {
 
         {isCarrier ? <CarrierTransportingSection testID="app-home-transporting" /> : null}
 
+        {/* Lo que mandás y lo que recibís, juntos y por urgencia (antes eran dos secciones con su carrusel). */}
         <RoleSection
-          testID="app-home-sending"
-          title="Estoy enviando"
-          role="sending"
-          shipments={visibleSending}
+          testID="app-home-shipments"
+          title="Envíos en curso"
+          items={activeShipmentItems}
+          showRole
           chatByShipment={chatByShipment}
-          isLoading={sendingQuery.isLoading}
-        />
-        <RoleSection
-          testID="app-home-receiving"
-          title="Voy a recibir"
-          role="receiving"
-          shipments={visibleReceiving}
-          chatByShipment={chatByShipment}
-          isLoading={receivingQuery.isLoading}
+          isLoading={sendingQuery.isLoading || receivingQuery.isLoading}
         />
 
         <HomeSendCta

@@ -1,3 +1,4 @@
+import { TripStatus, type TripWithAcceptedPackages } from "../api/trips-client";
 import type { ActiveShipmentSummary } from "../api/shipments-client";
 import type { AttentionTask } from "../hooks/use-attention-tasks";
 
@@ -164,3 +165,40 @@ export const MOCK_ATTENTION_TASKS: AttentionTask[] = [
     onPress: () => {},
   },
 ];
+
+/** Viaje en curso dentro de una misma localidad: "Viaje en Córdoba", "Ver mapa" y el pie "En vivo". */
+export const MOCK_ACTIVE_TRIP: TripWithAcceptedPackages = {
+  id: "dev-trip-active-1",
+  carrierId: "dev-carrier",
+  originAddress: "Juan del Campillo 367, X5000 Córdoba, Argentina",
+  originLat: -31.4005,
+  originLng: -64.1951,
+  destinationAddress: "Monseñor Ferreyra 650, X5000 Córdoba, Argentina",
+  destinationLat: -31.3813,
+  destinationLng: -64.2121,
+  departureAt: new Date().toISOString(),
+  vehicleType: "Auto",
+  status: TripStatus.ACTIVE,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+  cancelledAt: null,
+  recurrenceWeekdays: null,
+  recurrenceUntil: null,
+  seriesId: null,
+  generatedFromTripId: null,
+  isSeriesHead: true,
+  hasAcceptedPackages: true,
+  acceptedPackagesCount: 1,
+  executablePackagesCount: 1,
+};
+
+/** Un viaje entre dos localidades de la provincia: sigue "Luque → Calchín". */
+export const MOCK_DECLARED_TRIP: TripWithAcceptedPackages = {
+  ...MOCK_ACTIVE_TRIP,
+  id: "dev-trip-declared-1",
+  originAddress: "Av. San Martín 120, X5967 Luque, Córdoba, Argentina",
+  destinationAddress: "Bv. Sarmiento 45, X5987 Calchín, Córdoba, Argentina",
+  status: TripStatus.DECLARED,
+  acceptedPackagesCount: 2,
+  executablePackagesCount: 2,
+};
