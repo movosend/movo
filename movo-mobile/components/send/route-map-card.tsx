@@ -218,6 +218,9 @@ export interface RouteMapLive {
   /** Ruta planificada del envío; si viene vacía se usa la del mapa. Lo que falta va en el gris
    * continuo de la ruta (`live-route-lines.ts`), en lugar de la línea base. */
   planned: LatLng[];
+  /** Ruta por calle del transportista al retiro (`approachRoute`, MOVO-359). Solo se usa antes del retiro
+   * (`phase: "pickup"`): se dibuja al frente de la planificada, recortada desde el vehículo. */
+  approach?: LatLng[];
   /** `pickup` (`assigned`): la ruta se dibuja entera, sin recortarla desde el transportista, que
    * todavía no la recorre. `delivery` (`in_transit`, el default): lo que falta desde el transportista. */
   phase?: LivePhase;
@@ -375,6 +378,7 @@ export function RouteMapCard({
   // (de `/tracking`, otra llamada a Google) y se veían dos líneas casi paralelas.
   const livePosition = live?.position ?? null;
   const livePlanned = live && live.planned.length > 1 ? live.planned : routePoints;
+  const liveApproach = live?.approach ?? NO_TRACE;
   const livePhase: LivePhase = live?.phase ?? "delivery";
   // Por campo y no por `live`: el caller lo arma como objeto nuevo en cada render, y la proyección
   // recorre toda la polyline.
@@ -383,9 +387,17 @@ export function RouteMapCard({
   const liveLng = livePosition?.lng;
   // Tramo de la última proyección del vehículo (`startSegment`): con ruido de GPS la proyección no
   // salta a un tramo anterior de la ruta. Va en estado (no en un ref escrito en el render, MOVO-357)
-  // y se descarta con una ruta nueva.
-  const [segmentState, setSegmentState] = useState({ route: livePlanned, segment: 0 });
-  const startSegment = segmentState.route === livePlanned ? segmentState.segment : 0;
+  // y se descarta con una ruta nueva. El tramo es el de la ruta al retiro antes del retiro y el de la
+  // planificada después: al cambiar de etapa o de ruta se descarta, o el índice de una se usaría sobre la otra.
+  const [segmentState, setSegmentState] = useState({
+    planned: livePlanned,
+    approach: liveApproach,
+    phase: livePhase,
+    segment: 0,
+  });
+  const sameSegmentRoute =
+    segmentState.planned === livePlanned && segmentState.approach === liveApproach && segmentState.phase === livePhase;
+  const startSegment = sameSegmentRoute ? segmentState.segment : 0;
   const liveLines = useMemo(
     () =>
       liveRouteLines({
@@ -394,15 +406,16 @@ export function RouteMapCard({
         // La traza no se dibuja sin `pickup`: arranca en el retiro (MOVO-194 AC4).
         trace: liveTrace,
         carrier: liveLat !== undefined && liveLng !== undefined ? { latitude: liveLat, longitude: liveLng } : null,
+        approach: liveApproach,
         startSegment,
       }),
-    [livePhase, livePlanned, liveTrace, liveLat, liveLng, startSegment],
+    [livePhase, livePlanned, liveApproach, liveTrace, liveLat, liveLng, startSegment],
   );
   useEffect(() => {
-    if (liveLines.segment !== startSegment || segmentState.route !== livePlanned) {
-      setSegmentState({ route: livePlanned, segment: liveLines.segment });
+    if (liveLines.segment !== startSegment || !sameSegmentRoute) {
+      setSegmentState({ planned: livePlanned, approach: liveApproach, phase: livePhase, segment: liveLines.segment });
     }
-  }, [liveLines.segment, startSegment, livePlanned, segmentState.route]);
+  }, [liveLines.segment, startSegment, sameSegmentRoute, livePlanned, liveApproach, livePhase]);
   // El receptor (sin `pickup`) solo ve lo que falta desde el transportista ya en camino.
   const remainingPoints = !pickup && (!livePosition || livePhase === "pickup") ? NO_POINTS : liveLines.remaining;
   const tracePoints = liveLines.trace;
@@ -414,11 +427,25 @@ export function RouteMapCard({
         phase: livePhase,
         viewer: live?.viewer ?? "sender",
         remaining: remainingPoints,
+        toPickup: liveLines.toPickup,
+        toPickupGapM: liveLines.toPickupGapM,
         carrier: liveLat !== undefined && liveLng !== undefined ? { latitude: liveLat, longitude: liveLng } : null,
         pickup: pickup ? { latitude: pickup.lat, longitude: pickup.lng } : null,
         delivery: delivery ? { latitude: delivery.lat, longitude: delivery.lng } : null,
       }),
-    [livePhase, live?.viewer, pickup?.lat, pickup?.lng, delivery?.lat, delivery?.lng, remainingPoints, liveLat, liveLng],
+    [
+      livePhase,
+      live?.viewer,
+      pickup?.lat,
+      pickup?.lng,
+      delivery?.lat,
+      delivery?.lng,
+      remainingPoints,
+      liveLines.toPickup,
+      liveLines.toPickupGapM,
+      liveLat,
+      liveLng,
+    ],
   );
 
   // A pantalla completa con seguimiento: transportista y entrega, más el retiro mientras va a buscarlo

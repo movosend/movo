@@ -1,5 +1,11 @@
 import type Redis from "ioredis";
-import { ADMIN_TRACKING_POLL_INTERVAL_SECONDS, AdminShipmentTracking, AdminTrackingPoint, ShipmentStatus } from "@movo/shared";
+import {
+  ADMIN_TRACKING_POLL_INTERVAL_SECONDS,
+  AdminShipmentTracking,
+  AdminTrackingPoint,
+  ShipmentStatus,
+  TripStatus,
+} from "@movo/shared";
 import type { Shipment as ShipmentRow } from "../../generated/prisma/client";
 import { adminTrackingState, averageSpeedKmh, capTrace, trackingMetrics } from "../../domain/admin-tracking";
 import type { PositionRepository } from "../../repositories/position-repository";
@@ -13,9 +19,20 @@ export interface AdminTrackingServiceDeps {
   positionRepository: Pick<PositionRepository, "listCustodyTrace">;
   redis: Pick<Redis, "hgetall">;
   routeStore: PlannedRouteStore;
+  /** MOVO-359: ruta del transportista al retiro (con sus propios logs). Sin él, `approachRoute` nunca se calcula. */
+  approachRouteStore?: PlannedRouteStore;
   signalLostSeconds: number;
   now?: () => Date;
 }
+
+type TrackingRoute = NonNullable<AdminShipmentTracking["plannedRoute"]>;
+
+/** Copia solo los campos del contrato: así un campo nuevo en `@movo/shared` se ve acá y no se pierde en silencio. */
+const toTrackingRoute = (r: TrackingRoute): TrackingRoute => ({
+  polyline: r.polyline,
+  distanceMeters: r.distanceMeters,
+  durationSeconds: r.durationSeconds,
+});
 
 type LastPosition = NonNullable<AdminShipmentTracking["lastPosition"]> & { receivedAt: string };
 
@@ -43,12 +60,24 @@ export function createAdminTrackingService(deps: AdminTrackingServiceDeps) {
     };
   }
 
+  async function fetchApproachRoute(
+    tripId: string,
+    shipmentId: string,
+    pickup: { lat: number; lng: number },
+    serverTime: Date,
+  ): Promise<TrackingRoute | null> {
+    const position = await lastKnown(tripId);
+    if (!position || serverTime.getTime() - Date.parse(position.receivedAt) > deps.signalLostSeconds * 1000) return null;
+    const result = await deps.approachRouteStore!.get(shipmentId, { lat: position.lat, lng: position.lng }, pickup);
+    return result ? toTrackingRoute(result) : null;
+  }
+
   return {
     /**
      * `closedTrace: false` (MOVO-346, seguimiento de emisor y receptor): con el envío cerrado no devuelve la
      * traza; las partes ven el recorrido mientras dura, no el historial.
      */
-    async get(row: ShipmentRow, opts: { closedTrace?: boolean } = {}): Promise<AdminShipmentTracking> {
+    async get(row: ShipmentRow, opts: { closedTrace?: boolean; approachRoute?: boolean } = {}): Promise<AdminShipmentTracking> {
       const serverTime = now();
       const status = row.status as ShipmentStatus;
       const { state, reason } = adminTrackingState(status);
@@ -69,10 +98,29 @@ export function createAdminTrackingService(deps: AdminTrackingServiceDeps) {
       const trip = context?.trip ?? null;
 
       const withTrace = state === "live" || (state === "closed" && opts.closedTrace !== false);
-      const [route, positions, redisPosition] = await Promise.all([
+
+      // MOVO-359: antes del retiro (`assigned`, viaje iniciado), el tramo del vehículo al punto de retiro. Solo
+      // para el emisor (`opts.approachRoute`): el panel y el receptor no lo piden, así que no suman llamadas
+      // al proveedor. Con otro retiro pendiente en el mismo viaje no se sabe cuál visita primero el vehículo: la
+      // línea al retiro de este envío sería falsa y se renovaría en cada desvío, así que no se pide. Sin posición
+      // reciente tampoco: saldría de un lugar donde el auto ya no está.
+      // Review PR-340: cuando no corresponde pedirla (otro retiro pendiente, fuera de `assigned`, viaje sin
+      // iniciar) el campo va ausente; `null` queda para "corresponde, pero ahora no se pudo" (proveedor caído,
+      // sin posición reciente). El móvil conserva la última línea solo en el segundo caso.
+      const pendingPickups = context?.pendingPickupShipmentIds ?? [];
+      const wantsApproach =
+        !!opts.approachRoute &&
+        !!deps.approachRouteStore &&
+        status === ShipmentStatus.ASSIGNED &&
+        trip?.status === TripStatus.ACTIVE &&
+        pendingPickups.every((id) => id === row.id);
+
+      // Todo en paralelo: si ninguna ruta está cacheada, las llamadas a Google no se suman una tras otra.
+      const [route, positions, redisPosition, approachRoute] = await Promise.all([
         trip ? deps.routeStore.get(row.id, origin, destination) : null,
         withTrace ? deps.positionRepository.listCustodyTrace(row.id) : [],
         state === "live" && trip ? lastKnown(trip.id) : null,
+        wantsApproach && trip ? fetchApproachRoute(trip.id, row.id, origin, serverTime) : null,
       ]);
 
       const fullTrace: AdminTrackingPoint[] = positions.map((p) => ({
@@ -89,9 +137,8 @@ export function createAdminTrackingService(deps: AdminTrackingServiceDeps) {
         reason,
         origin,
         destination,
-        plannedRoute: route
-          ? { polyline: route.polyline, distanceMeters: route.distanceMeters, durationSeconds: route.durationSeconds }
-          : null,
+        plannedRoute: route ? toTrackingRoute(route) : null,
+        ...(wantsApproach ? { approachRoute } : {}),
         trace,
         traceTruncated: truncated,
         traceAvailable: trace.length > 0,

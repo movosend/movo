@@ -72,7 +72,7 @@ jest.mock("../src/hooks/use-live-position", () => ({
   useLivePosition: () => ({ position: null, isStale: false }),
 }));
 jest.mock("../src/hooks/use-shipment-tracking", () => ({
-  useShipmentTracking: () => ({ data: undefined, trace: [], planned: [] }),
+  useShipmentTracking: () => ({ data: undefined, trace: [], planned: [], approach: [], refetch: jest.fn() }),
 }));
 
 jest.mock("../src/hooks/use-offers", () => ({
