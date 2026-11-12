@@ -386,8 +386,10 @@ export interface AdminShipmentTracking {
   plannedRoute: { polyline: string; distanceMeters: number; durationSeconds: number } | null;
   /**
    * MOVO-359: ruta por calle del transportista al punto de retiro. Solo para el emisor (`GET
-   * /shipments/:id/tracking`), con el envío `assigned` y el viaje iniciado; `null` si el proveedor falló, no hay
-   * posición reciente o el viaje tiene otro retiro pendiente. Ausente en el panel y para el receptor.
+   * /shipments/:id/tracking`), con el envío `assigned`, el viaje iniciado y sin otro retiro pendiente en el viaje.
+   * `null` si corresponde pero ahora no se pudo (el proveedor falló o pasó el tope de llamadas sin una ruta
+   * previa, o no hay posición reciente): el móvil conserva la última línea. Ausente si no corresponde (panel,
+   * receptor, otro retiro pendiente, fuera de `assigned`): el móvil no dibuja una línea anterior.
    */
   approachRoute?: { polyline: string; distanceMeters: number; durationSeconds: number } | null;
   /** Cronológica, del retiro a la entrega (o a ahora). */

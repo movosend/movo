@@ -16,8 +16,15 @@ export interface PlannedRouteStore {
   get(shipmentId: string, origin: RouteLatLng, destination: RouteLatLng): Promise<RouteResult | null>;
 }
 
+/** Tope de llamadas reales al proveedor por envío y ventana de tiempo (MOVO-359, review PR-340). */
+export interface RouteCallBudget {
+  max: number;
+  windowSeconds: number;
+}
+
 export interface PlannedRouteStoreDeps {
-  redis: Pick<Redis, "get" | "set">;
+  /** `incr`/`expire` solo hacen falta con `callBudget`. */
+  redis: Pick<Redis, "get" | "set"> & Partial<Pick<Redis, "incr" | "expire">>;
   routesProvider: Pick<RoutesProvider, "getRoute">;
   provider: string;
   logger?: Pick<FastifyBaseLogger, "warn"> & Partial<Pick<FastifyBaseLogger, "info">>;
@@ -27,6 +34,12 @@ export interface PlannedRouteStoreDeps {
   successTtlSeconds?: number;
   /** Clave de cache. Default: `admin_tracking_route:<proveedor>:<envío>:<origen>:<destino>`, con las coordenadas exactas. */
   keyFor?: (shipmentId: string, origin: RouteLatLng, destination: RouteLatLng) => string;
+  /**
+   * Máximo de llamadas reales al proveedor por envío en una ventana fija (`<tag>:budget:<envío>:<ventana>`).
+   * Pasado el tope se devuelve la última ruta obtenida para el envío en esa ventana, o `null`, sin llamar.
+   * Sin él no hay tope (la ruta planificada no lo necesita: su clave no cambia).
+   */
+  callBudget?: RouteCallBudget;
 }
 
 const isRouteResult = (value: unknown): value is RouteResult =>
@@ -40,6 +53,37 @@ export function createPlannedRouteStore(deps: PlannedRouteStoreDeps): PlannedRou
   const logTag = deps.logTag ?? "admin_tracking_route";
   // Dos admins que abren el mismo envío a la vez comparten el pedido (alcanza con una instancia del servicio).
   const inFlight = new Map<string, Promise<RouteResult | null>>();
+  const budget = deps.callBudget;
+  const lastKey = (shipmentId: string) => `${logTag}:last:${shipmentId}`;
+
+  const parseRoute = (raw: string | null): RouteResult | null => {
+    if (!raw) return null;
+    try {
+      const value: unknown = JSON.parse(raw);
+      return isRouteResult(value) ? value : null;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * Cuenta la llamada contra el tope del envío. La ventana va en la clave (ventana fija): si el `expire` falla
+   * el contador no bloquea para siempre, la ventana siguiente usa otra clave. Con Redis caído no hay tope (es
+   * accesorio, como el cache): queda el límite del móvil.
+   */
+  async function withinBudget(shipmentId: string): Promise<boolean> {
+    if (!budget || !deps.redis.incr || !deps.redis.expire) return true;
+    const windowIndex = Math.floor(Date.now() / (budget.windowSeconds * 1000));
+    const key = `${logTag}:budget:${shipmentId}:${windowIndex}`;
+    try {
+      const count = await deps.redis.incr(key);
+      if (count === 1) await deps.redis.expire(key, budget.windowSeconds);
+      return count <= budget.max;
+    } catch (err) {
+      deps.logger?.warn({ err, shipmentId }, `${logTag}_cache_failed`);
+      return true;
+    }
+  }
 
   async function fetchAndCache(key: string, shipmentId: string, origin: RouteLatLng, destination: RouteLatLng) {
     let route: RouteResult;
@@ -54,10 +98,19 @@ export function createPlannedRouteStore(deps: PlannedRouteStoreDeps): PlannedRou
         .catch((setErr: unknown) => deps.logger?.warn({ err: setErr, shipmentId }, `${logTag}_cache_failed`));
       return null;
     }
-    await deps.redis
-      .set(key, JSON.stringify(route), "EX", deps.successTtlSeconds ?? PLANNED_ROUTE_TTL_SECONDS)
-      .catch((err: unknown) => deps.logger?.warn({ err, shipmentId }, `${logTag}_cache_failed`));
+    await Promise.all([
+      deps.redis.set(key, JSON.stringify(route), "EX", deps.successTtlSeconds ?? PLANNED_ROUTE_TTL_SECONDS),
+      // La que se devuelve pasado el tope: vive lo mismo que la ventana.
+      budget ? deps.redis.set(lastKey(shipmentId), JSON.stringify(route), "EX", budget.windowSeconds) : null,
+    ]).catch((err: unknown) => deps.logger?.warn({ err, shipmentId }, `${logTag}_cache_failed`));
     return route;
+  }
+
+  async function fetchWithinBudget(key: string, shipmentId: string, origin: RouteLatLng, destination: RouteLatLng) {
+    if (await withinBudget(shipmentId)) return fetchAndCache(key, shipmentId, origin, destination);
+    deps.logger?.warn({ shipmentId }, `${logTag}_budget_exceeded`);
+    const raw = await deps.redis.get(lastKey(shipmentId)).catch(() => null);
+    return parseRoute(raw);
   }
 
   return {
@@ -74,17 +127,12 @@ export function createPlannedRouteStore(deps: PlannedRouteStoreDeps): PlannedRou
         return [null, null] as const;
       });
       if (!raw && failed) return null;
-      if (raw) {
-        try {
-          const cached: unknown = JSON.parse(raw);
-          if (isRouteResult(cached)) return cached;
-        } catch {
-          // Valor corrupto: se vuelve a pedir.
-        }
-      }
+      // Sin valor o corrupto: se vuelve a pedir.
+      const cached = parseRoute(raw);
+      if (cached) return cached;
       let pending = inFlight.get(key);
       if (!pending) {
-        pending = fetchAndCache(key, shipmentId, origin, destination).finally(() => inFlight.delete(key));
+        pending = fetchWithinBudget(key, shipmentId, origin, destination).finally(() => inFlight.delete(key));
         inFlight.set(key, pending);
       }
       return pending;

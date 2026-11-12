@@ -104,6 +104,9 @@ export function createAdminTrackingService(deps: AdminTrackingServiceDeps) {
       // al proveedor. Con otro retiro pendiente en el mismo viaje no se sabe cuál visita primero el vehículo: la
       // línea al retiro de este envío sería falsa y se renovaría en cada desvío, así que no se pide. Sin posición
       // reciente tampoco: saldría de un lugar donde el auto ya no está.
+      // Review PR-340: cuando no corresponde pedirla (otro retiro pendiente, fuera de `assigned`, viaje sin
+      // iniciar) el campo va ausente; `null` queda para "corresponde, pero ahora no se pudo" (proveedor caído,
+      // sin posición reciente). El móvil conserva la última línea solo en el segundo caso.
       const pendingPickups = context?.pendingPickupShipmentIds ?? [];
       const wantsApproach =
         !!opts.approachRoute &&
@@ -135,7 +138,7 @@ export function createAdminTrackingService(deps: AdminTrackingServiceDeps) {
         origin,
         destination,
         plannedRoute: route ? toTrackingRoute(route) : null,
-        ...(opts.approachRoute ? { approachRoute } : {}),
+        ...(wantsApproach ? { approachRoute } : {}),
         trace,
         traceTruncated: truncated,
         traceAvailable: trace.length > 0,

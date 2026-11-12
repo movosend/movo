@@ -13,9 +13,17 @@ import { createPlannedRouteStore, type PlannedRouteStore } from "./planned-route
  */
 export const APPROACH_ROUTE_TTL_SECONDS = 2 * 60;
 export const APPROACH_CELL_DECIMALS = 3;
+/**
+ * Tope por envío (review PR-340): el límite del móvil (una renovación por minuto) es por dispositivo y
+ * depende del cliente. Sin rumbo, Google puede arrancar la ruta con una vuelta en U en una avenida de mano
+ * única; el auto sigue derecho, se desvía de la línea y se pide otra con el mismo problema. Pasado el tope se
+ * devuelve la última ruta del envío (el móvil la recorta y suma el tramo hasta ella) hasta la ventana siguiente.
+ */
+export const APPROACH_ROUTE_BUDGET_MAX = 5;
+export const APPROACH_ROUTE_BUDGET_WINDOW_SECONDS = 10 * 60;
 
 export function createApproachRouteStore(deps: {
-  redis: Pick<Redis, "get" | "set">;
+  redis: Pick<Redis, "get" | "set" | "incr" | "expire">;
   routesProvider: Pick<RoutesProvider, "getRoute">;
   provider: string;
   logger?: Pick<FastifyBaseLogger, "warn"> & Partial<Pick<FastifyBaseLogger, "info">>;
@@ -24,6 +32,7 @@ export function createApproachRouteStore(deps: {
     ...deps,
     logTag: "approach_route",
     successTtlSeconds: APPROACH_ROUTE_TTL_SECONDS,
+    callBudget: { max: APPROACH_ROUTE_BUDGET_MAX, windowSeconds: APPROACH_ROUTE_BUDGET_WINDOW_SECONDS },
     keyFor: (shipmentId, origin, destination) =>
       `approach_route:${deps.provider}:${shipmentId}:${origin.lat.toFixed(APPROACH_CELL_DECIMALS)},${origin.lng.toFixed(APPROACH_CELL_DECIMALS)}:${destination.lat},${destination.lng}`,
   });

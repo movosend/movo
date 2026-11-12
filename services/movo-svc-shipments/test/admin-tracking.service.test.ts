@@ -85,11 +85,11 @@ describe("admin-tracking.service", () => {
       expect(result.approachRoute).toEqual(route);
     });
 
-    it("con otro retiro pendiente en el mismo viaje no se pide: no se sabe el orden de los retiros", async () => {
+    it("con otro retiro pendiente en el mismo viaje no se pide y el campo va ausente (el móvil no conserva una línea anterior)", async () => {
       const { service, approachGet } = build({ trip: true, hash: fresh, pendingPickupShipmentIds: ["s1", "s2"] });
       const result = await service.get(row(ShipmentStatus.ASSIGNED), { approachRoute: true });
       expect(approachGet).not.toHaveBeenCalled();
-      expect(result.approachRoute).toBeNull();
+      expect("approachRoute" in result).toBe(false);
     });
 
     it("si el único retiro pendiente es el de este envío, se pide", async () => {
@@ -133,16 +133,16 @@ describe("admin-tracking.service", () => {
       const { service, approachGet } = build({ trip: true, hash: fresh });
       const result = await service.get(row(ShipmentStatus.IN_TRANSIT), { approachRoute: true });
       expect(approachGet).not.toHaveBeenCalled();
-      expect(result.approachRoute).toBeNull();
+      expect("approachRoute" in result).toBe(false);
     });
 
     it("con el viaje sin iniciar o sin transportista no hay posición de dónde partir", async () => {
       const declared = build({ trip: true, hash: fresh, tripStatus: TripStatus.DECLARED });
-      expect((await declared.service.get(row(ShipmentStatus.ASSIGNED), { approachRoute: true })).approachRoute).toBeNull();
+      expect("approachRoute" in (await declared.service.get(row(ShipmentStatus.ASSIGNED), { approachRoute: true }))).toBe(false);
       expect(declared.approachGet).not.toHaveBeenCalled();
 
       const noTrip = build({ trip: false });
-      expect((await noTrip.service.get(row(ShipmentStatus.ASSIGNED), { approachRoute: true })).approachRoute).toBeNull();
+      expect("approachRoute" in (await noTrip.service.get(row(ShipmentStatus.ASSIGNED), { approachRoute: true }))).toBe(false);
       expect(noTrip.approachGet).not.toHaveBeenCalled();
     });
 
