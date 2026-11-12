@@ -116,6 +116,18 @@ describe("activeShipmentFooterText", () => {
       `${name} te lo trae`,
     );
   });
+
+  it("con el viaje del transportista en curso, emisor y receptor ven que ya salió a retirar", () => {
+    const name = "Lucía Gómez";
+    const started = makeShipment({ status: "assigned", tripStarted: true });
+    expect(activeShipmentFooterText("sending", started)).toBe(`${name} ya salió a retirar`);
+    expect(activeShipmentFooterText("receiving", started)).toBe(`${name} ya salió a retirar`);
+    expect(activeShipmentInfoText("receiving", started)).toBe("Ya salió a retirar el paquete.");
+    // Una vez retirado manda "en camino", haya o no viaje en curso.
+    expect(activeShipmentFooterText("receiving", makeShipment({ status: "in_transit", tripStarted: true }))).toBe(
+      `${name} te lo trae`,
+    );
+  });
 });
 
 describe("activeShipmentStepIndex", () => {
@@ -146,7 +158,7 @@ describe("activeShipmentDisplayCode", () => {
 
 describe("activeShipmentStatusLabel", () => {
   it("traduce los estados sin hora asociada", () => {
-    expect(activeShipmentStatusLabel(makeShipment({ status: "assigned" }))).toBe("Asignado");
+    expect(activeShipmentStatusLabel(makeShipment({ status: "assigned" }))).toBe("Por retirar");
     expect(activeShipmentStatusLabel(makeShipment({ status: "in_transit" }))).toBe("En camino");
   });
 

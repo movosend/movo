@@ -44,6 +44,8 @@ export const MOCK_SENDING_SHIPMENTS: ActiveShipmentSummary[] = [
   },
   {
     id: "dev-sending-assigned-vencido-39871",
+    // El transportista ya inició el viaje: "ya salió a retirar".
+    tripStarted: true,
     status: "assigned",
     pickupDate: "2026-09-11",
     pickupTimeWindowStart: "09:00",
@@ -89,6 +91,8 @@ export const MOCK_RECEIVING_SHIPMENTS: ActiveShipmentSummary[] = [
   },
   {
     id: "dev-receiving-assigned-88530",
+    // El transportista ya inició el viaje: "ya salió a retirar".
+    tripStarted: true,
     status: "assigned",
     pickupDate: "2026-09-16",
     pickupTimeWindowStart: "09:00",

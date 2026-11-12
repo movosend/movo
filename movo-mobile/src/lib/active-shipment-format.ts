@@ -14,7 +14,8 @@ import { formatTimeOfDay, formatTimeRange } from "./time-format";
 export type ActiveShipmentRole = "sending" | "receiving";
 
 const ACTIVE_STATUS_LABEL: Record<Exclude<ActiveShipmentSummary["status"], "assigned_unfunded">, string> = {
-  assigned: "Asignado",
+  // "Por retirar", no "Asignado" (jerga del sistema): el mismo chip que ve el transportista en "Mis ofertas".
+  assigned: "Por retirar",
   in_transit: "En camino",
 };
 
@@ -162,7 +163,9 @@ export function activeShipmentInfoText(
       : "Pendiente de que se reserven los fondos.";
   }
   if (role === "sending" && shipment.status === "in_transit") return "En camino a destino.";
-  if (role === "receiving" && shipment.status === "assigned") return "Todavía no salió a entregar.";
+  if (role === "receiving" && shipment.status === "assigned") {
+    return shipment.tripStarted ? "Ya salió a retirar el paquete." : "Todavía no salió a entregar.";
+  }
   return "";
 }
 
@@ -177,10 +180,13 @@ export function activeShipmentFooterText(
   const name = shipment.counterparty.name;
   if (isTransitDelayed(shipment)) return TRANSIT_DELAYED_INFO_TEXT;
   if (shipment.status === "assigned_unfunded") return activeShipmentInfoText(role, shipment);
+  // Con el viaje del transportista en curso ya salió a retirar: "todavía no salió" era falso (feedback de TestFlight).
   if (role === "sending") {
-    return shipment.status === "assigned" ? `${name} retira con este código` : `${name} lo lleva`;
+    if (shipment.status !== "assigned") return `${name} lo lleva`;
+    return shipment.tripStarted ? `${name} ya salió a retirar` : `${name} retira con este código`;
   }
-  return shipment.status === "assigned" ? `${name} todavía no salió` : `${name} te lo trae`;
+  if (shipment.status !== "assigned") return `${name} te lo trae`;
+  return shipment.tripStarted ? `${name} ya salió a retirar` : `${name} todavía no salió`;
 }
 
 /**

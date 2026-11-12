@@ -35,7 +35,7 @@ describe("shipmentStatusLabel", () => {
     expect(shipmentStatusLabel(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe("Esperando receptor");
     expect(shipmentStatusLabel(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("Rechazado");
     expect(shipmentStatusLabel(ShipmentStatus.ASSIGNMENT_PENDING)).toBe("Asignado");
-    expect(shipmentStatusLabel(ShipmentStatus.ASSIGNED)).toBe("Asignado");
+    expect(shipmentStatusLabel(ShipmentStatus.ASSIGNED)).toBe("Por retirar");
   });
 
   it("MOVO-208: traduce los estados nuevos (assigned_unfunded/completed)", () => {

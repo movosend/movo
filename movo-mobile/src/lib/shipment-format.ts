@@ -17,10 +17,12 @@ const STATUS_LABEL: Record<ShipmentStatus, string> = {
   // "Asignado" y no "Sin asignar".
   [ShipmentStatus.ASSIGNMENT_PENDING]: "Asignado",
   // MOVO-208: transportista ya asignado, pero el hold de fondos todavía no se creó
-  // (retiro a más de N días, MOVO-12 opción B) -- distinto de "Asignado" (`ASSIGNED`),
+  // (retiro a más de N días, MOVO-12 opción B) -- distinto de "Por retirar" (`ASSIGNED`),
   // que sí implica fondos reservados.
   [ShipmentStatus.ASSIGNED_UNFUNDED]: "Fondos pendientes",
-  [ShipmentStatus.ASSIGNED]: "Asignado",
+  // "Por retirar" y no "Asignado" (jerga del sistema): el mismo texto que la tarjeta de Inicio y "Mis ofertas".
+  // `assignment_pending` sigue "Asignado" (MOVO-248): ahí el retiro todavía no está confirmado.
+  [ShipmentStatus.ASSIGNED]: "Por retirar",
   [ShipmentStatus.IN_TRANSIT]: "En camino",
   [ShipmentStatus.DELIVERED]: "Entregado",
   // MOVO-208: entregado Y pago liberado (MOVO-212) -- todavía inalcanzable en

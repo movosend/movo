@@ -60,7 +60,7 @@ describe("ActiveShipmentCard (MOVO-193)", () => {
     );
 
     expect(getByText("Lucía Gómez")).toBeTruthy();
-    expect(getByText("Asignado")).toBeTruthy();
+    expect(getByText("Por retirar")).toBeTruthy();
     expect(getByTestId("card-cta")).toBeTruthy();
     expect(getByText("Generar retiro")).toBeTruthy();
   });

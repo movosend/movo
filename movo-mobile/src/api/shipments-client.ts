@@ -303,6 +303,8 @@ export interface ActiveShipmentSummary {
   isToday: boolean;
   pickupWindowExpired: boolean;
   tripId: string | null;
+  /** El viaje del transportista ya está en curso: en `assigned`, ya salió a retirar. Ausente en un backend anterior. */
+  tripStarted?: boolean;
   /** MOVO-278 (DD-045): envío `in_transit` demorado (ISO del momento en que se marcó);
    * `null` si no está marcado. Se muestra como "Demorado". */
   transitAnomalyFlaggedAt: string | null;
