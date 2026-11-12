@@ -115,5 +115,19 @@ describe("useShipmentTracking", () => {
       expect(mockGetTracking).toHaveBeenCalledTimes(2);
       expect(latest?.approach).toHaveLength(3);
     });
+
+    // Review PR-340: ausente = el backend decidió no calcularla (se sumó otro retiro al viaje).
+    it("si un pedido la trae ausente no conserva la anterior: esa línea ya no es la que sigue el auto", async () => {
+      mockGetTracking.mockResolvedValueOnce({ ...tracking("live"), approachRoute: APPROACH });
+      mockGetTracking.mockResolvedValue(tracking("live"));
+
+      await renderHarness();
+      await waitFor(() => expect(latest?.approach).toHaveLength(3));
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(15_000);
+      });
+      expect(mockGetTracking).toHaveBeenCalledTimes(2);
+      expect(latest?.approach).toEqual([]);
+    });
   });
 });

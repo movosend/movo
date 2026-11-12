@@ -66,7 +66,12 @@ export function useShipmentTracking(
   );
   // MOVO-359: ruta del vehículo al retiro (antes del retiro). Como la planificada, la última no vacía se
   // conserva si un pedido la trae `null` (el proveedor falló y el backend lo cachea un minuto): sin ella
-  // la línea saltaría de golpe a la ruta entera.
-  const approach = useRetainedPolyline(data?.approachRoute?.polyline ?? null, shipmentId, enabled);
+  // la línea saltaría de golpe a la ruta entera. Review PR-340: si el campo viene ausente, el backend decidió
+  // no calcularla (p. ej. se sumó otro retiro al viaje): esa línea ya es falsa y no se conserva.
+  const approach = useRetainedPolyline(
+    data?.approachRoute?.polyline ?? null,
+    shipmentId,
+    enabled && data?.approachRoute !== undefined,
+  );
   return { ...query, data, planned, trace, approach };
 }
