@@ -25,6 +25,8 @@ import { MY_PROFILE_QUERY_KEY, useMyProfile } from '../../../src/hooks/use-profi
 import { useThemeColors } from '../../../src/hooks/use-theme-colors';
 import { useTransportGate } from '../../../src/hooks/use-transport-gate';
 import { useMyTrips } from '../../../src/hooks/use-trips';
+import { TripStatus } from '../../../src/api/trips-client';
+import { splitCarrierHomeTrips } from '../../../src/lib/trip-format';
 import {
   KYC_TONE_ICON_HEX,
   kycStatusIcon,
@@ -100,6 +102,8 @@ export default function AuthenticatedHomeScreen() {
   // un solo aviso para todo Inicio que reintenta lo que falló. Las mismas queries que usan
   // las secciones, así que no hay requests de más.
   const tripsQuery = useMyTrips("upcoming", isCarrier);
+  const showsActiveTripCard =
+    isCarrier && splitCarrierHomeTrips(tripsQuery.data?.items ?? []).primaryTrip?.status === TripStatus.ACTIVE;
   const attentionQuery = useAttentionTasks();
   const failedSections = [
     { failed: sendingQuery.isError && !sending?.length, refetch: sendingQuery.refetch },
@@ -229,7 +233,8 @@ export default function AuthenticatedHomeScreen() {
           </View>
         ) : null}
 
-        <TrackingActiveIndicator />
+        {/* Con el viaje en curso en "Estoy transportando", el aviso va al pie de esa tarjeta. */}
+        {showsActiveTripCard ? null : <TrackingActiveIndicator />}
 
         {failedSections.length > 0 ? (
           <HomeSectionError

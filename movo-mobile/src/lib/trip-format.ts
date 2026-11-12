@@ -119,9 +119,13 @@ export function tripPlaceLabel(address: string): string {
 }
 
 /** "Córdoba → Rosario" — identificador principal de un viaje en Inicio, en vez de la
- * fecha (que ya va en el subtítulo). */
+ * fecha (que ya va en el subtítulo). Dentro de una misma localidad, "Viaje en Córdoba":
+ * "Córdoba → Córdoba" se leía como un error (feedback de TestFlight). */
 export function tripRouteLabel(trip: { originAddress: string; destinationAddress: string }): string {
-  return `${tripPlaceLabel(trip.originAddress)} → ${tripPlaceLabel(trip.destinationAddress)}`;
+  const origin = tripPlaceLabel(trip.originAddress);
+  const destination = tripPlaceLabel(trip.destinationAddress);
+  if (origin.localeCompare(destination, "es", { sensitivity: "base" }) === 0) return `Viaje en ${origin}`;
+  return `${origin} → ${destination}`;
 }
 
 export function formatPackagesCount(count: number): string {

@@ -152,6 +152,15 @@ describe("trip-format — Inicio (jerarquía de viajes)", () => {
     expect(tripPlaceLabel("Av. Colón 100")).toBe("Av. Colón 100");
   });
 
+  it("tripRouteLabel dentro de una misma localidad dice 'Viaje en' en vez de repetirla", () => {
+    expect(
+      tripRouteLabel({
+        originAddress: "Juan del Campillo 367, X5000 Córdoba, Argentina",
+        destinationAddress: "Av. Colón 1200, X5000 Córdoba, Argentina",
+      }),
+    ).toBe("Viaje en Córdoba");
+  });
+
   it("tripRouteLabel arma origen → destino", () => {
     expect(
       tripRouteLabel({ originAddress: "Av. Colón 100, Córdoba", destinationAddress: "Bv. Oroño 50, Rosario" }),
