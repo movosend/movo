@@ -4016,3 +4016,8 @@ Mensajes señalados: ventana móvil de 7 días, porque ni un mensaje moderado ni
 ### MOVO-357 — rumbo del transportista en `my-route`
 
 `GET /shipments/my-route` acepta `heading` (entero de 0 a 359, opcional). Llega a `carrier-route-polyline-store.ts` y de ahí a Google Routes como `origin.location.heading` (`originHeading` en `RouteInput`). Sin rumbo, Google podía arrancar la línea en la dirección contraria a la que iba el auto y volver con una vuelta en U, que en "Mi ruta" se veía como un triángulo. El rumbo no entra en la clave del cache (como el origen) y no va al optimizador. La línea queda marcada según se haya armado con rumbo o sin él (`:heading`). El primer pedido con rumbo sobre una armada sin él la rearma una sola vez, desde la posición de ese pedido, y si el proveedor falla devuelve la anterior. El mobile manda ese pedido apenas tiene el primer rumbo de la visita. Es como mucho una llamada a Google más por orden de paradas. `getMyRoute` pasa a recibir `{ tripId, callerRoles, heading }`. Fuera de alcance: recalcular la línea si el auto se desvía (sigue la cache de 2 h por orden de paradas).
+
+### Feedback de TestFlight — `tripStarted` en los envíos activos
+
+`GET /shipments/sending|transporting|receiving` suma `tripStarted`: el viaje de la oferta aceptada está `active` (`listActiveShipments` en `shipments.service.ts`, un `tripRepository.findById` por viaje distinto; si falla, `false` y warn `active_shipment_trip_lookup_failed`). Con él, el emisor y el receptor de un envío `assigned` ven "ya salió a retirar" en vez de "todavía no salió". El push de "viaje iniciado" ya existía (`dispatchTripStartedPushes`) y no cambia: como DD-061 exige el viaje iniciado para retirar, al iniciarlo llega a todos los emisores y receptores del viaje.
+
