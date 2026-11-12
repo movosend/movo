@@ -64,11 +64,38 @@ export function transactionRowAmount(
   item: Pick<TransactionListItem, "amountArs" | "receivedArs" | "receivedIsEstimate">,
   role: TransactionRole,
 ): string {
+  const { value, estimate } = transactionShownAmount(item, role);
+  const amount = formatTransactionAmount(value);
+  return estimate ? `${TRANSACTION_ESTIMATE_SYMBOL} ${amount}` : amount;
+}
+
+/** Marca de un monto estimado, la misma en la fila y en el hero (MOVO-349). */
+export const TRANSACTION_ESTIMATE_SYMBOL = "≈";
+
+/** El monto para el lector de pantalla: "≈" se lee mal en voz alta, así que dice "aprox.". */
+export function transactionAmountA11y(
+  item: Pick<TransactionListItem, "amountArs" | "receivedArs" | "receivedIsEstimate">,
+  role: TransactionRole,
+): string {
+  const { value, estimate } = transactionShownAmount(item, role);
+  const amount = formatTransactionAmount(value);
+  return estimate ? `aprox. ${amount}` : amount;
+}
+
+/**
+ * El monto de una transacción, el mismo en la fila y en el hero del detalle (MOVO-349): en Cobros lo que le quedó
+ * al transportista (`receivedArs`), y si no aplica, el precio. `received` dice si es lo que le quedó.
+ */
+export function transactionShownAmount(
+  item: Pick<TransactionListItem, "amountArs" | "receivedArs" | "receivedIsEstimate">,
+  role: TransactionRole,
+): { value: number; estimate: boolean; received: boolean } {
   if (role === "carrier" && typeof item.receivedArs === "number" && Number.isFinite(item.receivedArs)) {
-    const amount = formatTransactionAmount(item.receivedArs);
-    return item.receivedIsEstimate ? `aprox. ${amount}` : amount;
+    const estimate = item.receivedIsEstimate === true;
+    // Un estimado va en pesos enteros: los centavos le darían una precisión que no tiene.
+    return { value: estimate ? Math.round(item.receivedArs) : item.receivedArs, estimate, received: true };
   }
-  return formatTransactionAmount(item.amountArs);
+  return { value: item.amountArs, estimate: false, received: false };
 }
 
 export function transactionDisplayCode(shipmentId: string): string {
@@ -262,13 +289,19 @@ export function transactionRowSubtitle(item: TransactionListItem, role: Transact
 }
 
 /**
- * Rótulo del hero del detalle. El transportista ve "Te acreditaron" (el neto) solo cuando la
- * liquidación está acreditada y hay desglose (`hasNet`); en cualquier otro estado el hero
- * muestra lo que pagó el emisor y nunca un neto (AC11).
+ * Rótulo del hero del detalle, según qué monto muestra (`transactionShownAmount`, MOVO-349). El transportista ve
+ * "Te acreditaron" con el neto real, "Recibís" con el estimado (el monto lleva "≈") y "Pagó el emisor" cuando no le quedó
+ * nada (liberado, reembolsado, en disputa) y el hero muestra el precio.
  */
-export function transactionHeroLabel(status: TransactionStatus, role: TransactionRole, hasNet = false, captured = false): string {
+export function transactionHeroLabel(
+  status: TransactionStatus,
+  role: TransactionRole,
+  received: "credited" | "estimate" | null = null,
+  captured = false,
+): string {
   if (role === "sender") return status === "released" || (status === "reserved" && !captured) ? "Reservaste" : "Pagaste";
-  return hasNet ? "Te acreditaron" : "Pagó el emisor";
+  if (received === "credited") return "Te acreditaron";
+  return received === "estimate" ? "Recibís" : "Pagó el emisor";
 }
 
 export const TRANSACTION_NOT_FOUND_MESSAGE = "No encontramos esta transacción";
