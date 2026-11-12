@@ -10,7 +10,13 @@ import { SkeletonBlock } from "../../../../components/ui/skeleton-block";
 import type { MyOfferSummary } from "../../../../src/api/offers-client";
 import { useMyOffers } from "../../../../src/hooks/use-offers";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
-import { acceptedOfferOutcome, competitiveRankNotice, offerReceivedArs } from "../../../../src/lib/offer-format";
+import {
+  ACCEPTED_PHASE_NOTICE,
+  acceptedOfferOutcome,
+  acceptedOfferPhase,
+  competitiveRankNotice,
+  offerReceivedArs,
+} from "../../../../src/lib/offer-format";
 import { formatPriceArs } from "../../../../src/lib/shipment-format";
 
 const CLOSED_STATUSES: readonly OfferStatus[] = [
@@ -33,6 +39,9 @@ function byRecent(a: MyOfferSummary, b: MyOfferSummary): number {
  * MOVO-151: solo lo que necesita una acción del transportista se destaca). */
 function noticeFor(offer: MyOfferSummary): MyOfferCardNotice | null {
   if (offer.status === OfferStatus.ACCEPTED) {
+    // Según en qué va el envío, no solo "ya te aceptaron": con el viaje en curso, eso ya no decía nada.
+    const phase = acceptedOfferPhase(offer);
+    if (phase) return { text: ACCEPTED_PHASE_NOTICE[phase], tone: phase === "awaiting_payment" ? "warning" : "positive" };
     return { text: "Ya te aceptaron. Seguí el retiro desde el detalle del envío.", tone: "positive" };
   }
   if (offer.status === OfferStatus.PENDING) {
@@ -125,14 +134,19 @@ export default function MyOffersSummaryScreen() {
   const acceptedTotal = accepted.reduce((sum, o) => sum + offerReceivedArs(o), 0);
 
   // Mismo criterio que el aviso de cada card: "requiere algo tuyo" = tiene aviso.
+  // Una aceptada que espera el pago del emisor no depende del transportista: va a "El resto", con su aviso.
   const attention = useMemo(
-    () => [...accepted, ...pending.filter((o) => noticeFor(o) !== null)].sort(byRecent),
+    () =>
+      [
+        ...accepted.filter((o) => acceptedOfferPhase(o) !== "awaiting_payment"),
+        ...pending.filter((o) => noticeFor(o) !== null),
+      ].sort(byRecent),
     [accepted, pending],
   );
   const attentionIds = useMemo(() => new Set(attention.map((o) => o.id)), [attention]);
   const rest = useMemo(
-    () => pending.filter((o) => !attentionIds.has(o.id)).sort(byRecent),
-    [pending, attentionIds],
+    () => [...accepted, ...pending].filter((o) => !attentionIds.has(o.id)).sort(byRecent),
+    [accepted, pending, attentionIds],
   );
 
   function goToOffer(offer: MyOfferSummary) {
@@ -269,6 +283,9 @@ export default function MyOffersSummaryScreen() {
                         key={offer.id}
                         testID={`my-offers-active-${offer.id}`}
                         offer={offer}
+                        // Solo las aceptadas esperando el pago traen aviso acá; no se destacan, no dependen de vos.
+                        notice={noticeFor(offer)}
+                        emphasized={false}
                         onPress={() => goToOffer(offer)}
                       />
                     ))}

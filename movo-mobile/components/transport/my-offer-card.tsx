@@ -61,6 +61,8 @@ interface MyOfferCardProps {
    * `pending`, o "seguí el retiro" para una `accepted`. Ausente en el resto -- una
    * card sin aviso es una fila de información, no una que "requiere algo tuyo". */
   notice?: MyOfferCardNotice | null;
+  /** Borde marcado de "requiere algo tuyo". Por defecto, si trae aviso. */
+  emphasized?: boolean;
   /** Muestra "Ofertada hace X" (`formatOfferedAgo`) -- para el tab "Cerradas", donde
    * la card es lo único que dice cuándo pasó cada oferta ya resuelta. */
   showSentAgo?: boolean;
@@ -78,7 +80,7 @@ function routeLabel(offer: MyOfferSummary): string {
  * MOVO-186 menos el estimado de MP, MOVO-225; no el bruto `priceOffered`) y un aviso opcional con su propio
  * tratamiento visual (fondo lima para positivo, mute para de atención).
  */
-export function MyOfferCard({ offer, onPress, testID, notice, showSentAgo }: MyOfferCardProps) {
+export function MyOfferCard({ offer, onPress, testID, notice, emphasized = Boolean(notice), showSentAgo }: MyOfferCardProps) {
   const outcome = acceptedOfferOutcome(offer);
   const chipBg = outcome === "completed" ? "bg-lime-200/60" : outcome === "cancelled" ? "bg-bg-mute" : STATUS_CHIP_BG_CLASS[offer.status];
   const chipText = outcome === "completed" ? "text-fg" : outcome === "cancelled" ? "text-fg-3" : STATUS_CHIP_TEXT_CLASS[offer.status];
@@ -91,7 +93,7 @@ export function MyOfferCard({ offer, onPress, testID, notice, showSentAgo }: MyO
       testID={testID}
       onPress={onPress}
       className={`gap-2.5 rounded-md p-3.5 ${
-        notice ? "border-[1.5px] border-fg bg-bg" : "border border-border bg-bg"
+        emphasized ? "border-[1.5px] border-fg bg-bg" : "border border-border bg-bg"
       }`}
     >
       <View className="flex-row items-start justify-between gap-3">

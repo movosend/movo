@@ -189,6 +189,35 @@ describe("MyOffersSummaryScreen (MOVO-151)", () => {
     expect(queryByTestId("my-offers-closed-l1")).toBeNull();
   });
 
+  it("una aceptada muestra en qué va su envío: por retirar y en camino requieren algo tuyo", async () => {
+    const accepted = (id: string, status: string) =>
+      offer({ id, status: "accepted" as MyOfferSummary["status"], shipment: { ...offer().shipment, id, status } as MyOfferSummary["shipment"] });
+    mockOffers([accepted("p1", "assigned"), accepted("t1", "in_transit")]);
+
+    const { getByTestId } = await render(<MyOffersSummaryScreen />);
+
+    expect(getByTestId("my-offers-attention-p1")).toHaveTextContent(/Por retirar/);
+    expect(getByTestId("my-offers-attention-p1")).toHaveTextContent(/Retirá el paquete: código y dirección en el detalle del envío\./);
+    expect(getByTestId("my-offers-attention-t1")).toHaveTextContent(/En camino/);
+    expect(getByTestId("my-offers-attention-t1")).toHaveTextContent(/Ya lo retiraste\. Falta entregarlo\./);
+  });
+
+  it("una aceptada esperando el pago del emisor no requiere nada tuyo: va a 'El resto', con su aviso", async () => {
+    mockOffers([
+      offer({
+        id: "u1",
+        status: "accepted" as MyOfferSummary["status"],
+        shipment: { ...offer().shipment, status: "assigned_unfunded" } as MyOfferSummary["shipment"],
+      }),
+    ]);
+
+    const { getByTestId, queryByTestId } = await render(<MyOffersSummaryScreen />);
+
+    expect(queryByTestId("my-offers-attention-u1")).toBeNull();
+    expect(getByTestId("my-offers-active-u1")).toHaveTextContent(/Aceptada/);
+    expect(getByTestId("my-offers-active-u1")).toHaveTextContent(/Falta que el emisor reserve el pago\./);
+  });
+
   it("una aceptada con el envío cancelado pasa a Cerradas como 'Cancelada'", async () => {
     mockOffers([offer({ id: "a1", status: "accepted" as MyOfferSummary["status"], shipment: { ...offer().shipment, status: "cancelled" } })]);
 
