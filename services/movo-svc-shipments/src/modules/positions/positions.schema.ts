@@ -156,6 +156,15 @@ const shipmentTrackingResponse = {
         durationSeconds: { type: "number" },
       },
     },
+    approachRoute: {
+      type: ["object", "null"],
+      required: ["polyline", "distanceMeters", "durationSeconds"],
+      properties: {
+        polyline: { type: "string" },
+        distanceMeters: { type: "number" },
+        durationSeconds: { type: "number" },
+      },
+    },
     trace: {
       type: "array",
       items: {

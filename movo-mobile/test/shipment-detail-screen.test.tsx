@@ -126,7 +126,7 @@ jest.mock("../src/hooks/use-live-position", () => ({
   useLivePosition: (...args: unknown[]) => mockLivePosition(...(args as [])),
 }));
 jest.mock("../src/hooks/use-shipment-tracking", () => ({
-  useShipmentTracking: () => ({ data: undefined, trace: [], planned: [] }),
+  useShipmentTracking: () => ({ data: undefined, trace: [], planned: [], approach: [], refetch: jest.fn() }),
 }));
 
 const mockRefetchRatings = jest.fn();
