@@ -117,8 +117,12 @@ export default function ShipmentChatScreen() {
     .filter((p) => p.userId !== chat.meId)
     .map((p) => ({ userId: p.userId, name: p.firstName, blocked: blockedIds.has(p.userId) }));
 
-  // Dos estados seguidos se dibujan unidos (ver `chatEventGroupPositions`).
-  const eventPositions = useMemo(() => chatEventGroupPositions(chat.timeline), [chat.timeline]);
+  // Dos estados seguidos se dibujan unidos (ver `chatEventGroupPositions`). Sin mensajes no se dibujan los cambios de
+  // día, así que ahí no cortan la seguidilla: las tarjetas se ven pegadas y tienen que verse unidas.
+  const eventPositions = useMemo(
+    () => chatEventGroupPositions(chat.isEmpty ? chat.timeline.filter((item) => item.kind === "event") : chat.timeline),
+    [chat.timeline, chat.isEmpty],
+  );
   const renderItem = ({ item }: { item: ChatTimelineItem }) => {
     if (item.kind === "day") {
       return (

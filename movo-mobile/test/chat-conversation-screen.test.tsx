@@ -126,6 +126,18 @@ describe("ShipmentChatScreen (MOVO-284)", () => {
     expect(queryByTestId("chat-event-e2-rail-bottom")).toBeNull();
   });
 
+  it("sin mensajes, dos estados de días distintos también se unen (el cambio de día no se dibuja)", async () => {
+    const event = (id: string, at: string) => ({ kind: "event" as const, key: `event-${id}`, card: { id, text: id, live: false, createdAt: at } });
+    const day = { kind: "day" as const, key: "day-12", label: "12 nov" };
+    mockChat.mockReturnValue(
+      state({ isEmpty: true, timeline: [event("e2", "2026-11-12T22:10:00.000Z"), day, event("e1", "2026-11-11T21:34:00.000Z")] }),
+    );
+    const { getByTestId } = await render(<ShipmentChatScreen />);
+
+    expect(getByTestId("chat-event-e1-rail-bottom")).toBeTruthy();
+    expect(getByTestId("chat-event-e2-rail-top")).toBeTruthy();
+  });
+
   it("en solo lectura no invita a coordinar: sin la tarjeta 'Coordinen acá'", async () => {
     const card = { kind: "event" as const, key: "event-e1", card: { id: "e1", text: "Disputa abierta", live: false, createdAt: new Date().toISOString() } };
     mockChat.mockReturnValue(state({ isEmpty: true, canWrite: false, access: "read_only", shipment: { status: "disputed" }, timeline: [card] }));
