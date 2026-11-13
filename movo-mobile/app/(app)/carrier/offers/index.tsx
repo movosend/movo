@@ -152,7 +152,9 @@ export default function MyOffersSummaryScreen() {
 
   function goToOffer(offer: MyOfferSummary) {
     if (offer.status === OfferStatus.ACCEPTED) {
-      router.push(`/transport/${offer.shipmentId}`);
+      // Directo al detalle del envío: `/transport/:id` es la pantalla para evaluar y ofertar, y con la oferta aceptada
+      // solo llevaba a este mismo detalle con un paso de más (feedback de TestFlight).
+      router.push(`/shipments/${offer.shipmentId}`);
     } else {
       router.push(`/carrier/offers/${offer.id}`);
     }

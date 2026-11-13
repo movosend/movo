@@ -139,7 +139,7 @@ describe("MyOffersSummaryScreen (MOVO-151)", () => {
     const { getByTestId } = await render(<MyOffersSummaryScreen />);
     await fireEvent.press(getByTestId("my-offers-attention-accepted-1"));
 
-    expect(mockRouterPush).toHaveBeenCalledWith("/transport/shipment-9");
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-9");
   });
 
   it("una oferta pending navega al detalle de la oferta, donde vive retirar (AC6)", async () => {
