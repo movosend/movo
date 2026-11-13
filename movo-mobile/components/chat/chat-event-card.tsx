@@ -1,5 +1,5 @@
 import { ArrowLeftRight } from "lucide-react-native";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import {
   formatChatTime,
   type ChatEventCard as ChatEventCardData,
@@ -21,10 +21,13 @@ const PADDING_LEFT = 12;
 export function ChatEventCard({
   card,
   position = "single",
+  onPress,
   testID,
 }: {
   card: ChatEventCardData;
   position?: ChatEventGroupPosition;
+  /** Abre la hoja con la info del estado. */
+  onPress?: (card: ChatEventCardData) => void;
   testID?: string;
 }) {
   const colors = useThemeColors();
@@ -43,8 +46,13 @@ export function ChatEventCard({
       className="items-center"
       style={{ marginTop: isTop ? 12 : 0 }}
     >
-      <View
-        className="flex-row items-start border-border bg-bg"
+      <Pressable
+        testID={testID ? `${testID}-press` : undefined}
+        onPress={onPress ? () => onPress(card) : undefined}
+        disabled={!onPress}
+        accessibilityRole={onPress ? "button" : undefined}
+        accessibilityLabel={onPress ? `${card.text}. Ver qué significa` : undefined}
+        className="flex-row items-start border-border bg-bg active:opacity-70"
         style={{
           width: "86%",
           gap: 10,
@@ -106,7 +114,7 @@ export function ChatEventCard({
             </Text>
           ) : null}
         </View>
-      </View>
+      </Pressable>
     </View>
   );
 }

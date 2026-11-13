@@ -78,6 +78,7 @@ export function useChatConversation(shipmentId: string | undefined, options: { f
       role: me?.role,
       carrierFirstName: participants.find((p) => p.role === "carrier")?.firstName ?? null,
       receiverFirstName: participants.find((p) => p.role === "receiver")?.firstName ?? null,
+      senderFirstName: participants.find((p) => p.role === "sender")?.firstName ?? null,
       dispute: shipmentQuery.data?.dispute ?? null,
     };
     const statusCards = eventsSinceCurrentAssignment(eventsQuery.data ?? []).map((event) => chatEventCard(event, viewer));

@@ -52,7 +52,7 @@ jest.mock("@react-native-menu/menu", () => {
 });
 
 const mockRouterSetParams = jest.fn();
-const mockSearchParams = jest.fn((): { id: string; map?: string } => ({ id: "shipment-1" }));
+const mockSearchParams = jest.fn((): { id: string; map?: string; tab?: string } => ({ id: "shipment-1" }));
 jest.mock("expo-router", () => ({
   router: {
     replace: (...args: unknown[]) => mockRouterReplace(...args),
@@ -877,6 +877,22 @@ describe("ShipmentDetailScreen", () => {
 
     expect(getByTestId("shipment-detail-timeline")).toBeTruthy();
     expect(queryByTestId("shipment-detail-route-map")).toBeNull();
+  });
+
+  it("con tab=timeline (desde la hoja de un estado del chat) abre directo en la línea de tiempo", async () => {
+    mockSearchParams.mockReturnValue({ id: "shipment-1", tab: "timeline" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment(),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-timeline")).toBeTruthy();
+    mockSearchParams.mockReturnValue({ id: "shipment-1" });
   });
 
   it("muestra el banner de ofertas (siempre vacío, MOVO-17 sin arrancar) solo mientras el envío sigue abierto", async () => {

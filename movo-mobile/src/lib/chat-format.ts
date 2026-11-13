@@ -1,5 +1,6 @@
 import type { DisputeSummary } from "@movo/shared/dist/types/dispute";
 import { disputeExplanation } from "./dispute-format";
+import { shouldShowEventReason } from "./shipment-format";
 import type { ChatDeliveryStatus, ChatMessage, ChatParticipantRole } from "@movo/shared/dist/types/chat";
 import type { ReceiverTransferRequest } from "@movo/shared/dist/types/receiver-transfer";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
@@ -134,6 +135,8 @@ export type ChatEventCard = {
   status?: ShipmentStatus;
   /** Segunda línea opcional (el motivo de una disputa). */
   detail?: string | null;
+  /** Motivo que escribió una persona o un barrido (solo en una cancelación), para la hoja de info. */
+  reason?: string | null;
 };
 
 /** Quién mira la conversación y los nombres que necesitan los textos de las tarjetas. */
@@ -143,19 +146,23 @@ export type ChatEventViewer = {
   carrierFirstName: string | null;
   /** Primer nombre del receptor ("Luis"). */
   receiverFirstName: string | null;
+  /** Primer nombre del emisor ("Juan"): es quien acepta la oferta. Opcional para los llamadores viejos. */
+  senderFirstName?: string | null;
   /** Disputa sin resolver del envío, para decir en su tarjeta quién la abrió y por qué. */
   dispute?: Pick<DisputeSummary, "reason" | "openedByRole"> | null;
 };
 
 /**
  * Tarjeta del envío para intercalar en la conversación, con el texto del prototipo según quién mira
- * ("Aceptaste el envío" para el transportista, "Diego aceptó el envío" para los demás). `null` si el
+ * ("Juan aceptó tu oferta" para el transportista, "Aceptaste la oferta de Diego" para el emisor). `null` si el
  * cambio de estado no merece una tarjeta (creación, publicación, pago). "Llegando" no existe: el
  * backend no tiene evento de cercanía.
  */
 export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): ChatEventCard | null {
   const carrier = viewer.carrierFirstName ?? "El transportista";
   const receiver = viewer.receiverFirstName ?? "El receptor";
+  const sender = viewer.senderFirstName ?? "El emisor";
+  const offerOf = viewer.carrierFirstName ? `de ${viewer.carrierFirstName}` : "del transportista";
   const isCarrier = viewer.role === "carrier";
   const isReceiver = viewer.role === "receiver";
   const card = (text: string, live = false, detail: string | null = null): ChatEventCard => ({
@@ -165,6 +172,7 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
     createdAt: event.createdAt,
     status: event.toStatus,
     detail,
+    reason: shouldShowEventReason(event.toStatus) ? (event.reason ?? null) : null,
   });
   switch (event.toStatus) {
     case ShipmentStatus.ASSIGNMENT_PENDING:
@@ -172,7 +180,10 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
       // Solo la entrada desde `published` es una aceptación: `assigned → assigned_unfunded` es un hold perdido
       // (DD-037) y nadie aceptó nada.
       if (event.fromStatus !== ShipmentStatus.PUBLISHED) return null;
-      return card(isCarrier ? "Aceptaste el envío" : `${carrier} aceptó el envío`);
+      // Quien acepta es el emisor (la oferta del transportista), no el transportista "el envío" (feedback de TestFlight).
+      if (isCarrier) return card(`${sender} aceptó tu oferta`);
+      if (viewer.role === "sender") return card(`Aceptaste la oferta ${offerOf}`);
+      return card(`${sender} aceptó la oferta ${offerOf}`);
     case ShipmentStatus.IN_TRANSIT:
       return card(
         isCarrier ? "Escaneaste el QR de retiro" : isReceiver ? `${carrier} retiró el paquete` : `${carrier} escaneó el QR de retiro`,
@@ -396,4 +407,35 @@ export function chatReadOnlyCopy(params: {
   if (params.archived) return "Este chat está archivado. Podés leerlo, pero ya no admite mensajes.";
   if (params.status === ShipmentStatus.DISPUTED) return "El envío está en disputa. El chat queda en solo lectura.";
   return "El envío finalizó. El chat queda en solo lectura y se archiva en 24 h.";
+}
+
+/**
+ * Qué significa un cambio de estado del chat, para la hoja que se abre al tocar su tarjeta: qué pasó y qué sigue.
+ * En una disputa suma quién la abrió y por qué (`card.detail`); en una cancelación, el motivo (`card.reason`).
+ */
+export function chatEventExplanation(card: Pick<ChatEventCard, "status" | "detail" | "reason">): string[] {
+  switch (card.status) {
+    case ShipmentStatus.ASSIGNMENT_PENDING:
+      return ["El emisor eligió esta oferta. Falta que reserve el pago para que el envío quede confirmado."];
+    case ShipmentStatus.ASSIGNED_UNFUNDED:
+      return ["El emisor eligió esta oferta. Como el retiro es más adelante, el pago se reserva cuando se acerque la fecha."];
+    case ShipmentStatus.IN_TRANSIT:
+      return ["El transportista escaneó el QR del emisor: el paquete cambió de manos y está en camino. Su ubicación se comparte en vivo hasta la entrega."];
+    case ShipmentStatus.DELIVERED:
+      return ["El receptor escaneó el QR del transportista y la entrega quedó confirmada. El pago al transportista se libera después de la confirmación."];
+    case ShipmentStatus.DISPUTED:
+      return [
+        ...(card.detail ? [card.detail] : []),
+        "Movo revisa lo que pasó con las partes. Mientras tanto el chat queda en solo lectura y el pago queda retenido hasta que se resuelva.",
+      ];
+    case ShipmentStatus.CANCELLED:
+      return [
+        "El envío se canceló y ya no se va a realizar.",
+        ...(card.reason ? [`Motivo: ${card.reason}`] : []),
+      ];
+    case undefined:
+      return ["La recepción pasó a otra persona. Desde ese momento es quien recibe el paquete y participa del chat."];
+    default:
+      return [];
+  }
 }

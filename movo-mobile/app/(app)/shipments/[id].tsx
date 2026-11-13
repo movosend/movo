@@ -147,7 +147,7 @@ const CANCELLATION_PENALTY_POLL_MS = 15_000;
 export default function ShipmentDetailScreen() {
   // `map=live`: se llega desde "Seguir en vivo" del inicio o desde el `/tracking` viejo (MOVO-361), y
   // el mapa se abre a pantalla completa.
-  const { id, map: mapParam } = useLocalSearchParams<{ id: string; map?: string }>();
+  const { id, map: mapParam, tab: tabParam } = useLocalSearchParams<{ id: string; map?: string; tab?: string }>();
   const clearMapParam = useCallback(() => router.setParams({ map: undefined }), []);
   const colors = useThemeColors();
   const currentUser = useAuthStore((state) => state.user);
@@ -167,7 +167,8 @@ export default function ShipmentDetailScreen() {
       return fundingProcessingPollInterval(data) || liveTrackingPendingPollInterval(data, currentUser?.userId);
     },
   });
-  const [tab, setTab] = useState<DetailTab>("detalle");
+  // `tab=timeline`: se llega desde la hoja de un cambio de estado del chat.
+  const [tab, setTab] = useState<DetailTab>(tabParam === "timeline" ? "timeline" : "detalle");
   const [isHighDemandHelpOpen, setIsHighDemandHelpOpen] = useState(false);
   const [isAcceptSuccessVisible, setIsAcceptSuccessVisible] = useState(false);
 

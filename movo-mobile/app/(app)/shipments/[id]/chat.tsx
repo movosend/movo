@@ -17,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ChatBubble } from "../../../../components/chat/chat-bubble";
 import { ChatComposer } from "../../../../components/chat/chat-composer";
 import { ChatEventCard } from "../../../../components/chat/chat-event-card";
+import { ChatEventInfoSheet } from "../../../../components/chat/chat-event-info-sheet";
 import { ChatSafetySheet, type SafetyTarget } from "../../../../components/chat/chat-safety-sheet";
 import { ModerationBanner } from "../../../../components/chat/moderation-banner";
 import { QuickReplies } from "../../../../components/chat/quick-replies";
@@ -33,6 +34,7 @@ import {
   CHAT_QUICK_REPLIES,
   chatAuthorLabel,
   chatEventGroupPositions,
+  type ChatEventCard as ChatEventCardData,
   chatReadOnlyCopy,
   type ChatTimelineItem,
 } from "../../../../src/lib/chat-format";
@@ -61,6 +63,7 @@ export default function ShipmentChatScreen() {
   const reportMutation = useReportChat(id ?? "");
   const blockedQuery = useBlockedUsers();
   const [safetyOpen, setSafetyOpen] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<ChatEventCardData | null>(null);
   const [safetyError, setSafetyError] = useState<string | null>(null);
   const toggleBlock = useChatBlockToggle({
     onError: (error) => setSafetyError(friendlyErrorMessage(error, "No pudimos actualizar el bloqueo. Intentá de nuevo.")),
@@ -132,7 +135,14 @@ export default function ShipmentChatScreen() {
       );
     }
     if (item.kind === "event") {
-      return <ChatEventCard card={item.card} position={eventPositions.get(item.key)} testID={`chat-event-${item.card.id}`} />;
+      return (
+        <ChatEventCard
+          card={item.card}
+          position={eventPositions.get(item.key)}
+          onPress={setSelectedEvent}
+          testID={`chat-event-${item.card.id}`}
+        />
+      );
     }
     const author = participantById.get(item.message.authorId);
     const authorLabel = item.mine
@@ -199,6 +209,7 @@ export default function ShipmentChatScreen() {
                       key={item.key}
                       card={item.card}
                       position={eventPositions.get(item.key)}
+                      onPress={setSelectedEvent}
                       testID={`chat-event-${item.card.id}`}
                     />
                   ) : null,
@@ -253,6 +264,15 @@ export default function ShipmentChatScreen() {
           />
         ) : null}
       </KeyboardAvoidingView>
+
+      <ChatEventInfoSheet
+        card={selectedEvent}
+        onClose={() => setSelectedEvent(null)}
+        onOpenTimeline={() => {
+          setSelectedEvent(null);
+          router.push({ pathname: "/shipments/[id]", params: { id, tab: "timeline" } } as never);
+        }}
+      />
 
       <ChatSafetySheet
         visible={safetyOpen}

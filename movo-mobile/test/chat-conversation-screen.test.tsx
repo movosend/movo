@@ -7,7 +7,7 @@ import ShipmentChatScreen from "../app/(app)/shipments/[id]/chat";
 import type { ChatTimelineItem, LocalChatMessage } from "../src/lib/chat-format";
 
 jest.mock("expo-router", () => ({
-  router: { back: jest.fn(), replace: jest.fn(), dismissTo: jest.fn(), canGoBack: () => true },
+  router: { back: jest.fn(), replace: jest.fn(), dismissTo: jest.fn(), push: jest.fn(), canGoBack: () => true },
   useLocalSearchParams: () => ({ id: "s1" }),
   useIsFocused: () => true,
 }));
@@ -136,6 +136,32 @@ describe("ShipmentChatScreen (MOVO-284)", () => {
 
     expect(getByTestId("chat-event-e1-rail-bottom")).toBeTruthy();
     expect(getByTestId("chat-event-e2-rail-top")).toBeTruthy();
+  });
+
+  it("tocar un estado abre la hoja con lo que significa, y de ahí se va a la línea de tiempo", async () => {
+    const card = {
+      kind: "event" as const,
+      key: "event-e1",
+      card: {
+        id: "e1",
+        text: "Disputa abierta",
+        live: false,
+        createdAt: "2026-11-12T22:10:00.000Z",
+        status: "disputed" as never,
+        detail: "La abrió el emisor porque el paquete llegó dañado.",
+      },
+    };
+    mockChat.mockReturnValue(state({ isEmpty: true, timeline: [card] }));
+    const { getByTestId, queryByTestId } = await render(<ShipmentChatScreen />);
+
+    expect(queryByTestId("chat-event-sheet-title")).toBeNull();
+    await fireEvent.press(getByTestId("chat-event-e1-press"));
+    expect(getByTestId("chat-event-sheet-title")).toHaveTextContent("Disputa abierta");
+    expect(getByTestId("chat-event-sheet-body")).toHaveTextContent(/La abrió el emisor porque el paquete llegó dañado\./);
+    expect(getByTestId("chat-event-sheet-body")).toHaveTextContent(/el pago queda retenido/);
+
+    await fireEvent.press(getByTestId("chat-event-sheet-timeline"));
+    expect(router.push).toHaveBeenCalledWith({ pathname: "/shipments/[id]", params: { id: "s1", tab: "timeline" } });
   });
 
   it("en solo lectura no invita a coordinar: sin la tarjeta 'Coordinen acá'", async () => {
