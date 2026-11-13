@@ -71,11 +71,27 @@ const recurrenceUntilBody = {
   description: "Último día de la serie (YYYY-MM-DD, inclusive, calendario argentino).",
 };
 
+// Resumen de la disputa sin resolver del envío (`DisputeSummary` de @movo/shared): por qué y quién la abrió.
+const disputeSummaryResponse = {
+  type: ["object", "null"],
+  required: ["id", "reason", "openedByRole", "openedAt"],
+  properties: {
+    id: { type: "string" },
+    reason: {
+      type: "string",
+      enum: ["damaged", "not_delivered", "wrong_delivery", "other", "transit_anomaly", "pickup_no_show"],
+    },
+    openedByRole: { type: ["string", "null"], enum: ["sender", "receiver", "carrier", null] },
+    openedAt: { type: "string", format: "date-time" },
+  },
+};
+
 const tripAcceptedPackageResponse = {
   type: "object",
   required: [
     "shipmentId",
     "status",
+    "dispute",
     "packageType",
     "weightKg",
     "pickupAddress",
@@ -93,6 +109,7 @@ const tripAcceptedPackageResponse = {
     "senderPhotoUrl",
   ],
   properties: {
+    dispute: disputeSummaryResponse,
     shipmentId: { type: "string" },
     status: { type: "string" },
     packageType: { type: "string" },

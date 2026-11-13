@@ -18,6 +18,7 @@ import {
   offerReceivedArs,
 } from "../../../../src/lib/offer-format";
 import { formatPriceArs } from "../../../../src/lib/shipment-format";
+import { disputeExplanation } from "../../../../src/lib/dispute-format";
 
 const CLOSED_STATUSES: readonly OfferStatus[] = [
   OfferStatus.REJECTED,
@@ -313,6 +314,13 @@ export default function MyOffersSummaryScreen() {
                   key={offer.id}
                   testID={`my-offers-closed-${offer.id}`}
                   offer={offer}
+                  // En disputa, el por qué: sin eso la card solo decía "En disputa".
+                  notice={
+                    acceptedOfferOutcome(offer) === "disputed" && offer.shipment.dispute
+                      ? { text: disputeExplanation(offer.shipment.dispute, "carrier"), tone: "warning" }
+                      : undefined
+                  }
+                  emphasized={false}
                   showSentAgo
                   onPress={() => goToOffer(offer)}
                 />

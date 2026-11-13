@@ -75,6 +75,21 @@ const shipmentFundingView = {
   },
 } as const;
 
+// Resumen de la disputa sin resolver del envío (`DisputeSummary` de @movo/shared): por qué y quién la abrió.
+const disputeSummaryResponse = {
+  type: ["object", "null"],
+  required: ["id", "reason", "openedByRole", "openedAt"],
+  properties: {
+    id: { type: "string" },
+    reason: {
+      type: "string",
+      enum: ["damaged", "not_delivered", "wrong_delivery", "other", "transit_anomaly", "pickup_no_show"],
+    },
+    openedByRole: { type: ["string", "null"], enum: ["sender", "receiver", "carrier", null] },
+    openedAt: { type: "string", format: "date-time" },
+  },
+};
+
 const shipmentResponse = {
   type: "object",
   required: [
@@ -213,6 +228,8 @@ const shipmentResponse = {
     // y el viaje del transportista ya está `active`: desde ahí se difunde su ubicación (antes del
     // retiro también) y el mobile habilita el seguimiento en vivo.
     carrierTripActive: { type: "boolean" },
+    // Solo en `GET /shipments/:id` para las partes, con el envío en disputa.
+    dispute: disputeSummaryResponse,
   },
 };
 

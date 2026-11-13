@@ -231,13 +231,14 @@ describe("TripDetailScreen (MOVO-263)", () => {
         hasAcceptedPackages: true,
         acceptedPackagesCount: 1,
         disputedPackagesCount: 1,
-        packages: [{ ...pkg("ship-1", 1860), status: ShipmentStatus.DISPUTED }],
+        packages: [{ ...pkg("ship-1", 1860), status: ShipmentStatus.DISPUTED, dispute: { id: "d1", reason: "damaged" as never, openedByRole: "sender" as const, openedAt: "2026-11-11T22:00:00.000Z" } }],
       }),
     );
     const { getByTestId } = await render(<TripDetailScreen />);
 
     expect(getByTestId("trip-detail-disputed-notice")).toHaveTextContent(/1 paquete en disputa: no cuenta como llevado/);
     expect(getByTestId("trip-detail-package-ship-1-status")).toHaveTextContent("En disputa");
+    expect(getByTestId("trip-detail-package-ship-1-dispute")).toHaveTextContent("La abrió el emisor porque el paquete llegó dañado.");
   });
 
   it("sin paquetes en disputa no muestra el aviso", async () => {

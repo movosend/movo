@@ -452,7 +452,12 @@ describe("TransportShipmentDetailScreen", () => {
       mockUseShipment.mockReturnValue({
         isLoading: false,
         isError: false,
-        data: shipment({ carrierId: "carrier-me", status: ShipmentStatus.DISPUTED, suggestedPriceArs: 4500 }),
+        data: shipment({
+          carrierId: "carrier-me",
+          status: ShipmentStatus.DISPUTED,
+          suggestedPriceArs: 4500,
+          dispute: { id: "d1", reason: "damaged" as never, openedByRole: "sender" as const, openedAt: "2026-11-11T22:00:00.000Z" },
+        }),
         error: null,
         refetch: jest.fn(),
       });
@@ -461,7 +466,8 @@ describe("TransportShipmentDetailScreen", () => {
       const { getByTestId, getByText, queryByText } = await render(<TransportShipmentDetailScreen />);
 
       expect(getByTestId("transport-assigned-to-me-card")).toHaveTextContent(/Este envío está en disputa/);
-      expect(getByTestId("transport-assigned-to-me-detail")).toHaveTextContent(/El cobro queda retenido/);
+      expect(getByTestId("transport-assigned-to-me-detail")).toHaveTextContent(/La abrió el emisor porque el paquete llegó dañado\./);
+      expect(getByTestId("transport-assigned-to-me-detail")).toHaveTextContent(/el cobro queda retenido/);
       expect(getByTestId("transport-assigned-to-me-detail")).not.toHaveTextContent(/El viaje arranca/);
       expect(getByText("Sin horario fijo")).toBeTruthy();
       expect(queryByText("Sin horario fijo · lo definís vos en la oferta")).toBeNull();

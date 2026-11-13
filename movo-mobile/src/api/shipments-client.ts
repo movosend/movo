@@ -1,3 +1,4 @@
+import type { DisputeSummary } from "@movo/shared/dist/types/dispute";
 import type { PaymentMethod, ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { ShipmentPartyTracking } from "@movo/shared/dist/types/admin-shipments";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
@@ -85,6 +86,8 @@ export interface ShipmentSummary {
   /** MOVO-270: solo en `GET /shipments/:id` — el envío está `assigned`/`in_transit` y el viaje
    * del transportista ya está activo: su ubicación se difunde desde ahí, también antes del retiro. */
   carrierTripActive?: boolean;
+  /** Disputa sin resolver (solo para las partes, con el envío en disputa): motivo y quién la abrió. */
+  dispute?: DisputeSummary | null;
   /** MOVO-275: solo en `GET /shipments/mine` — el usuario le pasó la recepción de este
    * envío a otra persona (badge "Transferido"). `null` en cualquier otro caso. */
   transferredByMe?: { newReceiverId: string; newReceiverName: string | null; at: string } | null;

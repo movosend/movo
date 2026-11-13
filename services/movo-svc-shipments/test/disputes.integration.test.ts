@@ -609,6 +609,29 @@ describe("disputas (Postgres, MOVO-334)", () => {
       expect((await app.db.trip.findUniqueOrThrow({ where: { id: trip.id } })).status).toBe(TripStatus.COMPLETED);
     });
 
+    it("el detalle del viaje, el del envío y Mis ofertas dicen por qué está en disputa y quién la abrió", async () => {
+      const carrierId = randomUUID();
+      const trip = await activeTrip(carrierId);
+      const { shipmentId } = await attachAcceptedPackage(app.db, trip, ShipmentStatus.IN_TRANSIT);
+      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.DISPUTED, null, "reclamo", {
+        dispute: { openedBy: randomUUID(), openedByRole: "sender", reason: DisputeReason.DAMAGED, description: "Llegó roto" },
+      });
+      const headers = { "x-user-id": carrierId, "x-user-roles": "carrier" };
+      const expected = { reason: DisputeReason.DAMAGED, openedByRole: "sender", id: expect.any(String), openedAt: expect.any(String) };
+
+      const tripDetail = await app.inject({ method: "GET", url: `/trips/${trip.id}`, headers });
+      expect(tripDetail.statusCode).toBe(200);
+      expect(tripDetail.json().packages[0].dispute).toMatchObject(expected);
+
+      const shipmentDetail = await app.inject({ method: "GET", url: `/shipments/${shipmentId}`, headers });
+      expect(shipmentDetail.statusCode).toBe(200);
+      expect(shipmentDetail.json().dispute).toMatchObject(expected);
+
+      const offers = await app.inject({ method: "GET", url: "/offers/mine", headers });
+      expect(offers.statusCode).toBe(200);
+      expect(offers.json().items[0].shipment.dispute).toMatchObject(expected);
+    });
+
     it("con otro paquete todavía en viaje, el viaje sigue en curso", async () => {
       const trip = await activeTrip(randomUUID());
       await attachAcceptedPackage(app.db, trip, ShipmentStatus.IN_TRANSIT);

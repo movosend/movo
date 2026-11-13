@@ -32,6 +32,7 @@ import { SkeletonBlock } from "../../../components/ui/skeleton-block";
 import { useActiveSuspension } from "../../../src/hooks/use-account-restriction";
 import { useMyOffers } from "../../../src/hooks/use-offers";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
+import { disputeExplanation } from "../../../src/lib/dispute-format";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useAuthStore } from "../../../src/store/auth-store";
 import {
@@ -485,7 +486,7 @@ export default function TransportShipmentDetailScreen() {
                   }`}
                 >
                   {assignedOutcome === "disputed" ? (
-                    "Movo está revisando lo que pasó. El cobro queda retenido hasta que se resuelva."
+                    `${shipment.dispute ? `${disputeExplanation(shipment.dispute, "carrier")} ` : ""}Movo lo está revisando y el cobro queda retenido hasta que se resuelva.`
                   ) : assignedOutcome === "completed" ? (
                     "Lo que cobraste y la calificación están en el detalle del envío."
                   ) : assignedOutcome === "cancelled" ? (

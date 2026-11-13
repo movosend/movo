@@ -52,6 +52,7 @@ import { GridPattern } from "../../../components/ui/grid-pattern";
 import { DebtDiscount } from "../../../components/payments/debt-discount";
 import { SuccessBanner } from "../../../components/ui/success-banner";
 import { useAuthStore } from "../../../src/store/auth-store";
+import { disputeExplanation } from "../../../src/lib/dispute-format";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useDeadlineExpired } from "../../../src/hooks/use-deadline-expired";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
@@ -765,6 +766,22 @@ export default function ShipmentDetailScreen() {
                 <RejectedReceiverBanner shipment={shipment} testID="shipment-detail-rejected-banner" />
               ) : null}
 
+              {/* Por qué está en disputa y quién la abrió: el estado solo no lo decía. */}
+              {shipment.status === ShipmentStatus.DISPUTED ? (
+                <View
+                  testID="shipment-detail-dispute-banner"
+                  className="gap-1 rounded-xl border border-warning-200 bg-warning-100 px-3.5 py-3"
+                >
+                  <Text className="font-sans-semibold text-small text-warning-700">Este envío está en disputa</Text>
+                  <Text className="font-sans text-small text-warning-700">
+                    {shipment.dispute
+                      ? `${disputeExplanation(shipment.dispute, isSender ? "sender" : isReceiver ? "receiver" : "carrier")} `
+                      : ""}
+                    Movo lo está revisando y te va a avisar cuando se resuelva.
+                  </Text>
+                </View>
+              ) : null}
+
               {isTransitDelayed(shipment) ? (
                 // MOVO-278 (DD-045): mismo estilo que el banner de plazo vencido.
                 <View
@@ -822,7 +839,10 @@ export default function ShipmentDetailScreen() {
                       <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
                         <GridPattern />
                         <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
-                          {carrierReceivedArs !== null
+                          {/* En disputa el cobro queda retenido hasta la resolución: no es "Recibís". */}
+                          {carrierReceivedArs !== null && shipment.status === ShipmentStatus.DISPUTED
+                            ? "Cobro en revisión"
+                            : carrierReceivedArs !== null
                             ? carrierCashInHand ? (FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? "Cobraste en mano" : "Cobrás en mano") : carrierReceivedIsExact ? "Recibís" : "Recibís aprox."
                             : hasAgreedPrice
                               ? "Precio pactado"

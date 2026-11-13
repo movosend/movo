@@ -4025,3 +4025,7 @@ Mensajes señalados: ventana móvil de 7 días, porque ni un mensaje moderado ni
 ### Feedback de TestFlight — el viaje se completa al disputarse su último paquete
 
 `updateStatus` (`shipment-repository.ts`) completa en la misma transacción los viajes `active` cuyo último paquete abierto pasa a `disputed` o `completed` (`completeFinishedActiveTrips` en `trip-repository.ts`, mismo `where` que el barrido `completeFinishedActive`, que queda como red). Antes el viaje seguía `active` hasta la próxima corrida (cada 15 min) y la app mostraba "Estoy transportando" con un envío en disputa. Es el mismo criterio que la cancelación (`expireEmptyActiveTrips`); el evento suma `completedTripIds` y se loguea `trip_auto_completed` con `reason: last_shipment_finished`. La entrega por handshake (`delivered`) no se tocó: sigue cerrando el viaje por el barrido.
+
+### Feedback de TestFlight — paquetes en disputa y su motivo en las respuestas del transportista
+
+`GET /trips` y `GET /trips/:id` suman `disputedPackagesCount` (la app no cuenta un paquete en disputa como llevado). El detalle del viaje (`packages[].dispute`), `GET /shipments/:id` (`dispute`, solo para las partes) y `GET /offers/mine` (`shipment.dispute`, solo en una aceptada) suman el `DisputeSummary` de la disputa sin resolver (`open` o `resolving`), con `findUnresolvedDisputeSummaries` (`dispute-repository.ts`, una consulta por lote). El motivo no se expone a un transportista que evalúa el envío ni a una oferta que perdió.

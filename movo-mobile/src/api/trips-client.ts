@@ -1,3 +1,4 @@
+import type { DisputeSummary } from "@movo/shared/dist/types/dispute";
 import { httpClient } from "./http-client";
 import { TripStatus } from "@movo/shared/dist/types/trip";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
@@ -42,6 +43,8 @@ export interface Trip {
 export interface TripAcceptedPackage {
   shipmentId: string;
   status: ShipmentStatus;
+  /** Disputa sin resolver del envío: motivo y quién la abrió. Opcional para tolerar un backend anterior. */
+  dispute?: DisputeSummary | null;
   packageType: string;
   weightKg: number;
   pickupAddress: string;

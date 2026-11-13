@@ -13,6 +13,21 @@ const PACKAGE_TYPE_VALUES = ["letter_document", "standard_package", "fragile_ite
 // shipments.schema.ts (autocontenido a propósito, no se importa de ahí).
 const TIME_PATTERN = "^([01]\\d|2[0-3]):[0-5]\\d(:[0-5]\\d)?$";
 
+// Resumen de la disputa sin resolver del envío (`DisputeSummary` de @movo/shared): por qué y quién la abrió.
+const disputeSummaryResponse = {
+  type: ["object", "null"],
+  required: ["id", "reason", "openedByRole", "openedAt"],
+  properties: {
+    id: { type: "string" },
+    reason: {
+      type: "string",
+      enum: ["damaged", "not_delivered", "wrong_delivery", "other", "transit_anomaly", "pickup_no_show"],
+    },
+    openedByRole: { type: ["string", "null"], enum: ["sender", "receiver", "carrier", null] },
+    openedAt: { type: "string", format: "date-time" },
+  },
+};
+
 const offerShipmentContextResponse = {
   type: "object",
   required: [
@@ -55,6 +70,8 @@ const offerShipmentContextResponse = {
     description: { type: ["string", "null"] },
     // MOVO-37: modalidad de pago del envío.
     paymentMethod: { type: "string", enum: ["card", "cash"] },
+    // Solo en `GET /offers/mine`, con el envío en disputa.
+    dispute: disputeSummaryResponse,
   },
 };
 

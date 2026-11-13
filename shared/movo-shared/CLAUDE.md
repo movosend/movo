@@ -835,3 +835,7 @@ Los contratos de MOVO-345 (`AdminReportById` y los de cada pestaña), más `dist
 
 `tripStarted?: boolean` en `types/shipment.ts`: el viaje del transportista ya está en curso (en `assigned`, salió a retirar). Opcional para no romper literales armados a mano ni un backend anterior. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
+
+### Feedback de TestFlight — `DisputeSummary`
+
+`DisputeSummary` (`types/dispute.ts`: `id`, `reason`, `openedByRole`, `openedAt`): la disputa sin resolver de un envío, para que las pantallas de la app que dicen "en disputa" expliquen por qué y quién la abrió. Sin la descripción libre (va en el expediente). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

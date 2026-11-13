@@ -229,7 +229,13 @@ describe("MyOffersSummaryScreen (MOVO-151)", () => {
   });
 
   it("una aceptada con el envío en disputa pasa a Cerradas como 'En disputa' y no suma a Confirmado", async () => {
-    mockOffers([offer({ id: "d1", status: "accepted" as MyOfferSummary["status"], shipment: { ...offer().shipment, status: "disputed" } })]);
+    mockOffers([
+      offer({
+        id: "d1",
+        status: "accepted" as MyOfferSummary["status"],
+        shipment: { ...offer().shipment, status: "disputed", dispute: { id: "d1", reason: "damaged" as never, openedByRole: "sender" as const, openedAt: "2026-11-11T22:00:00.000Z" } },
+      }),
+    ]);
 
     const { getByTestId, getByText, queryByTestId } = await render(<MyOffersSummaryScreen />);
 
@@ -239,6 +245,7 @@ describe("MyOffersSummaryScreen (MOVO-151)", () => {
     await fireEvent.press(getByTestId("my-offers-tab-closed"));
     expect(getByTestId("my-offers-closed-d1")).toHaveTextContent(/En disputa/);
     expect(getByTestId("my-offers-closed-d1")).toHaveTextContent(/cobro en revisión/);
+    expect(getByTestId("my-offers-closed-d1")).toHaveTextContent(/La abrió el emisor porque el paquete llegó dañado\./);
   });
 
   it("estado vacío sin ninguna oferta ofrece ir a Disponibles (AC7)", async () => {

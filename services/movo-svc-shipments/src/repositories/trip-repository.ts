@@ -14,6 +14,7 @@ import {
 import { distanceToSegmentKm } from "../domain/geo";
 import { tripDepartureOnPickupDay } from "../domain/trip-compatibility";
 import { TRIP_EXECUTABLE_SHIPMENT_STATUSES } from "../domain/shipment-state-machine";
+import { findUnresolvedDisputeSummaries } from "./dispute-repository";
 
 /**
  * MOVO-138: prefiltro SQL de `countAvailableCarriersNear` -- un viaje solo puede pasar a
@@ -479,6 +480,10 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       }
 
       const offers = row.offers;
+      const disputes = await findUnresolvedDisputeSummaries(
+        db,
+        offers.filter((offer) => offer.shipment.status === ShipmentStatus.DISPUTED).map((offer) => offer.shipmentId),
+      );
       const packages = offers.map((offer) => {
         const sh = offer.shipment;
         const pickupDateStr = offer.offeredDate.toISOString().slice(0, 10);
@@ -491,6 +496,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         return {
           shipmentId: sh.id,
           status: sh.status as ShipmentStatus,
+          dispute: disputes.get(sh.id) ?? null,
           packageType: sh.packageType,
           weightKg: sh.weightKg.toNumber(),
           pickupAddress: sh.pickupAddress,
