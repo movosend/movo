@@ -5158,3 +5158,7 @@ Una push `dispute_opened` refresca los viajes (`use-trips-sync.ts`): el backend 
 ### Feedback de TestFlight — paquetes en disputa en Mis viajes y el motivo de la disputa
 
 El historial ya no dice "Llevaste N paquetes" con los que están en disputa: van en su propio chip ("1 paquete en disputa", `tripCarriedCount`/`tripDisputedChipLabel` en `trip-format.ts`), y el detalle del viaje suma un aviso y la fila en amarillo. Donde se muestra una disputa (fila del viaje, detalle del envío del transportista, detalle del emisor y del receptor, Mis ofertas) se dice quién la abrió y por qué (`disputeExplanation` en `src/lib/dispute-format.ts`, con el `DisputeSummary` que manda el backend). La card del historial no lleva el motivo: el listado solo trae el conteo.
+
+### Feedback de TestFlight — cambios de estado en el chat como la línea de tiempo
+
+`ChatEventCard` deja la cápsula lima del prototipo de MOVO-284: cada cambio de estado lleva el círculo con el ícono y el color de su estado, título y hora, los mismos que la línea de tiempo del detalle (`components/shipments/shipment-status-visual.ts`, compartido). Las tarjetas seguidas, sin mensajes ni cambio de día en el medio, forman un solo bloque unido por el riel (`chatEventGroupPositions` en `chat-format.ts`), todas del mismo ancho para que el riel quede alineado. La de disputa suma quién la abrió y por qué, y en solo lectura no se muestra "Coordinen acá".

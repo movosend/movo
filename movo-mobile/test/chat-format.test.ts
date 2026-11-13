@@ -2,6 +2,7 @@ import type { ChatMessage } from "@movo/shared/dist/types/chat";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { ShipmentEvent } from "../src/api/shipments-client";
 import {
+  chatEventGroupPositions,
   chatAuthorLabel,
   buildChatTimeline,
   chatAvailability,
@@ -109,6 +110,28 @@ describe("eventos de la asignación vigente", () => {
   });
 });
 
+describe("chatEventGroupPositions", () => {
+  it("une las tarjetas seguidas; un mensaje o un cambio de día corta la seguidilla", () => {
+    // Del más nuevo al más viejo, como `buildTimeline`.
+    const items = [
+      { kind: "event", key: "e4" },
+      { kind: "message", key: "m1" },
+      { kind: "event", key: "e3" },
+      { kind: "event", key: "e2" },
+      { kind: "event", key: "e1" },
+      { kind: "day", key: "d1" },
+      { kind: "event", key: "e0" },
+    ];
+    const positions = chatEventGroupPositions(items);
+    expect(positions.get("e1")).toBe("first");
+    expect(positions.get("e2")).toBe("middle");
+    expect(positions.get("e3")).toBe("last");
+    expect(positions.get("e4")).toBe("single");
+    expect(positions.get("e0")).toBe("single");
+    expect(positions.has("m1")).toBe(false);
+  });
+});
+
 describe("chatEventCard", () => {
   const at = new Date(2026, 9, 14, 10, 0);
   const viewer = (role: "sender" | "carrier" | "receiver") => ({ role, carrierFirstName: "Diego", receiverFirstName: "Luis" });
@@ -127,6 +150,17 @@ describe("chatEventCard", () => {
     const delivered = event(ShipmentStatus.DELIVERED, at);
     expect(chatEventCard(delivered, viewer("receiver"))?.text).toBe("Confirmaste la entrega con QR");
     expect(chatEventCard(delivered, viewer("carrier"))?.text).toBe("Luis confirmó la entrega con QR");
+  });
+
+  it("lleva el estado (ícono y color de la línea de tiempo) y la disputa dice quién la abrió y por qué", () => {
+    const disputed = event(ShipmentStatus.DISPUTED, at);
+    const withDispute = { ...viewer("carrier"), dispute: { reason: "damaged" as never, openedByRole: "sender" as const } };
+    expect(chatEventCard(disputed, withDispute)).toMatchObject({
+      status: ShipmentStatus.DISPUTED,
+      text: "Disputa abierta",
+      detail: "La abrió el emisor porque el paquete llegó dañado.",
+    });
+    expect(chatEventCard(disputed, viewer("carrier"))?.detail).toBeNull();
   });
 
   it("sin nombres usa un texto neutro y cubre disputa y cancelación", () => {

@@ -111,7 +111,48 @@ describe("ShipmentChatScreen (MOVO-284)", () => {
     );
     const { getAllByTestId } = await render(<ShipmentChatScreen />);
 
-    expect(getAllByTestId(/^chat-event-/).map((node) => node.props.testID)).toEqual(["chat-event-e1", "chat-event-e2", "chat-event-e3"]);
+    expect(getAllByTestId(/^chat-event-e\d+$/).map((node) => node.props.testID)).toEqual(["chat-event-e1", "chat-event-e2", "chat-event-e3"]);
+  });
+
+  it("dos estados seguidos quedan unidos por el riel", async () => {
+    const at = (h: number) => new Date(2026, 8, 14, h).toISOString();
+    const event = (id: string, h: number) => ({ kind: "event" as const, key: `event-${id}`, card: { id, text: id, live: false, createdAt: at(h) } });
+    mockChat.mockReturnValue(state({ isEmpty: true, timeline: [event("e2", 11), event("e1", 10)] }));
+    const { getByTestId, queryByTestId } = await render(<ShipmentChatScreen />);
+
+    expect(getByTestId("chat-event-e1-rail-bottom")).toBeTruthy();
+    expect(queryByTestId("chat-event-e1-rail-top")).toBeNull();
+    expect(getByTestId("chat-event-e2-rail-top")).toBeTruthy();
+    expect(queryByTestId("chat-event-e2-rail-bottom")).toBeNull();
+  });
+
+  it("en solo lectura no invita a coordinar: sin la tarjeta 'Coordinen acá'", async () => {
+    const card = { kind: "event" as const, key: "event-e1", card: { id: "e1", text: "Disputa abierta", live: false, createdAt: new Date().toISOString() } };
+    mockChat.mockReturnValue(state({ isEmpty: true, canWrite: false, access: "read_only", shipment: { status: "disputed" }, timeline: [card] }));
+    const { getByText, queryByText } = await render(<ShipmentChatScreen />);
+
+    expect(getByText("Disputa abierta")).toBeTruthy();
+    expect(queryByText("Coordinen acá")).toBeNull();
+  });
+
+  it("la tarjeta de un cambio de estado lleva la hora y, si hay, el detalle", async () => {
+    const card = {
+      kind: "event" as const,
+      key: "event-e1",
+      card: {
+        id: "e1",
+        text: "Disputa abierta",
+        live: false,
+        createdAt: new Date().toISOString(),
+        status: "disputed" as never,
+        detail: "La abrió el emisor porque el paquete llegó dañado.",
+      },
+    };
+    mockChat.mockReturnValue(state({ isEmpty: true, timeline: [card] }));
+    const { getByTestId } = await render(<ShipmentChatScreen />);
+
+    expect(getByTestId("chat-event-e1-time")).toBeTruthy();
+    expect(getByTestId("chat-event-e1-detail")).toHaveTextContent("La abrió el emisor porque el paquete llegó dañado.");
   });
 
   it("muestra nombre y rol en la burbuja ajena y los tildes con su estado al tocarlos", async () => {

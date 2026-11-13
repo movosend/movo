@@ -78,13 +78,14 @@ export function useChatConversation(shipmentId: string | undefined, options: { f
       role: me?.role,
       carrierFirstName: participants.find((p) => p.role === "carrier")?.firstName ?? null,
       receiverFirstName: participants.find((p) => p.role === "receiver")?.firstName ?? null,
+      dispute: shipmentQuery.data?.dispute ?? null,
     };
     const statusCards = eventsSinceCurrentAssignment(eventsQuery.data ?? []).map((event) => chatEventCard(event, viewer));
     const transferCards = transfersSinceCurrentAssignment(transfersQuery.data ?? [], eventsQuery.data ?? []).map(
       (transfer) => chatTransferCard(transfer, meId),
     );
     return [...statusCards, ...transferCards].filter((card): card is ChatEventCard => card !== null);
-  }, [eventsQuery.data, transfersQuery.data, participants, me?.role, meId]);
+  }, [eventsQuery.data, transfersQuery.data, participants, me?.role, meId, shipmentQuery.data?.dispute]);
 
   const timeline = useMemo(
     () =>

@@ -1,3 +1,5 @@
+import type { DisputeSummary } from "@movo/shared/dist/types/dispute";
+import { disputeExplanation } from "./dispute-format";
 import type { ChatDeliveryStatus, ChatMessage, ChatParticipantRole } from "@movo/shared/dist/types/chat";
 import type { ReceiverTransferRequest } from "@movo/shared/dist/types/receiver-transfer";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
@@ -123,7 +125,16 @@ export function formatUnreadCount(count: number): string {
 /** Mensaje propio que todavía no confirmó el servidor (envío optimista). */
 export type LocalChatMessage = ChatMessage & { localState?: "sending" | "failed" };
 
-export type ChatEventCard = { id: string; text: string; live: boolean; createdAt: string };
+export type ChatEventCard = {
+  id: string;
+  text: string;
+  live: boolean;
+  createdAt: string;
+  /** Estado al que pasó el envío: da el ícono y el color de la tarjeta (los de la línea de tiempo). Sin estado, una transferencia. */
+  status?: ShipmentStatus;
+  /** Segunda línea opcional (el motivo de una disputa). */
+  detail?: string | null;
+};
 
 /** Quién mira la conversación y los nombres que necesitan los textos de las tarjetas. */
 export type ChatEventViewer = {
@@ -132,6 +143,8 @@ export type ChatEventViewer = {
   carrierFirstName: string | null;
   /** Primer nombre del receptor ("Luis"). */
   receiverFirstName: string | null;
+  /** Disputa sin resolver del envío, para decir en su tarjeta quién la abrió y por qué. */
+  dispute?: Pick<DisputeSummary, "reason" | "openedByRole"> | null;
 };
 
 /**
@@ -145,7 +158,14 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
   const receiver = viewer.receiverFirstName ?? "El receptor";
   const isCarrier = viewer.role === "carrier";
   const isReceiver = viewer.role === "receiver";
-  const card = (text: string, live = false): ChatEventCard => ({ id: event.id, text, live, createdAt: event.createdAt });
+  const card = (text: string, live = false, detail: string | null = null): ChatEventCard => ({
+    id: event.id,
+    text,
+    live,
+    createdAt: event.createdAt,
+    status: event.toStatus,
+    detail,
+  });
   switch (event.toStatus) {
     case ShipmentStatus.ASSIGNMENT_PENDING:
     case ShipmentStatus.ASSIGNED_UNFUNDED:
@@ -161,7 +181,7 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
     case ShipmentStatus.DELIVERED:
       return card(isReceiver ? "Confirmaste la entrega con QR" : `${receiver} confirmó la entrega con QR`);
     case ShipmentStatus.DISPUTED:
-      return card("Disputa abierta");
+      return card("Disputa abierta", false, viewer.dispute && viewer.role ? disputeExplanation(viewer.dispute, viewer.role) : null);
     case ShipmentStatus.CANCELLED:
       return card("Envío cancelado");
     default:
@@ -259,6 +279,25 @@ export type TimelineItem<M extends TimelineMessage, C extends TimelineCard> =
     };
 
 export type ChatTimelineItem = TimelineItem<LocalChatMessage, ChatEventCard>;
+
+/** Lugar de una tarjeta dentro de una seguidilla de tarjetas sin mensajes ni cambio de día en el medio. */
+export type ChatEventGroupPosition = "single" | "first" | "middle" | "last";
+
+/**
+ * Posición de cada tarjeta en su seguidilla, por `key`, sobre la conversación del más nuevo al más viejo (como la
+ * devuelve `buildTimeline`): "first" es la de arriba en pantalla (la más vieja). Dos estados seguidos se dibujan como
+ * una sola tarjeta unida por el riel, igual que la línea de tiempo.
+ */
+export function chatEventGroupPositions(items: readonly { kind: string; key: string }[]): Map<string, ChatEventGroupPosition> {
+  const positions = new Map<string, ChatEventGroupPosition>();
+  items.forEach((item, index) => {
+    if (item.kind !== "event") return;
+    const joinedAbove = items[index + 1]?.kind === "event";
+    const joinedBelow = items[index - 1]?.kind === "event";
+    positions.set(item.key, joinedAbove ? (joinedBelow ? "middle" : "last") : joinedBelow ? "first" : "single");
+  });
+  return positions;
+}
 
 /**
  * Conversación lista para dibujar, del MÁS NUEVO al más viejo (el `FlatList` va invertido):
