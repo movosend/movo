@@ -126,7 +126,12 @@ class BackgroundTrackingManager {
       }
     }
 
+    // Sin envíos ni en memoria ni en disco, la tarea quedó huérfana: el viaje terminó mientras la
+    // app estaba en segundo plano o cerrada, y el coordinador de primer plano (que es el único que
+    // la frena) no corrió. Si no se frena acá, iOS sigue entregando posiciones que nadie usa y
+    // mantiene el indicador de ubicación prendido.
     if (this.activeShipmentIds.size === 0) {
+      await this.stopBackgroundTracking();
       return;
     }
 

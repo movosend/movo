@@ -144,6 +144,52 @@ describe("BackgroundTrackingManager (MOVO-242 / AC1, AC5, AC8)", () => {
     ]);
   });
 
+  it("handleLocations frena las updates si no queda ningún envío ni en memoria ni en disco", async () => {
+    // El viaje terminó con la app cerrada: el coordinador de primer plano nunca llamó a stopTracking
+    backgroundTrackingManager.setTrackingContext(null, []);
+    (offlineQueueStorage.loadTrackingContext as jest.Mock).mockResolvedValue(null);
+    (offlineQueueStorage.loadQueue as jest.Mock).mockResolvedValue([]);
+    (TaskManager.isTaskRegisteredAsync as jest.Mock).mockResolvedValue(true);
+
+    const locations = [
+      { coords: { latitude: -31.42, longitude: -64.18, accuracy: 10 }, timestamp: 1727340000000 },
+    ] as Location.LocationObject[];
+
+    await backgroundTrackingManager.handleLocations(locations);
+
+    expect(offlineQueueStorage.enqueuePositions).not.toHaveBeenCalled();
+    expect(Location.stopLocationUpdatesAsync).toHaveBeenCalledWith(MOVO_CARRIER_BACKGROUND_TRACKING_TASK);
+    expect(offlineQueueStorage.clearTrackingContext).toHaveBeenCalled();
+  });
+
+  it("handleLocations frena las updates si el contexto en disco quedó sin envíos", async () => {
+    backgroundTrackingManager.setTrackingContext(null, []);
+    (offlineQueueStorage.loadTrackingContext as jest.Mock).mockResolvedValue({ tripId: "trip-1", shipmentIds: [] });
+    (offlineQueueStorage.loadQueue as jest.Mock).mockResolvedValue([]);
+    (TaskManager.isTaskRegisteredAsync as jest.Mock).mockResolvedValue(true);
+
+    const locations = [
+      { coords: { latitude: -31.42, longitude: -64.18, accuracy: 10 }, timestamp: 1727340000000 },
+    ] as Location.LocationObject[];
+
+    await backgroundTrackingManager.handleLocations(locations);
+
+    expect(Location.stopLocationUpdatesAsync).toHaveBeenCalledWith(MOVO_CARRIER_BACKGROUND_TRACKING_TASK);
+  });
+
+  it("handleLocations no frena las updates mientras haya envíos activos", async () => {
+    (offlineQueueStorage.loadQueue as jest.Mock).mockResolvedValue([]);
+    (offlineQueueStorage.enqueuePositions as jest.Mock).mockResolvedValue([]);
+
+    const locations = [
+      { coords: { latitude: -31.42, longitude: -64.18, accuracy: 10 }, timestamp: 1727340000000 },
+    ] as Location.LocationObject[];
+
+    await backgroundTrackingManager.handleLocations(locations);
+
+    expect(Location.stopLocationUpdatesAsync).not.toHaveBeenCalled();
+  });
+
   describe("MOVO-346: falla del lote entero", () => {
     const queue: QueuedPosition[] = [
       { shipmentId: "shipment-1", lat: 1, lng: 1, accuracyM: 5, capturedAt: "2026-10-25T21:00:00Z" },
