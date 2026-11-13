@@ -1,4 +1,4 @@
-import { act, fireEvent, render, within } from "@testing-library/react-native";
+import { act, fireEvent, render } from "@testing-library/react-native";
 import type { ReputationBreakdown, RecentRatingComment } from "@movo/shared/dist/types/user-profile";
 import { ProfileActivityCard } from "../components/profile/profile-activity-card";
 
@@ -115,8 +115,8 @@ describe("ProfileActivityCard", () => {
   // Caso borde: menos de 3 calificaciones (`isNewProfile`) pero ya hay algún
   // comentario real — sí hay algo genuino para mostrar, así que la sección se
   // mantiene (badge en vez del score gigante, sin las estrellas vacías).
-  it("perfil nuevo con al menos un comentario: muestra la sección con el badge, sin estrellas vacías", async () => {
-    const { getByTestId, queryByTestId } = await render(
+  it("perfil nuevo con al menos un comentario: avisa cuántas calificaciones faltan, sin estrellas vacías", async () => {
+    const { getByTestId, getByText, queryByTestId } = await render(
       <ProfileActivityCard
         testID="card"
         transactionCounts={{ asSender: 1, asCarrier: 0 }}
@@ -130,7 +130,8 @@ describe("ProfileActivityCard", () => {
       />,
     );
 
-    expect(within(getByTestId("card-new-badge")).getByText("Perfil nuevo")).toBeTruthy();
+    expect(getByTestId("card-ratings-missing")).toBeTruthy();
+    expect(getByText("Te faltan 2 calificaciones para mostrar tu puntaje.")).toBeTruthy();
     expect(queryByTestId("card-stars")).toBeNull();
   });
 

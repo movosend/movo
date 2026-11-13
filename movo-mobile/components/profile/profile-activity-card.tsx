@@ -17,6 +17,7 @@ import {
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import {
   formatRatingCount,
+  formatRatingsMissing,
   formatReputationScore,
   formatShipmentCount,
   formatTripCount,
@@ -102,9 +103,14 @@ export function ProfileActivityCard({
   // La card muestra solo las más recientes (el perfil las trae de más nueva a más vieja); el resto, en "Ver todas".
   const roleComments = reputation ? ratingCommentsForRole(reputation, role) : [];
   const comments = roleComments.slice(0, MAX_PREVIEW_COMMENTS);
-  // "Ver todas" solo si hay algo más que lo que ya se ve acá (la lista del perfil llega acotada: se mira también el conteo real).
-  const hasMoreRatings = roleComments.length > 0 && Math.max(roleComments.length, breakdown?.ratingCount ?? 0) > MAX_PREVIEW_COMMENTS;
   const allComments = reputation?.recentRatingComments ?? [];
+  // "Ver todas" abre la pantalla con las reseñas de TODOS los roles: se compara contra el total del usuario, no contra el de
+  // la pestaña (la lista del perfil llega acotada, por eso también se mira el conteo real).
+  const totalRatings = Math.max(
+    allComments.length,
+    (reputation?.asCarrier.ratingCount ?? 0) + (reputation?.asSender.ratingCount ?? 0),
+  );
+  const hasMoreRatings = totalRatings > comments.length;
   // Perfil nuevo sin ningún comentario todavía: ni el score ni "lo que dicen de vos"
   // tienen nada real que mostrar (feedback: "toda esta sección es irrelevante") — se
   // oculta la sección entera en vez de mostrar el badge/nota vacíos de antes.
@@ -183,24 +189,16 @@ export function ProfileActivityCard({
               </View>
             ) : null}
 
-            {breakdown.isNewProfile && !isNewProfile ? (
-              // Perfil con reputación, pero sin calificaciones suficientes en ESTA pestaña: no es un "perfil nuevo"
-              // (MOVO-354); queda solo "Lo que dicen de vos" con su estado vacío o las pocas reseñas que haya.
-              <View className="mb-1" />
-            ) : breakdown.isNewProfile ? (
-              // Sin ninguna calificación todavía: ni el número gigante ni las 5
-              // estrellas vacías comunican algo real (feedback: "es irrelevante
-              // mostrar las stars vacías" — un score de 38px pidiendo el mismo
-              // protagonismo que un score real también exageraba lo que hay para
-              // mostrar). Un badge chico alcanza.
-              <View
-                testID={testID ? `${testID}-new-badge` : undefined}
-                className="mb-5 flex-row self-start rounded-full bg-lime-500 px-2.5 py-1"
+            {breakdown.isNewProfile ? (
+              // Con menos calificaciones que el umbral (en ESTA pestaña) no hay puntaje que mostrar: ni el número
+              // gigante ni las estrellas vacías comunican algo real. Se avisa cuántas faltan, en vez de repetir el
+              // "Perfil nuevo" que ya muestra el cuadro de arriba (feedback de la review de MOVO-354).
+              <Text
+                testID={testID ? `${testID}-ratings-missing` : undefined}
+                className="mb-5 font-sans text-small text-fg-2"
               >
-                <Text className="font-sans-semibold text-[11px] uppercase tracking-wide text-ink-950">
-                  Perfil nuevo
-                </Text>
-              </View>
+                {formatRatingsMissing(breakdown.ratingCount)}
+              </Text>
             ) : (
               <>
                 <View className="mb-5 flex-row items-center gap-4">
@@ -270,7 +268,6 @@ export function ProfileActivityCard({
                       key={comment.id}
                       comment={comment}
                       variant="carousel"
-                      showRaterRole={role === "carrier"}
                       width={cardWidth}
                       testID={testID ? `${testID}-comment-${comment.id}` : undefined}
                     />

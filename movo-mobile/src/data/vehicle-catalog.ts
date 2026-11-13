@@ -1,3 +1,5 @@
+import { normalizeSearchText } from "../lib/search-text";
+
 /**
  * Catálogo estático de marcas/modelos comunes en Argentina y volúmenes de carga
  * estándar por modelo (MOVO-223). Reemplaza la carga libre de marca/modelo/
@@ -217,12 +219,6 @@ export function tierFromLabel(label: string): CargoTier {
   return CARGO_TIERS.find((t) => t.cap === label) ?? { id: "?", cap: label, ex: "" };
 }
 
-export function normalizeSearchText(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-}
 
 export function brandInitials(brand: string): string {
   return brand.slice(0, 2).toUpperCase();

@@ -53,14 +53,20 @@ describe("ReputationCommentCard", () => {
     const receiver = await render(<ReputationCommentCard comment={comment({ raterRole: "receiver" })} />);
     expect(receiver.getByText("Receptor")).toBeTruthy();
 
-    const carrier = await render(<ReputationCommentCard comment={comment({ raterRole: "carrier" })} />);
-    expect(carrier.getByText("Transportista")).toBeTruthy();
+    // Las que hace el transportista no llevan la insignia por defecto (regla única, `shouldShowRaterRole`)...
+    const carrier = await render(<ReputationCommentCard testID="k" comment={comment({ raterRole: "carrier" })} />);
+    expect(carrier.queryByTestId("k-role")).toBeNull();
+    // ...pero se puede forzar.
+    const forced = await render(
+      <ReputationCommentCard comment={comment({ raterRole: "carrier" })} showRaterRole />,
+    );
+    expect(forced.getByText("Transportista")).toBeTruthy();
 
     const none = await render(<ReputationCommentCard testID="n" comment={comment({ raterRole: null })} />);
     expect(none.queryByTestId("n-role")).toBeNull();
 
     const hidden = await render(
-      <ReputationCommentCard testID="h" comment={comment({ raterRole: "carrier" })} showRaterRole={false} />,
+      <ReputationCommentCard testID="h" comment={comment({ raterRole: "sender" })} showRaterRole={false} />,
     );
     expect(hidden.queryByTestId("h-role")).toBeNull();
   });

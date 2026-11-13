@@ -1,6 +1,6 @@
 import type { RecentRatingComment } from "@movo/shared/dist/types/user-profile";
 import { Text, View } from "react-native";
-import { formatRaterRole, formatRatingDate } from "../../src/lib/profile-format";
+import { formatRaterRole, formatRatingDate, shouldShowRaterRole } from "../../src/lib/profile-format";
 import { StarRatingInput } from "../ui/star-rating-input";
 
 export interface ReputationCommentCardProps {
@@ -9,8 +9,8 @@ export interface ReputationCommentCardProps {
    * "Tus calificaciones"). Mismo componente en los dos lugares — evita mantener dos markups del mismo dato. */
   variant?: "carousel" | "list";
   width?: number;
-  /** Mostrar el rol de quien calificó. Se oculta en las reseñas recibidas como emisor o receptor: siempre las hace el
-   * transportista, no aporta. En las de transportista sí, porque pudo calificar el emisor o el receptor del envío. */
+  /** Forzar o esconder la insignia con el rol de quien calificó. Por defecto sigue `shouldShowRaterRole` (la misma
+   * regla en el carrusel y en "Ver todas"). */
   showRaterRole?: boolean;
   testID?: string;
 }
@@ -27,7 +27,7 @@ export function ReputationCommentCard({
   comment,
   variant = "carousel",
   width,
-  showRaterRole = true,
+  showRaterRole = shouldShowRaterRole(comment),
   testID,
 }: ReputationCommentCardProps) {
   const roleLabel = showRaterRole ? formatRaterRole(comment.raterRole) : null;

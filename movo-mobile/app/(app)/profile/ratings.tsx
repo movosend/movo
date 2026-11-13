@@ -22,6 +22,8 @@ import { StarRatingInput } from "../../../components/ui/star-rating-input";
  * El perfil trae como mucho las últimas 10: esta pantalla las muestra al instante y pagina el resto con
  * `GET /users/:id/ratings` (MOVO-170). Muestra TODAS, de cualquier rol, sin importar la pestaña desde la que se abrió (MOVO-354).
  */
+const MAX_SEARCH_PAGES = 10;
+
 export default function ProfileRatingsScreen() {
   const colors = useThemeColors();
   const myId = useAuthStore((state) => state.user?.userId);
@@ -35,9 +37,17 @@ export default function ProfileRatingsScreen() {
   const [search, setSearch] = useState("");
   const searching = search.trim().length > 0;
   const { hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = ratings;
+  // Tope de páginas que la búsqueda trae sola (cada una cuesta una consulta de envíos): pasado eso, el resto se pide a mano.
+  const searchCapReached = (ratings.data?.pages.length ?? 0) >= MAX_SEARCH_PAGES;
   useEffect(() => {
-    if (searching && hasNextPage && !isFetchingNextPage && !isFetchNextPageError) void fetchNextPage();
-  }, [searching, hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
+    if (searching && hasNextPage && !searchCapReached && !isFetchingNextPage && !isFetchNextPageError) {
+      void fetchNextPage();
+    }
+  }, [searching, hasNextPage, searchCapReached, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
+  // Buscando de verdad solo mientras todavía se trae sola la siguiente página (sin error ni tope).
+  const autoSearching = searching && hasNextPage && !searchCapReached && !isFetchNextPageError;
+  // El botón se oculta mientras la búsqueda avanza sola; con error o tope vuelve, para reintentar o pedir más.
+  const showMoreButton = hasNextPage && (!searching || isFetchNextPageError || searchCapReached);
   const visibleComments = filterRatingsByRaterName(comments, search);
   const summary = profile;
 
@@ -65,6 +75,7 @@ export default function ProfileRatingsScreen() {
         <ScrollView
           testID="profile-ratings-content"
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
           contentContainerClassName="px-5 pb-10 gap-3"
         >
           <View className="mb-2 flex-row items-center gap-3">
@@ -91,7 +102,11 @@ export default function ProfileRatingsScreen() {
             </Text>
           ) : visibleComments.length === 0 ? (
             <Text testID="profile-ratings-no-match" className="py-4 text-center font-sans text-small text-fg-3">
-              {hasNextPage ? "Buscando…" : `Ninguna calificación coincide con "${search.trim()}"`}
+              {autoSearching
+                ? "Buscando…"
+                : hasNextPage
+                  ? `Ninguna coincidencia entre las calificaciones cargadas. Cargá más para seguir buscando.`
+                  : `Ninguna calificación coincide con "${search.trim()}"`}
             </Text>
           ) : (
             visibleComments.map((comment) => (
@@ -99,12 +114,11 @@ export default function ProfileRatingsScreen() {
                 key={comment.id}
                 comment={comment}
                 variant="list"
-                showRaterRole={comment.raterRole !== "carrier"}
                 testID={`profile-ratings-comment-${comment.id}`}
               />
             ))
           )}
-          {ratings.hasNextPage && !searching ? (
+          {showMoreButton ? (
             <Pressable
               testID="profile-ratings-more"
               accessibilityRole="button"
