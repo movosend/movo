@@ -6,6 +6,10 @@ describe("dispute-format", () => {
     const bySender = { reason: DisputeReason.DAMAGED, openedByRole: "sender" as const };
     expect(disputeExplanation(bySender, "carrier")).toBe("La abrió el emisor porque el paquete llegó dañado.");
     expect(disputeExplanation(bySender, "sender")).toBe("La abriste vos porque el paquete llegó dañado.");
+    // Quien no es parte vigente (el receptor que pasó la recepción) nunca la "abrió vos".
+    expect(disputeExplanation({ reason: DisputeReason.DAMAGED, openedByRole: "carrier" }, null)).toBe(
+      "La abrió el transportista porque el paquete llegó dañado.",
+    );
     expect(disputeExplanation({ reason: DisputeReason.OTHER, openedByRole: "receiver" }, "sender")).toBe(
       "La abrió el receptor por otro motivo.",
     );

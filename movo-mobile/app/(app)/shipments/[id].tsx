@@ -776,7 +776,7 @@ export default function ShipmentDetailScreen() {
                   <Text className="font-sans-semibold text-small text-warning-700">Este envío está en disputa</Text>
                   <Text className="font-sans text-small text-warning-700">
                     {shipment.dispute
-                      ? `${disputeExplanation(shipment.dispute, isSender ? "sender" : isReceiver ? "receiver" : "carrier")} `
+                      ? `${disputeExplanation(shipment.dispute, isSender ? "sender" : isReceiver ? "receiver" : isCarrier ? "carrier" : null)} `
                       : ""}
                     Movo lo está revisando y te va a avisar cuando se resuelva.
                   </Text>

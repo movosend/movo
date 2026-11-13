@@ -35,10 +35,14 @@ export function disputeReasonShortLabel(reason: DisputeReason): string {
  * "La abriste vos por otro motivo.", "La abrió Movo porque el envío quedó en camino más tiempo del esperado.".
  * Sin la descripción libre de quien la abrió: esa va en el expediente.
  */
-export function disputeExplanation(dispute: Pick<DisputeSummary, "reason" | "openedByRole">, viewerRole: DisputePartyRole): string {
+export function disputeExplanation(
+  dispute: Pick<DisputeSummary, "reason" | "openedByRole">,
+  /** `null`: quien mira no es una parte vigente (p. ej. el receptor que pasó la recepción): nunca "La abriste vos". */
+  viewerRole: DisputePartyRole | null,
+): string {
   const clause = REASON_CLAUSE[dispute.reason] ?? null;
   const why = clause ? `porque ${clause}` : "por otro motivo";
   if (dispute.openedByRole === null) return `La abrió Movo ${why}.`;
-  if (dispute.openedByRole === viewerRole) return `La abriste vos ${why}.`;
+  if (viewerRole !== null && dispute.openedByRole === viewerRole) return `La abriste vos ${why}.`;
   return `La abrió ${PARTY_LABEL[dispute.openedByRole]} ${why}.`;
 }
