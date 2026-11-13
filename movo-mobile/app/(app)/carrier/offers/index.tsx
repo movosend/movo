@@ -113,7 +113,7 @@ export default function MyOffersSummaryScreen() {
 
   const items = data?.items ?? [];
   const pending = items.filter((o) => o.status === OfferStatus.PENDING);
-  // Una aceptada cuyo envío ya terminó (entregado o cancelado) va a "Cerradas": la oferta no tiene un estado de
+  // Una aceptada cuyo envío ya terminó (entregado, cancelado o en disputa) va a "Cerradas": la oferta no tiene un estado de
   // cierre propio y seguía como "Ya te aceptaron" (feedback de TestFlight, build 17).
   const accepted = items.filter((o) => o.status === OfferStatus.ACCEPTED && acceptedOfferOutcome(o) === null);
   const closed = useMemo(() => {

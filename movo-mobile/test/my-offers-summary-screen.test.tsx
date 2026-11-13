@@ -228,6 +228,19 @@ describe("MyOffersSummaryScreen (MOVO-151)", () => {
     expect(getByTestId("my-offers-closed-a1")).toHaveTextContent(/habrías recibido aprox\./);
   });
 
+  it("una aceptada con el envío en disputa pasa a Cerradas como 'En disputa' y no suma a Confirmado", async () => {
+    mockOffers([offer({ id: "d1", status: "accepted" as MyOfferSummary["status"], shipment: { ...offer().shipment, status: "disputed" } })]);
+
+    const { getByTestId, getByText, queryByTestId } = await render(<MyOffersSummaryScreen />);
+
+    expect(queryByTestId("my-offers-attention-d1")).toBeNull();
+    expect(getByText(/0 aceptadas/)).toBeTruthy();
+    expect(getByTestId("my-offers-accepted-total")).toHaveTextContent("$0");
+    await fireEvent.press(getByTestId("my-offers-tab-closed"));
+    expect(getByTestId("my-offers-closed-d1")).toHaveTextContent(/En disputa/);
+    expect(getByTestId("my-offers-closed-d1")).toHaveTextContent(/cobro en revisión/);
+  });
+
   it("estado vacío sin ninguna oferta ofrece ir a Disponibles (AC7)", async () => {
     mockOffers([]);
 

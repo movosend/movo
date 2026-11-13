@@ -35,13 +35,15 @@ export function offerStatusLabel(status: OfferStatus): string {
  * en "Activas" como "Ya te aceptaron" (feedback de TestFlight, build 17). `null` mientras el envío
  * sigue en curso, o si la oferta no es `accepted`.
  */
-export type AcceptedOfferOutcome = "completed" | "cancelled";
+export type AcceptedOfferOutcome = "completed" | "cancelled" | "disputed";
 
 export function acceptedOfferOutcome(offer: Pick<MyOfferSummary, "status" | "shipment">): AcceptedOfferOutcome | null {
   if (offer.status !== OfferStatus.ACCEPTED) return null;
   const status = offer.shipment.status;
   if (status === ShipmentStatus.DELIVERED || status === ShipmentStatus.COMPLETED) return "completed";
   if (status === ShipmentStatus.CANCELLED) return "cancelled";
+  // Sin acción del transportista en la app y con el cobro retenido hasta la resolución: ni "Confirmado" ni "Seguí el retiro".
+  if (status === ShipmentStatus.DISPUTED) return "disputed";
   return null;
 }
 
@@ -88,6 +90,7 @@ export function myOfferStatusLabel(offer: Pick<MyOfferSummary, "status" | "shipm
   const outcome = acceptedOfferOutcome(offer);
   if (outcome === "completed") return "Completada";
   if (outcome === "cancelled") return "Cancelada";
+  if (outcome === "disputed") return "En disputa";
   const phase = acceptedOfferPhase(offer);
   if (phase) return ACCEPTED_PHASE_LABEL[phase];
   return offerStatusLabel(offer.status);
@@ -99,6 +102,7 @@ export function myOfferAmountLabel(offer: Pick<MyOfferSummary, "status" | "shipm
   const outcome = acceptedOfferOutcome(offer);
   if (outcome === "completed") return cash ? "Cobraste en mano" : "Cobraste aprox.";
   if (outcome === "cancelled") return receivedAmountLabel(OfferStatus.SHIPMENT_CANCELLED, cash);
+  if (outcome === "disputed") return "Cobro en revisión";
   return receivedAmountLabel(offer.status, cash);
 }
 

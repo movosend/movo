@@ -4021,3 +4021,7 @@ Mensajes señalados: ventana móvil de 7 días, porque ni un mensaje moderado ni
 
 `GET /shipments/sending|transporting|receiving` suma `tripStarted`: el viaje de la oferta aceptada está `active` (`listActiveShipments` en `shipments.service.ts`, un `tripRepository.findById` por viaje distinto; si falla, `false` y warn `active_shipment_trip_lookup_failed`). Con él, el emisor y el receptor de un envío `assigned` ven "ya salió a retirar" en vez de "todavía no salió". El push de "viaje iniciado" ya existía (`dispatchTripStartedPushes`) y no cambia: como DD-061 exige el viaje iniciado para retirar, al iniciarlo llega a todos los emisores y receptores del viaje.
 
+
+### Feedback de TestFlight — el viaje se completa al disputarse su último paquete
+
+`updateStatus` (`shipment-repository.ts`) completa en la misma transacción los viajes `active` cuyo último paquete abierto pasa a `disputed` o `completed` (`completeFinishedActiveTrips` en `trip-repository.ts`, mismo `where` que el barrido `completeFinishedActive`, que queda como red). Antes el viaje seguía `active` hasta la próxima corrida (cada 15 min) y la app mostraba "Estoy transportando" con un envío en disputa. Es el mismo criterio que la cancelación (`expireEmptyActiveTrips`); el evento suma `completedTripIds` y se loguea `trip_auto_completed` con `reason: last_shipment_finished`. La entrega por handshake (`delivered`) no se tocó: sigue cerrando el viaje por el barrido.

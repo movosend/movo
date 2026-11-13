@@ -5151,3 +5151,6 @@ El hero del detalle (`app/(app)/profile/payments/history/[id].tsx`) mostraba el 
 
 La galería de atajos (`HomeOperativoGalleryScreen`) muestra la tarjeta del viaje, los estados del aviso y el carrusel. Pendiente: validar en dispositivo el carrusel (sombra y vibración) y el achique de letra del código. Fuera de alcance: los envíos y viajes viejos con "Ubicación actual" guardada siguen así (los nuevos guardan la dirección real desde la build 17).
 
+### Feedback de TestFlight — envío en disputa en Inicio y en Mis ofertas
+
+Una push `dispute_opened` refresca los viajes (`use-trips-sync.ts`): el backend completa el viaje cuando se disputa su último paquete y la card "Estoy transportando" desaparecía recién al refrescar. En Mis ofertas, una aceptada cuyo envío está `disputed` pasa a "Cerradas" con el chip "En disputa" y "cobro en revisión" (`acceptedOfferOutcome` en `offer-format.ts`, chips por resultado en `my-offer-card.tsx`): la oferta sigue `accepted`, así que antes sumaba a "Confirmado" y decía "Seguí el retiro". Cuando exista el expediente en la app (MOVO-30) y el transportista pueda cargar su descargo desde ahí, conviene revisar si vuelve a "Requieren algo tuyo".
