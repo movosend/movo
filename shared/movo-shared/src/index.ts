@@ -283,6 +283,7 @@ export type {
 } from "./config/dispute-resolution";
 
 // legal (MOVO-228)
+export { MIN_RATINGS_FOR_ESTABLISHED_PROFILE } from "./config/reputation";
 export { LEGAL_DOCUMENT_VERSIONS } from "./config/legal";
 export type { LegalDocumentKind } from "./config/legal";
 
