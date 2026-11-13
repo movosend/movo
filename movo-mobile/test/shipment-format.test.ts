@@ -599,6 +599,13 @@ describe("aceptación de una oferta en la línea de tiempo", () => {
     );
   });
 
+  it("en efectivo, published -> assigned es la aceptación de la oferta, no un pago reservado (MOVO-37)", () => {
+    expect(shipmentEventTitle(ShipmentStatus.ASSIGNED, ShipmentStatus.PUBLISHED, { isCarrier: true })).toBe(
+      "El emisor aceptó tu oferta",
+    );
+    expect(shipmentEventDetail(ShipmentStatus.ASSIGNED, ShipmentStatus.PUBLISHED)).toBe("Se paga en efectivo al retirar");
+  });
+
   it("pasar a assigned es la reserva del pago, no la asignación", () => {
     expect(shipmentEventTitle(ShipmentStatus.ASSIGNED, ShipmentStatus.ASSIGNMENT_PENDING)).toBe("Pago reservado");
     expect(shipmentPendingStepLabel(ShipmentStatus.ASSIGNED)).toBe("Reserva del pago");

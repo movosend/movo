@@ -30,6 +30,7 @@ import { getFirstName } from "../../src/lib/profile-format";
 import { useAuthStore } from "../../src/store/auth-store";
 import {
   formatEventTimestamp,
+  isOfferAcceptance,
   remainingLifecycleSteps,
   shipmentActorLabel,
   shipmentEventDetail,
@@ -143,7 +144,9 @@ function EventRow({
   isReceiver: boolean;
 }) {
   const colors = useThemeColors();
-  const tone = SHIPMENT_STATUS_TONE_STYLE[shipmentStatusTone(event.toStatus)];
+  // Una aceptación en efectivo cae directo en `assigned`: se dibuja como "transportista elegido", no como pago reservado.
+  const visualStatus = isOfferAcceptance(event.toStatus, event.fromStatus) ? Status.ASSIGNMENT_PENDING : event.toStatus;
+  const tone = SHIPMENT_STATUS_TONE_STYLE[shipmentStatusTone(visualStatus)];
   const timestamp = formatEventTimestamp(event.createdAt);
   // MOVO-253: tras elegir otro receptor, `parties.receiverId` es el receptor NUEVO — un
   // rechazo anterior lo hizo otra persona y no puede tomar su nombre ni su rol.
@@ -167,7 +170,7 @@ function EventRow({
 
   return (
     <TimelineRow
-      Icon={SHIPMENT_STATUS_ICON[event.toStatus] ?? Clock}
+      Icon={SHIPMENT_STATUS_ICON[visualStatus] ?? Clock}
       iconColor={tone.iconColor ?? colors.fg3}
       circleClass={tone.bgClass}
       railClass="bg-border"

@@ -171,6 +171,21 @@ describe("chatEventCard", () => {
     expect(chatEventCard(delivered, viewer("carrier"))?.text).toBe("Luis confirmó la entrega con QR");
   });
 
+  it("en efectivo (published -> assigned) también es la aceptación: tarjeta y corte de la asignación", () => {
+    const cash = event(ShipmentStatus.ASSIGNED, at, "cash-accept", ShipmentStatus.PUBLISHED);
+    expect(chatEventCard(cash, { ...viewer("carrier"), senderFirstName: "Juan" })).toMatchObject({
+      text: "Juan aceptó tu oferta",
+      offerAccepted: true,
+    });
+    expect(chatEventExplanation({ status: ShipmentStatus.ASSIGNED, offerAccepted: true })[0]).toMatch(/efectivo/);
+    const events = [
+      event(ShipmentStatus.ASSIGNMENT_PENDING, new Date(2026, 9, 13), "old-accept"),
+      event(ShipmentStatus.PUBLISHED, new Date(2026, 9, 13, 12), "republished", ShipmentStatus.ASSIGNMENT_PENDING),
+      cash,
+    ];
+    expect(eventsSinceCurrentAssignment(events).map((e) => e.id)).toEqual(["cash-accept"]);
+  });
+
   it("lleva el estado (ícono y color de la línea de tiempo) y la disputa dice quién la abrió y por qué", () => {
     const disputed = event(ShipmentStatus.DISPUTED, at);
     const withDispute = { ...viewer("carrier"), dispute: { reason: "damaged" as never, openedByRole: "sender" as const } };

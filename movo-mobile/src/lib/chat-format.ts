@@ -1,6 +1,6 @@
 import type { DisputeSummary } from "@movo/shared/dist/types/dispute";
 import { disputeExplanation } from "./dispute-format";
-import { shouldShowEventReason } from "./shipment-format";
+import { isOfferAcceptance, shouldShowEventReason } from "./shipment-format";
 import type { ChatDeliveryStatus, ChatMessage, ChatParticipantRole } from "@movo/shared/dist/types/chat";
 import type { ReceiverTransferRequest } from "@movo/shared/dist/types/receiver-transfer";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
@@ -137,6 +137,8 @@ export type ChatEventCard = {
   detail?: string | null;
   /** Motivo que escribió una persona o un barrido (solo en una cancelación), para la hoja de info. */
   reason?: string | null;
+  /** El emisor aceptó la oferta: se dibuja como "transportista elegido" aunque el estado sea `assigned` (efectivo). */
+  offerAccepted?: boolean;
 };
 
 /** Quién mira la conversación y los nombres que necesitan los textos de las tarjetas. */
@@ -174,16 +176,18 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
     detail,
     reason: shouldShowEventReason(event.toStatus) ? (event.reason ?? null) : null,
   });
+  // Solo la entrada desde `published` es una aceptación (también directo a `assigned`, en efectivo): `assigned →
+  // assigned_unfunded` es un hold perdido (DD-037) y `assignment_pending → assigned` es la reserva del pago.
+  // Quien acepta es el emisor (la oferta del transportista), no el transportista "el envío" (feedback de TestFlight).
+  if (isOfferAcceptance(event.toStatus, event.fromStatus)) {
+    const text = isCarrier
+      ? `${sender} aceptó tu oferta`
+      : viewer.role === "sender"
+        ? `Aceptaste la oferta ${offerOf}`
+        : `${sender} aceptó la oferta ${offerOf}`;
+    return { ...card(text), offerAccepted: true };
+  }
   switch (event.toStatus) {
-    case ShipmentStatus.ASSIGNMENT_PENDING:
-    case ShipmentStatus.ASSIGNED_UNFUNDED:
-      // Solo la entrada desde `published` es una aceptación: `assigned → assigned_unfunded` es un hold perdido
-      // (DD-037) y nadie aceptó nada.
-      if (event.fromStatus !== ShipmentStatus.PUBLISHED) return null;
-      // Quien acepta es el emisor (la oferta del transportista), no el transportista "el envío" (feedback de TestFlight).
-      if (isCarrier) return card(`${sender} aceptó tu oferta`);
-      if (viewer.role === "sender") return card(`Aceptaste la oferta ${offerOf}`);
-      return card(`${sender} aceptó la oferta ${offerOf}`);
     case ShipmentStatus.IN_TRANSIT:
       return card(
         isCarrier ? "Escaneaste el QR de retiro" : isReceiver ? `${carrier} retiró el paquete` : `${carrier} escaneó el QR de retiro`,
@@ -232,10 +236,7 @@ export function eventsSinceCurrentAssignment(events: readonly ShipmentEvent[]): 
 function currentAssignmentStartIndex(events: readonly ShipmentEvent[]): number {
   let start = -1;
   events.forEach((event, index) => {
-    const accepted =
-      event.fromStatus === ShipmentStatus.PUBLISHED &&
-      (event.toStatus === ShipmentStatus.ASSIGNMENT_PENDING || event.toStatus === ShipmentStatus.ASSIGNED_UNFUNDED);
-    if (accepted) start = index;
+    if (isOfferAcceptance(event.toStatus, event.fromStatus)) start = index;
   });
   return start;
 }
@@ -413,7 +414,10 @@ export function chatReadOnlyCopy(params: {
  * Qué significa un cambio de estado del chat, para la hoja que se abre al tocar su tarjeta: qué pasó y qué sigue.
  * En una disputa suma quién la abrió y por qué (`card.detail`); en una cancelación, el motivo (`card.reason`).
  */
-export function chatEventExplanation(card: Pick<ChatEventCard, "status" | "detail" | "reason">): string[] {
+export function chatEventExplanation(card: Pick<ChatEventCard, "status" | "detail" | "reason" | "offerAccepted">): string[] {
+  if (card.offerAccepted && card.status === ShipmentStatus.ASSIGNED) {
+    return ["El emisor eligió esta oferta. El envío se paga en efectivo al retirar el paquete, sin reserva previa."];
+  }
   switch (card.status) {
     case ShipmentStatus.ASSIGNMENT_PENDING:
       return ["El emisor eligió esta oferta. Falta que reserve el pago para que el envío quede confirmado."];

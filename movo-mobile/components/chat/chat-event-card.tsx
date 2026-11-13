@@ -1,3 +1,4 @@
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { ArrowLeftRight } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import {
@@ -32,7 +33,7 @@ export function ChatEventCard({
 }) {
   const colors = useThemeColors();
   const visual = card.status
-    ? shipmentStatusVisual(card.status)
+    ? shipmentStatusVisual(card.offerAccepted ? ShipmentStatus.ASSIGNMENT_PENDING : card.status)
     : { Icon: ArrowLeftRight, bgClass: "bg-bg-mute", iconColor: null };
   const { Icon } = visual;
   const isTop = position === "single" || position === "first";

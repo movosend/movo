@@ -397,6 +397,7 @@ export function shipmentEventDetail(
     return "Publicado para transportistas";
   }
   if (isOfferAcceptance(toStatus, fromStatus)) {
+    if (toStatus === ShipmentStatus.ASSIGNED) return "Se paga en efectivo al retirar";
     return toStatus === ShipmentStatus.ASSIGNED_UNFUNDED
       ? "El pago se reserva más cerca del retiro"
       : "Falta reservar el pago";
@@ -404,10 +405,17 @@ export function shipmentEventDetail(
   return null;
 }
 
-function isOfferAcceptance(toStatus: ShipmentStatus, fromStatus: ShipmentStatus | null): boolean {
+/**
+ * Si la transición es el emisor aceptando una oferta: desde `published` a `assignment_pending`/`assigned_unfunded`
+ * (con tarjeta) o directo a `assigned` (en efectivo, sin reserva de pago, MOVO-37). Fuente única para la línea de
+ * tiempo y el chat.
+ */
+export function isOfferAcceptance(toStatus: ShipmentStatus, fromStatus: ShipmentStatus | null): boolean {
   return (
     fromStatus === ShipmentStatus.PUBLISHED &&
-    (toStatus === ShipmentStatus.ASSIGNMENT_PENDING || toStatus === ShipmentStatus.ASSIGNED_UNFUNDED)
+    (toStatus === ShipmentStatus.ASSIGNMENT_PENDING ||
+      toStatus === ShipmentStatus.ASSIGNED_UNFUNDED ||
+      toStatus === ShipmentStatus.ASSIGNED)
   );
 }
 
