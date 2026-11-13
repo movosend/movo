@@ -111,6 +111,38 @@ const TRIP_FINISHED_SHIPMENT_STATUSES: ShipmentStatus[] = [
   ShipmentStatus.DISPUTED,
 ];
 
+/** Viaje `active` con al menos un paquete y todos terminados (`TRIP_FINISHED_SHIPMENT_STATUSES`): pasa a `completed`. */
+const ACTIVE_FINISHED_WHERE = {
+  status: TripStatus.ACTIVE,
+  offers: {
+    some: ACCEPTED_OFFER_FILTER,
+    none: {
+      status: "accepted" as const,
+      shipment: { status: { notIn: TRIP_FINISHED_SHIPMENT_STATUSES } },
+    },
+  },
+} satisfies Prisma.TripWhereInput;
+
+/**
+ * Completa, de `tripIds`, los `active` cuyos paquetes ya terminaron. Corre dentro de la
+ * transacción que llevó un envío a `disputed`/`completed`: sin esto el viaje seguía "en curso"
+ * en la app hasta la próxima corrida del barrido (`completeFinishedActive`, que queda como red).
+ */
+export async function completeFinishedActiveTrips(
+  tx: Prisma.TransactionClient,
+  tripIds: readonly string[],
+): Promise<string[]> {
+  const completed: string[] = [];
+  for (const id of new Set(tripIds)) {
+    const result = await tx.trip.updateMany({
+      where: { ...ACTIVE_FINISHED_WHERE, id },
+      data: { status: TripStatus.COMPLETED },
+    });
+    if (result.count > 0) completed.push(id);
+  }
+  return completed;
+}
+
 /**
  * MOVO-260: transiciona un viaje `declared` a un estado de baja (`cancelled`/`expired`)
  * con compare-and-swap sobre `where`, y en la MISMA transacción desasocia las ofertas
@@ -932,18 +964,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
     },
 
     async completeFinishedActive(limit: number): Promise<string[]> {
-      const where = {
-        status: TripStatus.ACTIVE,
-        offers: {
-          some: ACCEPTED_OFFER_FILTER,
-          none: {
-            status: "accepted" as const,
-            shipment: {
-              status: { notIn: TRIP_FINISHED_SHIPMENT_STATUSES },
-            },
-          },
-        },
-      };
+      const where = ACTIVE_FINISHED_WHERE;
 
       const candidates = await db.trip.findMany({
         where,

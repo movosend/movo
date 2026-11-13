@@ -11,7 +11,7 @@ import {
   vi,
 } from "vitest";
 import { FastifyInstance } from "fastify";
-import { DisputeReason, ShipmentStatus } from "@movo/shared";
+import { DisputeReason, ShipmentStatus, TripStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import {
   createShipmentRepository,
@@ -27,6 +27,7 @@ import { createFakeUsersClient } from "./fake-users-client";
 import { createFakePaymentsClient } from "./fake-payments-client";
 import { createFakePricingClient } from "./fake-pricing-client";
 import { createFakePricingLogisticsClient } from "./fake-pricing-logistics-client";
+import { attachAcceptedPackage } from "./trip-package-fixture";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PICKUP_DATE = new Date("2026-08-20T00:00:00.000Z");
@@ -572,6 +573,50 @@ describe("disputas (Postgres, MOVO-334)", () => {
       const closed = await addStatement(dispute.id, carrierId);
       expect(closed.statusCode).toBe(409);
       expect(closed.json().error.code).toBe("DISPUTE_NOT_OPEN");
+    });
+  });
+
+  describe("viaje del transportista", () => {
+    async function activeTrip(carrierId: string) {
+      return app.db.trip.create({
+        data: {
+          carrierId,
+          originAddress: "Av. Colón 1234, Córdoba",
+          originLat: -31.4201,
+          originLng: -64.1888,
+          destinationAddress: "Bv. San Juan 500, Córdoba",
+          destinationLat: -31.4135,
+          destinationLng: -64.1811,
+          departureAt: new Date(),
+          vehicleType: "auto",
+          status: TripStatus.ACTIVE,
+        },
+      });
+    }
+
+    const disputeOf = (shipmentId: string) =>
+      shipmentRepo.updateStatus(shipmentId, ShipmentStatus.DISPUTED, null, "reclamo", {
+        dispute: { openedBy: null, openedByRole: null, reason: DisputeReason.DAMAGED, description: "Llegó roto" },
+      });
+
+    it("si era su último paquete abierto, la disputa completa el viaje en el acto (sin esperar al barrido)", async () => {
+      const trip = await activeTrip(randomUUID());
+      await attachAcceptedPackage(app.db, trip, ShipmentStatus.DELIVERED);
+      const { shipmentId } = await attachAcceptedPackage(app.db, trip, ShipmentStatus.IN_TRANSIT);
+
+      await disputeOf(shipmentId);
+
+      expect((await app.db.trip.findUniqueOrThrow({ where: { id: trip.id } })).status).toBe(TripStatus.COMPLETED);
+    });
+
+    it("con otro paquete todavía en viaje, el viaje sigue en curso", async () => {
+      const trip = await activeTrip(randomUUID());
+      await attachAcceptedPackage(app.db, trip, ShipmentStatus.IN_TRANSIT);
+      const { shipmentId } = await attachAcceptedPackage(app.db, trip, ShipmentStatus.IN_TRANSIT);
+
+      await disputeOf(shipmentId);
+
+      expect((await app.db.trip.findUniqueOrThrow({ where: { id: trip.id } })).status).toBe(TripStatus.ACTIVE);
     });
   });
 
