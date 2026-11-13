@@ -25,7 +25,7 @@ export interface Rating extends RatingCategoryScores {
 
 /**
  * Una calificación recibida tal como la lee el perfil: suma el rol que tenía en ESE envío quien la hizo (`raterRole`),
- * que la tabla no guarda (solo guarda el del calificado). `null` si el envío ya no lo ubica como parte.
+ * guardado en la fila al crearla (MOVO-354). `null` solo si la fila es anterior y el backfill no pudo ubicarlo.
  */
 export interface RatingWithRaterRole extends Rating {
   raterRole: RatingRole | null;
@@ -46,6 +46,8 @@ export interface CreateRatingInput extends RatingCategoryScoresInput {
   raterId: string;
   rateeId: string;
   role: RatingRole;
+  /** Rol de quien califica en este envío (MOVO-354); se guarda en la fila. */
+  raterRole?: RatingRole | null;
   score: number;
   comment?: string;
 }

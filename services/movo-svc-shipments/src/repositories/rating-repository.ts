@@ -175,6 +175,7 @@ export function createRatingRepository(db: PrismaClient): RatingRepository {
             raterId: input.raterId,
             rateeId: input.rateeId,
             role: input.role,
+            raterRole: input.raterRole ?? null,
             score: input.score,
             comment: input.comment ?? null,
             ...categoryScoreColumns(input),
@@ -241,21 +242,11 @@ export function createRatingRepository(db: PrismaClient): RatingRepository {
         // Pide una de más para saber si hay próxima página sin una segunda query.
         take: limit + 1,
       });
-      const page = rows.slice(0, limit).map(mapRating);
-      // El rol de quien califica sale de las partes del envío: la tabla solo guarda el del calificado.
-      const shipments = await db.shipment.findMany({
-        where: { id: { in: [...new Set(page.map((r) => r.shipmentId))] } },
-        select: { id: true, senderId: true, carrierId: true, receiverId: true },
-      });
-      const parties = new Map(shipments.map((s) => [s.id, s]));
-      const items = page.map((rating) => {
-        const shipment = parties.get(rating.shipmentId);
-        let raterRole: RatingRole | null = null;
-        if (shipment?.senderId === rating.raterId) raterRole = RatingRole.sender;
-        else if (shipment?.carrierId === rating.raterId) raterRole = RatingRole.carrier;
-        else if (shipment?.receiverId === rating.raterId) raterRole = RatingRole.receiver;
-        return { ...rating, raterRole };
-      });
+      // El rol de quien califica ya viene en la fila (MOVO-354): sin consulta extra a `shipment`.
+      const items = rows.slice(0, limit).map((row) => ({
+        ...mapRating(row),
+        raterRole: row.raterRole ? parseRatingRole(row.raterRole, "rater_role") : null,
+      }));
       const hasMore = rows.length > limit;
       return { items, nextCursor: hasMore ? encodeRatingCursor(items[items.length - 1]) : null };
     },

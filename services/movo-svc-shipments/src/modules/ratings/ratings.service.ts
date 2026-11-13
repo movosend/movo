@@ -279,12 +279,14 @@ export function createRatingsService(
       }
       assertCategoriesMatchRateeRole(rateeRole, input);
 
+      // Rol de quien califica en este envío: se guarda en la fila (MOVO-354), las partes pueden cambiar después.
+      const raterRole = resolveShipmentRole(shipment, input.raterId);
       const events = await shipmentRepository.listEvents(input.shipmentId);
       assertRatingWindowAllowsWrite(
         shipment,
         events,
         new Date(),
-        { raterRole: resolveShipmentRole(shipment, input.raterId) ?? RatingRole.sender, rateeRole },
+        { raterRole: raterRole ?? RatingRole.sender, rateeRole },
         (await disputeRepository?.findLatestByShipment(input.shipmentId)) ?? null,
       );
 
@@ -296,6 +298,7 @@ export function createRatingsService(
         raterId: input.raterId,
         rateeId: input.rateeId,
         role: rateeRole,
+        raterRole,
         score: input.score,
         comment: input.comment,
         ...pickCategoryScores(input),

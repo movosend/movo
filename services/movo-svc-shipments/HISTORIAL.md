@@ -4020,3 +4020,7 @@ Mensajes señalados: ventana móvil de 7 días, porque ni un mensaje moderado ni
 ### MOVO-354 — `raterRole` en las reseñas recientes del perfil
 
 `GET /internal/users/:id/ratings/recent` y `recent-by-role` suman `raterRole` (`sender`/`carrier`/`receiver`, `null` si el envío ya no ubica a quien calificó): el rol que tenía quien calificó en ese envío, que la tabla `Rating` no guarda (solo guarda el del calificado). Se calcula al leer, con una consulta por las partes de los envíos de la página (`listRecentByRateePaginated`, tipo `RatingWithRaterRole`), sin migración ni cambio en la escritura. Solo lo usa el perfil: el resto de las respuestas de `Rating` no cambia.
+
+### MOVO-354 (review de PR #341) — `ratings.rater_role` persistido
+
+`Rating.raterRole` (columna nullable `rater_role`) se guarda al crear la calificación (`ratings.service.ts`), en vez de inferirse en cada lectura de las partes actuales del envío: una transferencia de receptor (DD-038) ya no hace perder la insignia, y `listRecentByRateePaginated` dejó de consultar `shipment` (antes 3 consultas extra por carga de perfil). La migración `20261113120000_rating_rater_role` rellena las filas existentes con la precedencia sender → carrier → receiver; si una misma persona es emisor y receptor, queda `sender`. `MIN_RATINGS_FOR_ESTABLISHED_PROFILE` pasó a `@movo/shared` (`config/reputation.ts`) para que el mobile avise cuántas calificaciones faltan.
