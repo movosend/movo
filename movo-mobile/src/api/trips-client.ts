@@ -69,6 +69,9 @@ export interface TripWithAcceptedPackages extends Trip {
    * (envío `assigned`/`in_transit`). `POST /trips/:id/start` exige al menos uno; los que
    * esperan el hold de fondos (`assignment_pending`/`assigned_unfunded`) no cuentan. */
   executablePackagesCount: number;
+  /** Cuántos de los paquetes aceptados están en disputa: cierran el viaje, pero no se llevaron.
+   * Opcional para tolerar un backend anterior al campo. */
+  disputedPackagesCount?: number;
   packages?: TripAcceptedPackage[];
 }
 

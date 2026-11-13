@@ -22,6 +22,9 @@ function packageStatus(status: ShipmentStatus, dark: boolean): { label: string; 
   if (status === ShipmentStatus.ASSIGNED) {
     return { label: "Por retirar", bg: "rgba(245,185,58,0.2)", fg: dark ? "#F5B93A" : "#7A5200" };
   }
+  if (status === ShipmentStatus.DISPUTED) {
+    return { label: "En disputa", bg: "rgba(245,185,58,0.2)", fg: dark ? "#F5B93A" : "#7A5200" };
+  }
   if (status === ShipmentStatus.IN_TRANSIT) {
     return dark
       ? { label: "A bordo", bg: "rgba(210,245,80,0.18)", fg: "#E4F98F" }

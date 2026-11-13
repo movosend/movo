@@ -522,6 +522,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         hasAcceptedPackages: offers.length > 0,
         acceptedPackagesCount: offers.length,
         executablePackagesCount: packages.filter((p) => TRIP_EXECUTABLE_SHIPMENT_STATUSES.includes(p.status)).length,
+        disputedPackagesCount: packages.filter((p) => p.status === ShipmentStatus.DISPUTED).length,
         packages,
       };
     },
@@ -579,14 +580,22 @@ export function createTripRepository(db: PrismaClient): TripRepository {
 
       // MOVO-277: `_count` no admite dos filtros distintos sobre la misma relación, así
       // que el conteo ejecutable sale de una consulta aparte sobre los viajes de la página.
+      // Los de disputa salen de la misma consulta: el historial no cuenta un paquete en disputa como "llevado".
       const executableByTripId = new Map<string, number>();
+      const disputedByTripId = new Map<string, number>();
       if (rows.length > 0) {
-        const executableOffers = await db.offer.findMany({
-          where: { tripId: { in: rows.map((row) => row.id) }, ...EXECUTABLE_OFFER_FILTER },
-          select: { tripId: true },
+        const countedOffers = await db.offer.findMany({
+          where: {
+            tripId: { in: rows.map((row) => row.id) },
+            status: "accepted",
+            shipment: { status: { in: [...TRIP_EXECUTABLE_SHIPMENT_STATUSES, ShipmentStatus.DISPUTED] } },
+          },
+          select: { tripId: true, shipment: { select: { status: true } } },
         });
-        for (const { tripId } of executableOffers) {
-          if (tripId) executableByTripId.set(tripId, (executableByTripId.get(tripId) ?? 0) + 1);
+        for (const { tripId, shipment } of countedOffers) {
+          if (!tripId) continue;
+          const counts = shipment.status === ShipmentStatus.DISPUTED ? disputedByTripId : executableByTripId;
+          counts.set(tripId, (counts.get(tripId) ?? 0) + 1);
         }
       }
 
@@ -595,6 +604,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         hasAcceptedPackages: row._count.offers > 0,
         acceptedPackagesCount: row._count.offers,
         executablePackagesCount: executableByTripId.get(row.id) ?? 0,
+        disputedPackagesCount: disputedByTripId.get(row.id) ?? 0,
       }));
 
       return { items, total };

@@ -115,7 +115,13 @@ const tripAcceptedPackageResponse = {
 
 const tripWithAcceptedPackagesResponse = {
   type: "object",
-  required: [...tripResponse.required, "hasAcceptedPackages", "acceptedPackagesCount", "executablePackagesCount"],
+  required: [
+    ...tripResponse.required,
+    "hasAcceptedPackages",
+    "acceptedPackagesCount",
+    "executablePackagesCount",
+    "disputedPackagesCount",
+  ],
   properties: {
     ...tripResponse.properties,
     hasAcceptedPackages: { type: "boolean" },
@@ -124,6 +130,10 @@ const tripWithAcceptedPackagesResponse = {
       type: "integer",
       description:
         "Paquetes aceptados que el viaje ya puede ejecutar (envío assigned o in_transit). POST /trips/:id/start exige al menos uno.",
+    },
+    disputedPackagesCount: {
+      type: "integer",
+      description: "Paquetes aceptados cuyo envío está en disputa. Cierran el viaje, pero no cuentan como llevados.",
     },
     packages: { type: "array", items: tripAcceptedPackageResponse },
   },

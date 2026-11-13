@@ -223,6 +223,29 @@ describe("TripDetailScreen (MOVO-263)", () => {
     expect(mockPush).toHaveBeenCalledWith({ pathname: "/(app)/(tabs)/transport", params: { tripId: "trip-1" } });
   });
 
+  it("un viaje completado con un paquete en disputa lo aclara arriba y marca la fila", async () => {
+    mockUseTrip.mockReturnValue(
+      loaded({
+        ...TRIP,
+        status: TripStatus.COMPLETED,
+        hasAcceptedPackages: true,
+        acceptedPackagesCount: 1,
+        disputedPackagesCount: 1,
+        packages: [{ ...pkg("ship-1", 1860), status: ShipmentStatus.DISPUTED }],
+      }),
+    );
+    const { getByTestId } = await render(<TripDetailScreen />);
+
+    expect(getByTestId("trip-detail-disputed-notice")).toHaveTextContent(/1 paquete en disputa: no cuenta como llevado/);
+    expect(getByTestId("trip-detail-package-ship-1-status")).toHaveTextContent("En disputa");
+  });
+
+  it("sin paquetes en disputa no muestra el aviso", async () => {
+    mockUseTrip.mockReturnValue(loaded(WITH_PACKAGES));
+    const { queryByTestId } = await render(<TripDetailScreen />);
+    expect(queryByTestId("trip-detail-disputed-notice")).toBeNull();
+  });
+
   it("AC2/AC5: con paquetes lista las filas y el total, sin editar, con nota y 'Iniciar viaje'", async () => {
     mockUseTrip.mockReturnValue(loaded(WITH_PACKAGES));
     const { getByText, getByTestId, queryByTestId } = await render(<TripDetailScreen />);

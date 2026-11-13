@@ -220,11 +220,28 @@ export function tripHistorySubtext(trip: {
 }
 
 /**
- * Chip del historial para un viaje completado: "Llevaste 3 paquetes". No dice "entregados":
- * el conteo de paquetes aceptados incluye los que quedaron en disputa.
+ * Chip del historial para un viaje completado: "Llevaste 3 paquetes". No dice "entregados" (un
+ * `delivered` todavía espera la confirmación del receptor). Los que quedaron en disputa no
+ * cuentan: el backend da el viaje por terminado, pero el paquete no se llevó.
  */
 export function tripCarriedChipLabel(count: number): string {
   return `Llevaste ${count} ${count === 1 ? "paquete" : "paquetes"}`;
+}
+
+/** Paquetes del viaje que se llevaron: los aceptados menos los que están en disputa. */
+export function tripCarriedCount(trip: Pick<TripWithAcceptedPackages, "acceptedPackagesCount" | "disputedPackagesCount">): number {
+  return Math.max(0, trip.acceptedPackagesCount - (trip.disputedPackagesCount ?? 0));
+}
+
+/** "1 paquete en disputa" / "2 paquetes en disputa". */
+export function tripDisputedChipLabel(count: number): string {
+  return `${count} ${count === 1 ? "paquete" : "paquetes"} en disputa`;
+}
+
+/** Aviso del detalle de un viaje con paquetes en disputa. */
+export function tripDisputedNotice(count: number): string {
+  const subject = count === 1 ? "Este viaje tiene 1 paquete en disputa" : `Este viaje tiene ${count} paquetes en disputa`;
+  return `${subject}: no cuenta como llevado. Movo está revisando lo que pasó y el cobro queda retenido hasta que se resuelva.`;
 }
 
 /** Encabezado de mes para agrupar el historial ("Septiembre 2026"), por `departureAt`. */

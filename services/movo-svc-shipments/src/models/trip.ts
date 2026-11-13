@@ -102,6 +102,8 @@ export interface TripWithAcceptedPackages extends Trip {
    * para no ofrecer "Iniciar viaje" mientras todos esperan el pago.
    */
   executablePackagesCount: number;
+  /** Cuántos de los paquetes aceptados están en disputa: el viaje los da por terminados, pero no se llevaron. */
+  disputedPackagesCount: number;
   packages?: TripAcceptedPackage[];
 }
 
