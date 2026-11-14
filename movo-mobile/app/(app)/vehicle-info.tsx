@@ -31,9 +31,9 @@ import {
   FITS_BY_TIER,
   VEHICLE_BRANDS,
   VEHICLE_CATALOG,
-  normalizeSearchText,
   tierById,
 } from "../../src/data/vehicle-catalog";
+import { normalizeSearchText } from "../../src/lib/search-text";
 import {
   detectFormat,
   formatLabel,

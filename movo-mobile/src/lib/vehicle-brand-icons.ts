@@ -1,5 +1,5 @@
 import type { ImageSourcePropType } from "react-native";
-import { normalizeSearchText } from "../data/vehicle-catalog";
+import { normalizeSearchText } from "./search-text";
 
 /**
  * Logos reales de marca para el selector de vehículo (MOVO-223) — opcionales.

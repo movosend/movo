@@ -107,6 +107,7 @@ interface RatingApiResponse {
   score: number;
   comment: string | null;
   createdAt: string;
+  raterRole?: RecentRatingComment["raterRole"];
 }
 
 /** Roles de `svc-shipments` que entran en cada pestaña del perfil: lo recibido como receptor va con emisor. */
@@ -117,7 +118,14 @@ const PROFILE_ROLE_RATING_ROLES: Record<ProfileRatingRole, string> = {
 
 /** Se queda con los campos del contrato: el endpoint de shipments trae más (rateeId, role, categorías). */
 function toRawComment(row: RatingApiResponse): RawRecentRatingComment {
-  return { id: row.id, raterId: row.raterId, score: row.score, comment: row.comment, createdAt: row.createdAt };
+  return {
+    id: row.id,
+    raterId: row.raterId,
+    score: row.score,
+    comment: row.comment,
+    createdAt: row.createdAt,
+    raterRole: row.raterRole ?? null,
+  };
 }
 
 export function createShipmentsClient(config: ShipmentsClientConfig): ShipmentsClient {

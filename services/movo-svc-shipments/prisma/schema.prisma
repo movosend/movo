@@ -470,6 +470,11 @@ model Rating {
   // Rol del CALIFICADO dentro de este envío en particular -- no un rol de cuenta.
   role RatingRole
 
+  // MOVO-354: rol de quien CALIFICA dentro de este envío, fijado al crear la fila (las partes
+  // del envío pueden cambiar después, p. ej. la transferencia de receptor, DD-038). Nullable:
+  // la migración rellena las filas anteriores a partir de las partes del envío.
+  raterRole RatingRole? @map("rater_role")
+
   // AC4: entero 1..5, sin medias estrellas -- validado en el schema de la ruta
   // (@movo/shared no define un enum acá, es un número simple).
   score   Int

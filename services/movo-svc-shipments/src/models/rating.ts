@@ -24,6 +24,14 @@ export interface Rating extends RatingCategoryScores {
 }
 
 /**
+ * Una calificación recibida tal como la lee el perfil: suma el rol que tenía en ESE envío quien la hizo (`raterRole`),
+ * guardado en la fila al crearla (MOVO-354). `null` solo si la fila es anterior y el backfill no pudo ubicarlo.
+ */
+export interface RatingWithRaterRole extends Rating {
+  raterRole: RatingRole | null;
+}
+
+/**
  * MOVO-173: sub-scores de una calificación, `null` cuando no se cargó (filas anteriores
  * a MOVO-173, o el calificador no tocó esa categoría). Cuáles aplican depende de `role`
  * -- ver `@movo/shared` `config/rating-categories.ts`.
@@ -38,6 +46,8 @@ export interface CreateRatingInput extends RatingCategoryScoresInput {
   raterId: string;
   rateeId: string;
   role: RatingRole;
+  /** Rol de quien califica en este envío (MOVO-354); se guarda en la fila. */
+  raterRole?: RatingRole | null;
   score: number;
   comment?: string;
 }

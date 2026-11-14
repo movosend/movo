@@ -81,6 +81,9 @@ export interface RecentRatingCommentsByRole {
   asCarrier: RecentRatingComment[];
 }
 
+/** Parte de un envío, en el contrato de reseñas del perfil. */
+export type ShipmentPartyRole = "sender" | "carrier" | "receiver";
+
 /**
  * MOVO-152 AC2: una de las últimas 10 calificaciones recibidas por el usuario, leídas
  * de `GET /internal/users/:id/ratings/recent` (`svc-shipments`, MOVO-146 AC10) al
@@ -98,6 +101,11 @@ export interface RecentRatingComment {
   id: string;
   raterId: string;
   raterName: string;
+  /**
+   * Rol que tenía quien calificó en ESE envío (no un rol de cuenta). `null` si el envío ya no lo ubica como parte.
+   * Opcional para no romper literales armados a mano ni respuestas de un `svc-users` anterior.
+   */
+  raterRole?: ShipmentPartyRole | null;
   score: number;
   comment: string | null;
   createdAt: string;

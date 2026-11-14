@@ -33,49 +33,90 @@ describe("ProfileRatingsScreen", () => {
     mockParams = {};
   });
 
-  it("con ?role= muestra solo las reseñas de ese rol", async () => {
-    mockParams = { role: "carrier" };
-    const asCarrier = { id: "c1", raterId: "u2", raterName: "Pedro", score: 3, comment: "Café en la YPF", createdAt: "2026-10-26T00:00:00.000Z" };
-    const asSender = { id: "s1", raterId: "u3", raterName: "Ana", score: 5, comment: "Todo bien", createdAt: "2026-10-20T00:00:00.000Z" };
-    mockUsePublicProfile.mockReturnValue({
-      isLoading: false,
-      data: {
-        id: "user-1",
-        reputationScore: 4,
-        ratingCount: 2,
-        isNewProfile: true,
-        asSender: { reputationScore: 5, ratingCount: 1, isNewProfile: true },
-        asCarrier: { reputationScore: 3, ratingCount: 1, isNewProfile: true },
-        recentRatingComments: [asCarrier, asSender],
-        recentRatingCommentsByRole: { asCarrier: [asCarrier], asSender: [asSender] },
-      },
+  const profileWith = (comments: unknown[]) => ({
+    isLoading: false,
+    data: {
+      id: "user-1",
+      reputationScore: 4.5,
+      ratingCount: 9,
+      isNewProfile: false,
+      asSender: { reputationScore: 3.2, ratingCount: 4, isNewProfile: false },
+      asCarrier: { reputationScore: 4.9, ratingCount: 5, isNewProfile: false },
+      recentRatingComments: comments,
+    },
+  });
+  const rating = (id: string, name: string, raterRole: string | null, comment: string | null = "Todo bien") => ({
+    id,
+    raterId: `u-${id}`,
+    raterName: name,
+    raterRole,
+    score: 5,
+    comment,
+    createdAt: "2026-10-26T00:00:00.000Z",
+  });
+
+  it("muestra todas las reseñas de cualquier rol, sin filtrar, con el puntaje y el conteo globales (MOVO-354)", async () => {
+    mockParams = { role: "sender" }; // aunque llegue un ?role= viejo, se ignora
+    mockUsePublicProfile.mockReturnValue(
+      profileWith([rating("c1", "Pedro", "sender"), rating("s1", "Ana", "carrier")]),
+    );
+
+    const { getByTestId, getByText } = await render(<ProfileRatingsScreen />);
+
+    expect(getByTestId("profile-ratings-comment-c1")).toBeTruthy();
+    expect(getByTestId("profile-ratings-comment-s1")).toBeTruthy();
+    expect(getByText("4.5")).toBeTruthy();
+    expect(getByText(/9 calificaciones en total/)).toBeTruthy();
+    expect(mockUseUserRatings).toHaveBeenCalledWith("user-1");
+  });
+
+  it("muestra el rol de quien calificó salvo cuando es transportista", async () => {
+    mockUsePublicProfile.mockReturnValue(
+      profileWith([rating("c1", "Pedro", "sender"), rating("c2", "Ale", "receiver"), rating("s1", "Ana", "carrier")]),
+    );
+
+    const { getByTestId, queryByTestId } = await render(<ProfileRatingsScreen />);
+
+    expect(getByTestId("profile-ratings-comment-c1-role")).toBeTruthy();
+    expect(getByTestId("profile-ratings-comment-c2-role")).toBeTruthy();
+    expect(queryByTestId("profile-ratings-comment-s1-role")).toBeNull();
+  });
+
+  it("el buscador filtra por nombre sin importar tildes ni mayúsculas, y avisa si nada coincide", async () => {
+    mockUsePublicProfile.mockReturnValue(
+      profileWith([rating("c1", "Tomás Vergara", "sender"), rating("c2", "Alena Ariza", "receiver")]),
+    );
+
+    const { getByTestId, queryByTestId, getByText } = await render(<ProfileRatingsScreen />);
+    await fireEvent.changeText(getByTestId("profile-ratings-search"), "TOMAS");
+    expect(getByTestId("profile-ratings-comment-c1")).toBeTruthy();
+    expect(queryByTestId("profile-ratings-comment-c2")).toBeNull();
+
+    await fireEvent.changeText(getByTestId("profile-ratings-search"), "zzz");
+    expect(getByText(/Ninguna calificación coincide con "zzz"/)).toBeTruthy();
+
+    await fireEvent.press(getByTestId("profile-ratings-search-clear"));
+    expect(getByTestId("profile-ratings-comment-c2")).toBeTruthy();
+  });
+
+  it("mientras hay una búsqueda trae las páginas que faltan y oculta 'Cargar más'", async () => {
+    const fetchNextPage = jest.fn();
+    mockUsePublicProfile.mockReturnValue(profileWith([]));
+    mockUseUserRatings.mockReturnValue({
+      data: { pages: [{ items: [rating("a1", "Ana", "sender")], nextCursor: "c" }] },
+      hasNextPage: true,
+      isFetchingNextPage: false,
+      isFetchNextPageError: false,
+      fetchNextPage,
     });
 
     const { getByTestId, queryByTestId } = await render(<ProfileRatingsScreen />);
-    expect(getByTestId("profile-ratings-comment-c1")).toBeTruthy();
-    expect(queryByTestId("profile-ratings-comment-s1")).toBeNull();
-  });
+    expect(queryByTestId("profile-ratings-more")).not.toBeNull();
+    expect(fetchNextPage).not.toHaveBeenCalled();
 
-  it("con ?role= el encabezado usa el puntaje y el conteo de ese rol, no los globales", async () => {
-    mockParams = { role: "sender" };
-    mockUsePublicProfile.mockReturnValue({
-      isLoading: false,
-      data: {
-        id: "user-1",
-        reputationScore: 4.5,
-        ratingCount: 9,
-        isNewProfile: false,
-        asSender: { reputationScore: 3.2, ratingCount: 4, isNewProfile: false },
-        asCarrier: { reputationScore: 4.9, ratingCount: 5, isNewProfile: false },
-        recentRatingComments: [],
-        recentRatingCommentsByRole: { asCarrier: [], asSender: [] },
-      },
-    });
-
-    const { getByText, queryByText } = await render(<ProfileRatingsScreen />);
-    expect(getByText("3.2")).toBeTruthy();
-    expect(getByText(/como emisor/)).toBeTruthy();
-    expect(queryByText(/en total/)).toBeNull();
+    await fireEvent.changeText(getByTestId("profile-ratings-search"), "an");
+    expect(fetchNextPage).toHaveBeenCalled();
+    expect(queryByTestId("profile-ratings-more")).toBeNull();
   });
 
   it("muestra el skeleton mientras carga", async () => {
@@ -137,19 +178,15 @@ describe("ProfileRatingsScreen", () => {
     fireEvent(getByTestId("profile-ratings-back"), "touchEnd");
     expect(router.back).toHaveBeenCalled();
   });
-  it("pagina con GET /users/:id/ratings del rol elegido y 'Cargar más' pide la página siguiente", async () => {
-    mockParams = { role: "sender" };
+  it("pagina con GET /users/:id/ratings y 'Cargar más' pide la página siguiente", async () => {
     const fetchNextPage = jest.fn();
     const older = { id: "s9", raterId: "u9", raterName: "Ana", score: 4, comment: "Vieja", createdAt: "2026-01-02T00:00:00.000Z" };
-    mockUsePublicProfile.mockReturnValue({
-      isLoading: false,
-      data: { id: "user-1", reputationScore: 4, ratingCount: 30, isNewProfile: false, asSender: { reputationScore: 4, ratingCount: 30, isNewProfile: false }, asCarrier: { reputationScore: null, ratingCount: 0, isNewProfile: true }, recentRatingComments: [], recentRatingCommentsByRole: { asCarrier: [], asSender: [] } },
-    });
+    mockUsePublicProfile.mockReturnValue(profileWith([]));
     mockUseUserRatings.mockReturnValue({ data: { pages: [{ items: [older], nextCursor: "c" }] }, hasNextPage: true, isFetchingNextPage: false, fetchNextPage });
 
     const { getByTestId } = await render(<ProfileRatingsScreen />);
 
-    expect(mockUseUserRatings).toHaveBeenCalledWith("user-1", "sender");
+    expect(mockUseUserRatings).toHaveBeenCalledWith("user-1");
     expect(getByTestId("profile-ratings-comment-s9")).toBeTruthy();
     await fireEvent.press(getByTestId("profile-ratings-more"));
     expect(fetchNextPage).toHaveBeenCalled();

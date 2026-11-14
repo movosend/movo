@@ -353,12 +353,13 @@ describe("ProfileScreen", () => {
       },
     });
 
-    const { getByText, getByTestId } = await render(<ProfileScreen />);
+    const { getByText, getByTestId, queryByText } = await render(<ProfileScreen />);
 
     expect(getByTestId("profile-activity-card-reputation")).toBeTruthy();
-    expect(getByText("Como emisor")).toBeTruthy();
-    expect(getByText("Como transportista")).toBeTruthy();
-    expect(getByText("Perfil nuevo")).toBeTruthy();
+    expect(getByText("Como Emisor o Receptor")).toBeTruthy();
+    expect(getByText("Como Transportista")).toBeTruthy();
+    // El perfil entero no es nuevo: la pestaña de transportista sin calificaciones suficientes no muestra el badge (MOVO-354).
+    expect(queryByText("Perfil nuevo")).toBeNull();
     expect(getByText("Todo perfecto")).toBeTruthy();
   });
 
@@ -445,8 +446,8 @@ describe("ProfileScreen", () => {
     const { getByTestId } = await render(<ProfileScreen />);
     fireEvent.press(getByTestId("profile-activity-card-view-all"));
 
-    // Con la pestaña elegida: solo hay envíos como emisor.
-    expect(router.push).toHaveBeenCalledWith("/profile/ratings?role=sender");
+    // Abre todas las calificaciones, sin filtrar por la pestaña elegida (MOVO-354).
+    expect(router.push).toHaveBeenCalledWith("/profile/ratings");
   });
 
   // MOVO-244 feedback: el visor de pantalla completa (`PhotoViewerModal`) se

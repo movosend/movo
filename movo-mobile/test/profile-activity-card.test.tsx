@@ -1,4 +1,4 @@
-import { act, fireEvent, render, within } from "@testing-library/react-native";
+import { act, fireEvent, render } from "@testing-library/react-native";
 import type { ReputationBreakdown, RecentRatingComment } from "@movo/shared/dist/types/user-profile";
 import { ProfileActivityCard } from "../components/profile/profile-activity-card";
 
@@ -115,8 +115,8 @@ describe("ProfileActivityCard", () => {
   // Caso borde: menos de 3 calificaciones (`isNewProfile`) pero ya hay algún
   // comentario real — sí hay algo genuino para mostrar, así que la sección se
   // mantiene (badge en vez del score gigante, sin las estrellas vacías).
-  it("perfil nuevo con al menos un comentario: muestra la sección con el badge, sin estrellas vacías", async () => {
-    const { getByTestId, queryByTestId } = await render(
+  it("perfil nuevo con al menos un comentario: avisa cuántas calificaciones faltan, sin estrellas vacías", async () => {
+    const { getByTestId, getByText, queryByTestId } = await render(
       <ProfileActivityCard
         testID="card"
         transactionCounts={{ asSender: 1, asCarrier: 0 }}
@@ -130,7 +130,8 @@ describe("ProfileActivityCard", () => {
       />,
     );
 
-    expect(within(getByTestId("card-new-badge")).getByText("Perfil nuevo")).toBeTruthy();
+    expect(getByTestId("card-ratings-missing")).toBeTruthy();
+    expect(getByText("Te faltan 2 calificaciones para mostrar tu puntaje.")).toBeTruthy();
     expect(queryByTestId("card-stars")).toBeNull();
   });
 
@@ -265,5 +266,108 @@ describe("ProfileActivityCard", () => {
       fireEvent.press(getByTestId("card-role-sender"));
     });
     expect(queryByText("Se frenó a tomar un café")).toBeNull();
+  });
+
+  // MOVO-354
+  describe("rediseño de la card de reputación (MOVO-354)", () => {
+    const manyComments = (n: number) =>
+      Array.from({ length: n }, (_, i) => comment({ id: `r${i + 1}`, comment: `Comentario ${i + 1}` }));
+    const renderCard = (n: number, extra: Partial<React.ComponentProps<typeof ProfileActivityCard>> = {}, ratingCount = n) =>
+      render(
+        <ProfileActivityCard
+          testID="card"
+          transactionCounts={{ asSender: 3, asCarrier: 0 }}
+          reputationScore={4.7}
+          reputation={{
+            asCarrier: breakdown({ reputationScore: null, isNewProfile: true, ratingCount: 0 }),
+            asSender: breakdown({ reputationScore: 4.7, ratingCount }),
+            recentRatingComments: manyComments(n),
+          }}
+          onViewAllRatings={jest.fn()}
+          {...extra}
+        />,
+      );
+
+    it("muestra como máximo las 3 reseñas más recientes", async () => {
+      const { getByText, queryByText } = await renderCard(5);
+      expect(getByText("Comentario 3")).toBeTruthy();
+      expect(queryByText("Comentario 4")).toBeNull();
+      expect(queryByText("Comentario 5")).toBeNull();
+    });
+
+    it("'Ver todas' aparece con más de 3 reseñas y no con 3 o menos", async () => {
+      expect((await renderCard(4)).queryByTestId("card-view-all")).not.toBeNull();
+      expect((await renderCard(3)).queryByTestId("card-view-all")).toBeNull();
+      expect((await renderCard(1)).queryByTestId("card-view-all")).toBeNull();
+    });
+
+    it("'Ver todas' también aparece si el conteo real supera 3 aunque la lista cargada traiga menos", async () => {
+      expect((await renderCard(2, {}, 12)).queryByTestId("card-view-all")).not.toBeNull();
+    });
+
+    it("'Ver todas' llama al callback sin pasar un rol (abre todas las reseñas)", async () => {
+      const onViewAllRatings = jest.fn();
+      const { getByTestId } = await renderCard(5, { onViewAllRatings });
+      await act(async () => {
+        fireEvent.press(getByTestId("card-view-all"));
+      });
+      expect(onViewAllRatings).toHaveBeenCalledTimes(1);
+      expect(onViewAllRatings).toHaveBeenCalledWith();
+    });
+
+    it("las pestañas se llaman 'Como Transportista' y 'Como Emisor o Receptor'", async () => {
+      const { getByText } = await render(
+        <ProfileActivityCard
+          testID="card"
+          transactionCounts={{ asSender: 2, asCarrier: 2 }}
+          reputationScore={4.7}
+          reputation={{ asCarrier: breakdown(), asSender: breakdown(), recentRatingComments: [comment()] }}
+        />,
+      );
+      expect(getByText("Como Transportista")).toBeTruthy();
+      expect(getByText("Como Emisor o Receptor")).toBeTruthy();
+    });
+
+    it("el rol de quien calificó se ve en la pestaña de transportista y no en la de emisor o receptor", async () => {
+      const carrierSide = comment({ id: "c1", raterRole: "sender" });
+      const senderSide = comment({ id: "s1", raterRole: "carrier" });
+      const { getByTestId, queryByTestId } = await render(
+        <ProfileActivityCard
+          testID="card"
+          transactionCounts={{ asSender: 2, asCarrier: 2 }}
+          reputationScore={4.7}
+          reputation={{
+            asCarrier: breakdown(),
+            asSender: breakdown(),
+            recentRatingComments: [carrierSide, senderSide],
+            recentRatingCommentsByRole: { asCarrier: [carrierSide], asSender: [senderSide] },
+          }}
+        />,
+      );
+      expect(getByTestId("card-comment-c1-role")).toBeTruthy();
+      await act(async () => {
+        fireEvent.press(getByTestId("card-role-sender"));
+      });
+      expect(queryByTestId("card-comment-s1-role")).toBeNull();
+    });
+
+    it("una pestaña sin calificaciones de un perfil que no es nuevo no muestra 'Perfil nuevo'", async () => {
+      const { queryByTestId, getByTestId } = await render(
+        <ProfileActivityCard
+          testID="card"
+          transactionCounts={{ asSender: 2, asCarrier: 2 }}
+          reputationScore={4.7}
+          isNewProfile={false}
+          reputation={{
+            asCarrier: breakdown({ reputationScore: null, isNewProfile: true, ratingCount: 0 }),
+            asSender: breakdown(),
+            recentRatingComments: [comment()],
+            recentRatingCommentsByRole: { asCarrier: [], asSender: [comment()] },
+          }}
+        />,
+      );
+      expect(queryByTestId("card-new-badge")).toBeNull();
+      expect(getByTestId("card-comments-empty")).toBeTruthy();
+    });
   });
 });

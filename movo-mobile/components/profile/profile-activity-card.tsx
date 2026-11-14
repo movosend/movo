@@ -17,13 +17,13 @@ import {
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import {
   formatRatingCount,
+  formatRatingsMissing,
   formatReputationScore,
   formatShipmentCount,
   formatTripCount,
   hasSenderSide,
   ratingCommentsForRole,
 } from "../../src/lib/profile-format";
-import { GradientBorderCard } from "../ui/gradient-border-card";
 import { SkeletonBlock } from "../ui/skeleton-block";
 import { StarRatingInput } from "../ui/star-rating-input";
 import { ReputationCommentCard } from "./reputation-comment-card";
@@ -53,29 +53,26 @@ export interface ProfileActivityCardProps {
   /** MOVO-168: si esa segunda query falla, el aviso queda dentro de la card, con reintento local. */
   reputationError?: boolean;
   onRetryReputation?: () => void;
-  /** Recibe la pestaña elegida, así "Ver todas" muestra las de ese rol. */
-  onViewAllRatings?: (role: ReputationRole) => void;
+  /** "Ver todas" abre todas las calificaciones, de cualquier rol (no las de la pestaña elegida). */
+  onViewAllRatings?: () => void;
   testID?: string;
 }
 
 const ROLE_LABEL: Record<ReputationRole, string> = {
-  carrier: "Como transportista",
-  sender: "Como emisor",
+  carrier: "Como Transportista",
+  sender: "Como Emisor o Receptor",
 };
 
-const SCORE_NOTE: Record<ReputationRole, string> = {
-  carrier: "Promedio ponderado: las calificaciones recientes pesan más.",
-  sender: "Calificada por quienes llevaron tus envíos — las recientes pesan más.",
-};
-
+/** Reseñas que muestra el carrusel de la card del perfil; el resto vive en "Tus calificaciones". */
+const MAX_PREVIEW_COMMENTS = 3;
 const CARD_WIDTH = 232;
 const CARD_GAP = 10;
 
 /**
  * Card única de "Tu actividad" + reputación del perfil PROPIO (MOVO-154, rediseño
  * post-feedback): antes eran dos bloques separados (`ProfileStatsRow` +
- * `ReputationDetail`, borrados) — acá viven en un solo `GradientBorderCard`, mismo
- * lenguaje "chrome" para las dos mitades. Los comentarios se muestran en un carrusel
+ * `ReputationDetail`, borrados) — acá viven en una sola card plana (sin el degradado "chrome",
+ * MOVO-354) para las dos mitades. Los comentarios se muestran en un carrusel
  * horizontal con peek del siguiente (nunca una lista vertical que crece con cada
  * calificación nueva) — el resto vive en la pantalla dedicada `/profile/ratings`
  * (`onViewAllRatings`), mismo patrón que "Mis envíos"/"Mis viajes".
@@ -103,8 +100,17 @@ export function ProfileActivityCard({
 
   const breakdown = reputation ? (role === "carrier" ? reputation.asCarrier : reputation.asSender) : undefined;
   // Las de la pestaña elegida: una reseña como transportista no va en "Como emisor" (feedback de TestFlight, build 17).
-  const comments = reputation ? ratingCommentsForRole(reputation, role) : [];
+  // La card muestra solo las más recientes (el perfil las trae de más nueva a más vieja); el resto, en "Ver todas".
+  const roleComments = reputation ? ratingCommentsForRole(reputation, role) : [];
+  const comments = roleComments.slice(0, MAX_PREVIEW_COMMENTS);
   const allComments = reputation?.recentRatingComments ?? [];
+  // "Ver todas" abre la pantalla con las reseñas de TODOS los roles: se compara contra el total del usuario, no contra el de
+  // la pestaña (la lista del perfil llega acotada, por eso también se mira el conteo real).
+  const totalRatings = Math.max(
+    allComments.length,
+    (reputation?.asCarrier.ratingCount ?? 0) + (reputation?.asSender.ratingCount ?? 0),
+  );
+  const hasMoreRatings = totalRatings > comments.length;
   // Perfil nuevo sin ningún comentario todavía: ni el score ni "lo que dicen de vos"
   // tienen nada real que mostrar (feedback: "toda esta sección es irrelevante") — se
   // oculta la sección entera en vez de mostrar el badge/nota vacíos de antes.
@@ -129,47 +135,19 @@ export function ProfileActivityCard({
   ];
 
   return (
-    <GradientBorderCard
-      testID={testID}
-      fillColors={colors.chromeOuterGradient}
-      borderColors={colors.chromeOuterBorderGradient}
-      borderRadius={20}
-      borderWidth={1.5}
-      style={{
-        marginBottom: 20,
-        shadowColor: colors.chromeShadow,
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 1,
-        shadowRadius: 10,
-        elevation: 4,
-      }}
-    >
+    <View testID={testID} className="mb-5 rounded-[20px] border border-border bg-bg">
       <View style={{ padding: 14 }}>
         <Text className="mb-3 font-sans-medium text-caption uppercase text-fg-3">Tu actividad</Text>
         <View style={{ flexDirection: "row", gap: 10 }}>
           {stats.map(({ key, Icon, text }) => (
-            <GradientBorderCard
+            <View
               key={key}
-              fillColors={colors.chromeGradient}
-              borderColors={colors.chromeBorderGradient}
-              borderRadius={14}
-              borderWidth={1.25}
               style={{ flex: 1, flexBasis: 0, minHeight: 92 }}
+              className="items-center justify-center gap-1.5 rounded-[14px] bg-bg-mute px-2 py-3.5"
             >
-              <View
-                style={{
-                  flex: 1,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 6,
-                  paddingHorizontal: 8,
-                  paddingVertical: 14,
-                }}
-              >
-                <Icon size={18} strokeWidth={1.8} color={colors.fg3} />
-                <Text className="text-center font-sans text-[12px] text-fg-2">{text}</Text>
-              </View>
-            </GradientBorderCard>
+              <Icon size={18} strokeWidth={1.8} color={colors.fg3} />
+              <Text className="text-center font-sans text-[12px] text-fg-2">{text}</Text>
+            </View>
           ))}
         </View>
 
@@ -212,22 +190,18 @@ export function ProfileActivityCard({
             ) : null}
 
             {breakdown.isNewProfile ? (
-              // Sin ninguna calificación todavía: ni el número gigante ni las 5
-              // estrellas vacías comunican algo real (feedback: "es irrelevante
-              // mostrar las stars vacías" — un score de 38px pidiendo el mismo
-              // protagonismo que un score real también exageraba lo que hay para
-              // mostrar). Un badge chico alcanza.
-              <View
-                testID={testID ? `${testID}-new-badge` : undefined}
-                className="mb-5 flex-row self-start rounded-full bg-lime-500 px-2.5 py-1"
+              // Con menos calificaciones que el umbral (en ESTA pestaña) no hay puntaje que mostrar: ni el número
+              // gigante ni las estrellas vacías comunican algo real. Se avisa cuántas faltan, en vez de repetir el
+              // "Perfil nuevo" que ya muestra el cuadro de arriba (feedback de la review de MOVO-354).
+              <Text
+                testID={testID ? `${testID}-ratings-missing` : undefined}
+                className="mb-5 font-sans text-small text-fg-2"
               >
-                <Text className="font-sans-semibold text-[11px] uppercase tracking-wide text-ink-950">
-                  Perfil nuevo
-                </Text>
-              </View>
+                {formatRatingsMissing(breakdown.ratingCount)}
+              </Text>
             ) : (
               <>
-                <View className="mb-2.5 flex-row items-center gap-4">
+                <View className="mb-5 flex-row items-center gap-4">
                   <View className="flex-none gap-0.5">
                     <Text className="font-sans-semibold text-[38px] leading-[38px] text-fg">
                       {formatReputationScore(breakdown.reputationScore, breakdown.isNewProfile)}
@@ -244,16 +218,15 @@ export function ProfileActivityCard({
                     testID={testID ? `${testID}-stars` : undefined}
                   />
                 </View>
-                <Text className="mb-5 font-sans text-[11.5px] text-fg-3">{SCORE_NOTE[role]}</Text>
               </>
             )}
 
             <View className="mb-2.5 flex-row items-center justify-between">
               <Text className="font-sans-medium text-caption uppercase text-fg-3">Lo que dicen de vos</Text>
-              {comments.length > 0 && onViewAllRatings ? (
+              {hasMoreRatings && onViewAllRatings ? (
                 <Pressable
                   testID={testID ? `${testID}-view-all` : undefined}
-                  onPress={() => onViewAllRatings(role)}
+                  onPress={() => onViewAllRatings()}
                   hitSlop={8}
                   className="flex-row items-center gap-0.5"
                 >
@@ -306,7 +279,7 @@ export function ProfileActivityCard({
                       <View
                         key={comment.id}
                         style={{ width: index === activeCommentIndex ? 14 : 5, height: 5 }}
-                        className={`rounded-full ${index === activeCommentIndex ? "bg-lime-500" : "bg-bg-mute"}`}
+                        className={`rounded-full ${index === activeCommentIndex ? "bg-fg" : "bg-border-strong"}`}
                       />
                     ))}
                   </View>
@@ -316,7 +289,7 @@ export function ProfileActivityCard({
           </View>
         ) : null}
       </View>
-    </GradientBorderCard>
+    </View>
   );
 }
 
@@ -336,7 +309,7 @@ function ReputationSkeleton({ testID }: { testID?: string }) {
       </View>
       <SkeletonBlock className="mb-5 h-3 w-4/5 rounded" />
       <SkeletonBlock className="mb-2.5 h-4 w-40 rounded" />
-      <SkeletonBlock style={{ width: CARD_WIDTH }} className="h-[96px] rounded-2xl" />
+      <SkeletonBlock style={{ width: CARD_WIDTH }} className="h-[132px] rounded-2xl" />
     </View>
   );
 }

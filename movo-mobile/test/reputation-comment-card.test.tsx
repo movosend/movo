@@ -25,7 +25,7 @@ describe("ReputationCommentCard", () => {
     expect(getByText("Lucas D.")).toBeTruthy();
   });
 
-  it("trunca a 3 líneas en variant carousel, sin límite en variant list", async () => {
+  it("sin límite de líneas en variant list", async () => {
     const { getByText } = await render(
       <ReputationCommentCard comment={comment({ comment: "Un comentario largo" })} variant="list" />,
     );
@@ -35,5 +35,46 @@ describe("ReputationCommentCard", () => {
   it("no rompe si el comentario es null (solo estrellas)", async () => {
     const { queryByText } = await render(<ReputationCommentCard comment={comment({ comment: null })} />);
     expect(queryByText("Todo perfecto")).toBeNull();
+  });
+
+  it("con comentario muestra el texto; sin comentario, 'Sin comentario' (MOVO-354)", async () => {
+    const withText = await render(<ReputationCommentCard comment={comment({ comment: "Muy bien" })} />);
+    expect(withText.getByText("Muy bien")).toBeTruthy();
+    expect(withText.queryByText("Sin comentario")).toBeNull();
+
+    const without = await render(<ReputationCommentCard comment={comment({ comment: null })} />);
+    expect(without.getByText("Sin comentario")).toBeTruthy();
+  });
+
+  it("muestra el rol de quien calificó con su etiqueta, y nada si no viene o se oculta", async () => {
+    const sender = await render(<ReputationCommentCard comment={comment({ raterRole: "sender" })} />);
+    expect(sender.getByText("Emisor")).toBeTruthy();
+
+    const receiver = await render(<ReputationCommentCard comment={comment({ raterRole: "receiver" })} />);
+    expect(receiver.getByText("Receptor")).toBeTruthy();
+
+    // Las que hace el transportista no llevan la insignia por defecto (regla única, `shouldShowRaterRole`)...
+    const carrier = await render(<ReputationCommentCard testID="k" comment={comment({ raterRole: "carrier" })} />);
+    expect(carrier.queryByTestId("k-role")).toBeNull();
+    // ...pero se puede forzar.
+    const forced = await render(
+      <ReputationCommentCard comment={comment({ raterRole: "carrier" })} showRaterRole />,
+    );
+    expect(forced.getByText("Transportista")).toBeTruthy();
+
+    const none = await render(<ReputationCommentCard testID="n" comment={comment({ raterRole: null })} />);
+    expect(none.queryByTestId("n-role")).toBeNull();
+
+    const hidden = await render(
+      <ReputationCommentCard testID="h" comment={comment({ raterRole: "sender" })} showRaterRole={false} />,
+    );
+    expect(hidden.queryByTestId("h-role")).toBeNull();
+  });
+
+  it("en el carrusel trunca el comentario a 4 líneas", async () => {
+    const { getByTestId } = await render(
+      <ReputationCommentCard testID="c" comment={comment({ comment: "Largo" })} variant="carousel" />,
+    );
+    expect(getByTestId("c-text").props.numberOfLines).toBe(4);
   });
 });
