@@ -28,6 +28,10 @@ export interface OperationsFact {
   cancelCause: CancellationCause | null;
   /** `demandRatio` de la cotización; `null` sin desglose o si se cotizó sin conteo de demanda (pricing lo manda en 0). */
   demandRatio: number | null;
+  /**
+   * `null` si la cotización no contó la demanda (falló el conteo): pricing manda `high_demand = false`, que no es una
+   * medición. Así "Con recargo por demanda" y "Envíos por transportista" se miden sobre los mismos envíos.
+   */
   highDemand: boolean | null;
   /** Transportistas que contó la cotización; `null` en los envíos anteriores a esa columna. */
   availableCarriers: number | null;
@@ -45,14 +49,15 @@ function meanOf(values: readonly number[]): number | null {
 /** La señal de demanda se mide sobre los publicados del período: es la foto del pricing al publicarse cada uno. */
 function metricsOf(facts: readonly OperationsFact[], period: ReportRange): Record<OperationsKpi, number | null> {
   const published = publishedIn(facts, period);
+  // Solo los envíos cuya cotización contó la demanda: los tres indicadores de demanda miden la misma población.
   const withHighDemand = published.filter((fact) => fact.highDemand !== null);
   return {
     published: published.length,
     completed: completedIn(facts, period).length,
     cancelled: cancelledIn(facts, period).length,
-    demandRatio: meanOf(published.flatMap((fact) => (fact.demandRatio === null ? [] : [fact.demandRatio]))),
+    demandRatio: meanOf(withHighDemand.flatMap((fact) => (fact.demandRatio === null ? [] : [fact.demandRatio]))),
     highDemandRate: reportRate(withHighDemand.filter((fact) => fact.highDemand).length, withHighDemand.length),
-    availableCarriers: meanOf(published.flatMap((fact) => (fact.availableCarriers === null ? [] : [fact.availableCarriers]))),
+    availableCarriers: meanOf(withHighDemand.flatMap((fact) => (fact.availableCarriers === null ? [] : [fact.availableCarriers]))),
   };
 }
 
@@ -78,7 +83,7 @@ function cancelCauseBreakdown(facts: readonly OperationsFact[], range: ReportRan
 }
 
 /**
- * Una fila por ciudad del retiro con movimiento en el rango, por publicados. Las que quedan fuera del top se suman en
+ * Una fila por ciudad del retiro con movimiento en el rango o con publicados en el anterior, por publicados. Las que quedan fuera del top se suman en
  * `OPERATIONS_OTHER_CITIES`, así las filas suman el total. `extra` lleva el resto de las métricas de la ciudad.
  */
 function cityBreakdown(facts: readonly OperationsFact[], range: ReportRange, total: ReportBreakdown["total"]): ReportBreakdown {
@@ -109,8 +114,16 @@ function cityBreakdown(facts: readonly OperationsFact[], range: ReportRange, tot
   };
   const active = [...groups.entries()]
     .map(([key, group]) => ({ key, group, row: rowOf(key, group) }))
-    .filter(({ row }) => (row.value ?? 0) > 0 || (row.extra?.completed ?? 0) > 0 || (row.extra?.cancelled ?? 0) > 0)
-    .sort((a, b) => (b.row.value ?? 0) - (a.row.value ?? 0) || (b.row.extra?.cancelled ?? 0) - (a.row.extra?.cancelled ?? 0) || a.key.localeCompare(b.key));
+    // También las que solo publicaron en el período anterior: una caída a cero es justo lo que hay que ver, y sin ellas
+    // los `previous` de las filas no suman el del total.
+    .filter(({ row }) => (row.value ?? 0) > 0 || (row.previous ?? 0) > 0 || (row.extra?.completed ?? 0) > 0 || (row.extra?.cancelled ?? 0) > 0)
+    .sort(
+      (a, b) =>
+        (b.row.value ?? 0) - (a.row.value ?? 0) ||
+        (b.row.extra?.cancelled ?? 0) - (a.row.extra?.cancelled ?? 0) ||
+        (b.row.previous ?? 0) - (a.row.previous ?? 0) ||
+        a.key.localeCompare(b.key),
+    );
   const rows = active.slice(0, OPERATIONS_CITY_ROWS).map(({ row }) => row);
   const rest = active.slice(OPERATIONS_CITY_ROWS).flatMap(({ group }) => group);
   if (rest.length > 0) rows.push(rowOf(OPERATIONS_OTHER_CITIES, rest));

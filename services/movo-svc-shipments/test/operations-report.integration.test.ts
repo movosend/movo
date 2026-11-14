@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { FastifyInstance } from "fastify";
 import { OperationsReport, ReportSource, ShipmentStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
-import { SANCTION_WITHDRAWAL_REASON } from "../src/domain/cancellation-cause";
+import { SANCTION_WITHDRAWAL_REASON } from "../src/modules/admin-internal/sanction-effects.service";
 import { PackageType } from "../src/models/shipment";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { createFakeUsersClient } from "./fake-users-client";
@@ -24,6 +24,7 @@ interface CancelEvent {
   bySender?: boolean;
   attribution?: "carrier" | "none";
   reason?: string;
+  sanctionWithdrawal?: boolean;
 }
 
 interface Options {
@@ -116,7 +117,7 @@ describe("reporte de Operación (Postgres) — MOVO-35", () => {
     if (options.published) await app.db.shipmentEvent.create({ data: { shipmentId: created.id, toStatus: ShipmentStatus.PUBLISHED, createdAt: options.published } });
     if (options.completed) await app.db.shipmentEvent.create({ data: { shipmentId: created.id, toStatus: ShipmentStatus.COMPLETED, createdAt: options.completed } });
     if (options.cancelled) {
-      const { at, fromStatus, byAdmin, bySender, attribution, reason } = options.cancelled;
+      const { at, fromStatus, byAdmin, bySender, attribution, reason, sanctionWithdrawal } = options.cancelled;
       await app.db.shipment.update({ where: { id: created.id }, data: { status: ShipmentStatus.CANCELLED } });
       await app.db.shipmentEvent.create({
         data: {
@@ -128,6 +129,7 @@ describe("reporte de Operación (Postgres) — MOVO-35", () => {
           ...(byAdmin ? { kind: byAdmin, actorName: "Admin" } : {}),
           ...(attribution ? { attribution } : {}),
           ...(reason ? { reason } : {}),
+          ...(sanctionWithdrawal ? { sanctionWithdrawal } : {}),
         },
       });
     }
@@ -162,6 +164,8 @@ describe("reporte de Operación (Postgres) — MOVO-35", () => {
     await shipment({ cancelled: { at, fromStatus: ShipmentStatus.PUBLISHED } });
     await shipment({ cancelled: { at, fromStatus: ShipmentStatus.ASSIGNED, attribution: "carrier" } });
     await shipment({ cancelled: { at, fromStatus: ShipmentStatus.ASSIGNED, attribution: "none" } });
+    await shipment({ cancelled: { at, fromStatus: ShipmentStatus.PUBLISHED, bySender: true, reason: SANCTION_WITHDRAWAL_REASON, sanctionWithdrawal: true } });
+    // El motivo es texto libre: un emisor que escribe lo mismo al cancelar sigue siendo una cancelación del emisor.
     await shipment({ cancelled: { at, fromStatus: ShipmentStatus.PUBLISHED, bySender: true, reason: SANCTION_WITHDRAWAL_REASON } });
     await shipment({ cancelled: { at, fromStatus: ShipmentStatus.DISPUTED, byAdmin: "manual" } });
     await shipment({ cancelled: { at, fromStatus: ShipmentStatus.ASSIGNED, byAdmin: "forced" } });
@@ -170,7 +174,7 @@ describe("reporte de Operación (Postgres) — MOVO-35", () => {
     const rows = Object.fromEntries((report.breakdowns.find((row) => row.dimension === "cancelCause")?.rows ?? []).map((row) => [row.key, row.value]));
 
     expect(rows).toEqual({
-      sender: 1,
+      sender: 2,
       receiver: 1,
       expired: 1,
       pickup_missed_carrier: 1,
@@ -186,7 +190,8 @@ describe("reporte de Operación (Postgres) — MOVO-35", () => {
     const published = noon("2026-10-01");
     await shipment({ published, demandRatio: 3, highDemand: true, availableCarriers: 1 });
     await shipment({ published, demandRatio: 1, highDemand: false, availableCarriers: 3 });
-    // Cotizado sin conteo: pricing manda 0, no es una medición.
+    // Cotizado sin conteo: pricing manda ratio 0 y `high_demand = false`, que no es una medición y no entra en ningún
+    // indicador de demanda.
     await shipment({ published, demandRatio: 0, highDemand: false });
     await shipment({ published, pickupCity: "Rosario", demandRatio: 5, highDemand: true, availableCarriers: 0 });
     await shipment({ published, pickupCity: null });
@@ -203,7 +208,7 @@ describe("reporte de Operación (Postgres) — MOVO-35", () => {
     expect(cordoba.city).toBe("Córdoba");
     expect(cordoba.kpis.published.value).toBe(3);
     expect(cordoba.kpis.demandRatio.value).toBe(2);
-    expect(cordoba.kpis.highDemandRate.value).toBe(33.33);
+    expect(cordoba.kpis.highDemandRate.value).toBe(50);
     expect(cordoba.kpis.availableCarriers.value).toBe(2);
     expect(cordoba.cities).toHaveLength(2);
   });

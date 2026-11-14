@@ -339,6 +339,9 @@ model ShipmentEvent {
   // evento es inmutable aunque la cuenta cambie); `actorId` sigue siendo el id del admin.
   kind                ShipmentEventKind        @default(normal)
   actorName           String?                  @map("actor_name")
+  // MOVO-35 (DD-059): cancelación de `sanction-effects` al suspender la cuenta del emisor. El motivo es texto libre y
+  // no alcanza para atribuirla.
+  sanctionWithdrawal  Boolean                  @default(false) @map("sanction_withdrawal")
   createdAt           DateTime                 @default(now()) @map("created_at") @db.Timestamptz
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)

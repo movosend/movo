@@ -2388,7 +2388,7 @@ export function createShipmentsService(
       callerId: string,
       reason?: string,
       expectedPenaltyArs?: number,
-      options: { onlyFrom?: readonly ShipmentStatus[]; admin?: AdminStatusActor } = {}
+      options: { onlyFrom?: readonly ShipmentStatus[]; admin?: AdminStatusActor; sanctionWithdrawal?: boolean } = {}
     ): Promise<Shipment> {
       const shipment = await repository.findById(shipmentId);
       if (!shipment) {
@@ -2482,6 +2482,7 @@ export function createShipmentsService(
         expectedFrom: previousStatus,
         ...(penaltyArs > 0 ? { cancellationPenaltyArs: penaltyArs } : {}),
         ...(options.admin ? { adminActor: { kind: options.admin.kind, name: options.admin.adminName } } : {}),
+        ...(options.sanctionWithdrawal ? { sanctionWithdrawal: true } : {}),
       });
 
       // MOVO-210 (AC12): mientras la asignación espera el pago puede haber un hold ya creado (el

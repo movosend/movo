@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { OPERATIONS_CITY_ROWS, OPERATIONS_OTHER_CITIES, OPERATIONS_UNKNOWN_CITY } from "@movo/shared";
-import { cancellationCauseOf, CancellationEventFacts, SANCTION_WITHDRAWAL_REASON } from "../src/domain/cancellation-cause";
+import { cancellationCauseOf, CancellationEventFacts } from "../src/domain/cancellation-cause";
 import { OperationsFact, operationsReport } from "../src/domain/operations-report";
 
 const RANGE = { from: "2026-10-01", to: "2026-10-02" };
@@ -16,7 +16,7 @@ const event = (overrides: Partial<CancellationEventFacts>): CancellationEventFac
   senderId: SENDER,
   kind: "normal",
   attribution: null,
-  reason: null,
+  sanctionWithdrawal: false,
   ...overrides,
 });
 
@@ -40,7 +40,7 @@ describe("causa de una cancelación (DD-059)", () => {
     ["nadie retiró en la ventana publicada", event({ actorId: null }), "expired"],
     ["el transportista no se presentó", event({ fromStatus: "assigned", actorId: null, attribution: "carrier" }), "pickup_missed_carrier"],
     ["el retiro no se hizo sin culpa del transportista", event({ fromStatus: "assigned", actorId: null, attribution: "none" }), "pickup_missed_other"],
-    ["la cuenta del emisor se suspendió", event({ reason: SANCTION_WITHDRAWAL_REASON }), "sanction"],
+    ["la cuenta del emisor se suspendió", event({ sanctionWithdrawal: true }), "sanction"],
     ["un admin forzó el estado", event({ actorId: "admin", kind: "forced" }), "admin"],
     ["una disputa se resolvió a favor del emisor", event({ fromStatus: "disputed", actorId: "admin", kind: "manual" }), "dispute"],
     ["alguien que no es el emisor", event({ actorId: "otro" }), "other"],
@@ -132,5 +132,18 @@ describe("reporte de Operación", () => {
     expect(rows[0]).toMatchObject({ key: OPERATIONS_UNKNOWN_CITY, value: 2 });
     expect(rows.at(-1)?.key).toBe(OPERATIONS_OTHER_CITIES);
     expect(rows.reduce((total, row) => total + (row.value ?? 0), 0)).toBe(breakdown?.total.value);
+  });
+
+  it("conserva la ciudad que cayó a cero, y los anteriores de las filas suman el del total", () => {
+    const report = operationsReport(
+      [fact({}), fact({ pickupCity: "Rosario", publishedAt: BEFORE }), fact({ pickupCity: "Rosario", publishedAt: BEFORE })],
+      RANGE,
+      NOW,
+    );
+    const breakdown = report.breakdowns.find((candidate) => candidate.dimension === "city");
+    const rows = breakdown?.rows ?? [];
+
+    expect(rows.find((row) => row.key === "Rosario")).toMatchObject({ value: 0, previous: 2 });
+    expect(rows.reduce((total, row) => total + (row.previous ?? 0), 0)).toBe(breakdown?.total.previous);
   });
 });

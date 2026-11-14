@@ -23,9 +23,12 @@ import {
   TripRepository,
 } from "../../repositories/trip-repository";
 import { shortShipmentId } from "./short-id";
-import { SANCTION_WITHDRAWAL_REASON } from "../../domain/cancellation-cause";
 
-export { SANCTION_WITHDRAWAL_REASON };
+/**
+ * Motivo que queda en la línea de tiempo de lo que se retira (MOVO-297 AC3). Es solo texto: las métricas atribuyen la
+ * cancelación por `ShipmentEvent.sanctionWithdrawal`, que un emisor no puede escribir.
+ */
+export const SANCTION_WITHDRAWAL_REASON = "cuenta suspendida";
 
 /** Estados de un envío ya comprometido: la sanción no los toca, solo se listan y se avisa a la contraparte. */
 const IN_PROGRESS_STATUSES = [

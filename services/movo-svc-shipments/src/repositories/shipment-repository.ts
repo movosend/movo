@@ -499,6 +499,8 @@ export interface UpdateStatusOptions {
    * (inmutable), con el nombre del admin como snapshot. Sin esto el evento es `normal`.
    */
   adminActor?: { kind: "manual" | "forced"; name: string };
+  /** MOVO-35 (DD-059): la cancelación la hace `sanction-effects` al suspender al emisor. Queda en el evento. */
+  sanctionWithdrawal?: boolean;
 }
 
 /** MOVO-310: penalidad de una baja del transportista todavía sin registrar en su cuenta corriente. */
@@ -1380,6 +1382,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             reason: reason ?? null,
             attribution: options.pickupMiss?.attribution ?? null,
             ...(options.adminActor && { kind: options.adminActor.kind, actorName: options.adminActor.name }),
+            ...(options.sanctionWithdrawal && { sanctionWithdrawal: true }),
           },
         });
 
