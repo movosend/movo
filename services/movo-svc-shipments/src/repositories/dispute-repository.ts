@@ -1,5 +1,11 @@
 import { DisputeReason, DisputeStatus, ShipmentStatus } from "@movo/shared";
-import type { DisputeOutcome, DisputePartyRole, DisputePaymentAction, DisputeStatementKind } from "@movo/shared";
+import type {
+  DisputeOutcome,
+  DisputePartyRole,
+  DisputePaymentAction,
+  DisputeStatementKind,
+  DisputeSummary,
+} from "@movo/shared";
 import { Prisma, PrismaClient } from "../generated/prisma/client";
 import { escapeLike, normalizedSql, normalizeSearchText, shipmentTextSearchSql } from "./admin-shipment-repository";
 
@@ -326,6 +332,33 @@ export function isUniqueViolation(
   return JSON.stringify((error as { meta?: unknown }).meta ?? {}).includes(
     constraint,
   );
+}
+
+/**
+ * Resumen (motivo, quién la abrió) de la disputa sin resolver de cada envío de `shipmentIds`, para las pantallas de la
+ * app que muestran "en disputa". `resolving` cuenta como sin resolver: para las partes el envío sigue en disputa.
+ */
+export async function findUnresolvedDisputeSummaries(
+  db: Pick<PrismaClient, "dispute">,
+  shipmentIds: readonly string[],
+): Promise<Map<string, DisputeSummary>> {
+  const summaries = new Map<string, DisputeSummary>();
+  if (shipmentIds.length === 0) return summaries;
+  const rows = await db.dispute.findMany({
+    where: { shipmentId: { in: [...new Set(shipmentIds)] }, status: { not: DisputeStatus.RESOLVED } },
+    orderBy: { openedAt: "desc" },
+    select: { id: true, shipmentId: true, reason: true, openedByRole: true, openedAt: true },
+  });
+  for (const row of rows) {
+    if (summaries.has(row.shipmentId)) continue;
+    summaries.set(row.shipmentId, {
+      id: row.id,
+      reason: row.reason as DisputeReason,
+      openedByRole: row.openedByRole as DisputePartyRole | null,
+      openedAt: row.openedAt.toISOString(),
+    });
+  }
+  return summaries;
 }
 
 export function createDisputeRepository(db: PrismaClient): DisputeRepository {

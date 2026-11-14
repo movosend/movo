@@ -85,7 +85,7 @@ describe("CarrierTransportingSection", () => {
     expect(mockStartTripMutateAsync).toHaveBeenCalledWith("t-ready");
   });
 
-  it("renderiza card para viaje activo con botón 'Viaje en curso · ver mapa'", async () => {
+  it("renderiza card para viaje activo con botón 'Ver mapa'", async () => {
     mockUseMyTrips.mockReturnValue({
       data: {
         items: [
@@ -107,7 +107,7 @@ describe("CarrierTransportingSection", () => {
     const { getByText } = await render(<CarrierTransportingSection />);
 
     expect(getByText("En curso")).toBeTruthy();
-    const mapButton = getByText("Viaje en curso · ver mapa");
+    const mapButton = getByText("Ver mapa");
     expect(mapButton).toBeTruthy();
 
     fireEvent.press(mapButton);
@@ -258,7 +258,7 @@ describe("CarrierTransportingSection", () => {
 
       const { getByText, queryByText } = await render(<CarrierTransportingSection />);
 
-      expect(getByText("Viaje en curso · ver mapa")).toBeTruthy();
+      expect(getByText("Ver mapa")).toBeTruthy();
       expect(queryByText("Iniciar viaje")).toBeNull();
     });
   });

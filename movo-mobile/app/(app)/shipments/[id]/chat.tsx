@@ -1,5 +1,5 @@
 import { router, useIsFocused, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
@@ -17,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ChatBubble } from "../../../../components/chat/chat-bubble";
 import { ChatComposer } from "../../../../components/chat/chat-composer";
 import { ChatEventCard } from "../../../../components/chat/chat-event-card";
+import { ChatEventInfoSheet } from "../../../../components/chat/chat-event-info-sheet";
 import { ChatSafetySheet, type SafetyTarget } from "../../../../components/chat/chat-safety-sheet";
 import { ModerationBanner } from "../../../../components/chat/moderation-banner";
 import { QuickReplies } from "../../../../components/chat/quick-replies";
@@ -32,6 +33,8 @@ import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import {
   CHAT_QUICK_REPLIES,
   chatAuthorLabel,
+  chatEventGroupPositions,
+  type ChatEventCard as ChatEventCardData,
   chatReadOnlyCopy,
   type ChatTimelineItem,
 } from "../../../../src/lib/chat-format";
@@ -60,6 +63,7 @@ export default function ShipmentChatScreen() {
   const reportMutation = useReportChat(id ?? "");
   const blockedQuery = useBlockedUsers();
   const [safetyOpen, setSafetyOpen] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<ChatEventCardData | null>(null);
   const [safetyError, setSafetyError] = useState<string | null>(null);
   const toggleBlock = useChatBlockToggle({
     onError: (error) => setSafetyError(friendlyErrorMessage(error, "No pudimos actualizar el bloqueo. Intentá de nuevo.")),
@@ -116,6 +120,12 @@ export default function ShipmentChatScreen() {
     .filter((p) => p.userId !== chat.meId)
     .map((p) => ({ userId: p.userId, name: p.firstName, blocked: blockedIds.has(p.userId) }));
 
+  // Dos estados seguidos se dibujan unidos (ver `chatEventGroupPositions`). Sin mensajes no se dibujan los cambios de
+  // día, así que ahí no cortan la seguidilla: las tarjetas se ven pegadas y tienen que verse unidas.
+  const eventPositions = useMemo(
+    () => chatEventGroupPositions(chat.isEmpty ? chat.timeline.filter((item) => item.kind === "event") : chat.timeline),
+    [chat.timeline, chat.isEmpty],
+  );
   const renderItem = ({ item }: { item: ChatTimelineItem }) => {
     if (item.kind === "day") {
       return (
@@ -124,7 +134,16 @@ export default function ShipmentChatScreen() {
         </View>
       );
     }
-    if (item.kind === "event") return <ChatEventCard card={item.card} testID={`chat-event-${item.card.id}`} />;
+    if (item.kind === "event") {
+      return (
+        <ChatEventCard
+          card={item.card}
+          position={eventPositions.get(item.key)}
+          onPress={setSelectedEvent}
+          testID={`chat-event-${item.card.id}`}
+        />
+      );
+    }
     const author = participantById.get(item.message.authorId);
     const authorLabel = item.mine
       ? undefined
@@ -182,15 +201,29 @@ export default function ShipmentChatScreen() {
           ) : chat.isEmpty ? (
             <View testID="chat-empty" className="flex-1 items-center justify-center" style={{ gap: 18, padding: 24 }}>
               {/* `timeline` viene del más nuevo al más viejo (la lista va invertida): acá se muestra al derecho. */}
-              {[...chat.timeline].reverse().map((item) =>
-                item.kind === "event" ? <ChatEventCard key={item.key} card={item.card} testID={`chat-event-${item.card.id}`} /> : null,
-              )}
-              <View className="border border-border bg-bg" style={{ borderRadius: 14, padding: 18, gap: 6 }}>
-                <Text className="font-sans-semibold text-body text-fg">Coordinen acá</Text>
-                <Text className="font-sans text-fg-2" style={{ fontSize: 13, lineHeight: 20 }}>
-                  Lo ven el emisor, el transportista y el receptor. Se cierra 24 h después de finalizado el envío.
-                </Text>
+              {/* Sin `gap` adentro: las tarjetas seguidas van pegadas, unidas por el riel. */}
+              <View className="w-full" style={{ marginTop: -12 }}>
+                {[...chat.timeline].reverse().map((item) =>
+                  item.kind === "event" ? (
+                    <ChatEventCard
+                      key={item.key}
+                      card={item.card}
+                      position={eventPositions.get(item.key)}
+                      onPress={setSelectedEvent}
+                      testID={`chat-event-${item.card.id}`}
+                    />
+                  ) : null,
+                )}
               </View>
+              {/* En solo lectura no se coordina nada: el motivo ya lo dice la barra de abajo. */}
+              {chat.canWrite ? (
+                <View testID="chat-intro" className="border border-border bg-bg" style={{ borderRadius: 14, padding: 18, gap: 6 }}>
+                  <Text className="font-sans-semibold text-body text-fg">Coordinen acá</Text>
+                  <Text className="font-sans text-fg-2" style={{ fontSize: 13, lineHeight: 20 }}>
+                    Lo ven el emisor, el transportista y el receptor. Se cierra 24 h después de finalizado el envío.
+                  </Text>
+                </View>
+              ) : null}
             </View>
           ) : (
             <FlatList
@@ -231,6 +264,15 @@ export default function ShipmentChatScreen() {
           />
         ) : null}
       </KeyboardAvoidingView>
+
+      <ChatEventInfoSheet
+        card={selectedEvent}
+        onClose={() => setSelectedEvent(null)}
+        onOpenTimeline={() => {
+          setSelectedEvent(null);
+          router.push({ pathname: "/shipments/[id]", params: { id, tab: "timeline" } } as never);
+        }}
+      />
 
       <ChatSafetySheet
         visible={safetyOpen}

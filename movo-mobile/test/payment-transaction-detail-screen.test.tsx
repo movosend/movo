@@ -2,6 +2,7 @@ import type { TransactionDetail } from "@movo/shared/dist/types/transaction";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { act, fireEvent, render, within } from "@testing-library/react-native";
 import PaymentTransactionDetailScreen from "../app/(app)/profile/payments/history/[id]";
+import { TransactionRow } from "../components/payments/transaction-row";
 
 const mockPush = jest.fn();
 const mockBack = jest.fn();
@@ -204,7 +205,16 @@ describe("PaymentTransactionDetailScreen (MOVO-304)", () => {
 
     it("cobrado: lo que pagó el emisor, comisión de MP, comisión de Movo y 'Te queda'", async () => {
       mockQuery({
-        data: detail({ status: "completed", amountArs: 8900, refundedAmountArs: null, card: undefined, movements: [], breakdown: BREAKDOWN }),
+        data: detail({
+          status: "completed",
+          amountArs: 8900,
+          refundedAmountArs: null,
+          card: undefined,
+          movements: [],
+          breakdown: BREAKDOWN,
+          receivedArs: 7374,
+          receivedIsEstimate: false,
+        }),
       });
       const { getByTestId, getByText } = await render(<PaymentTransactionDetailScreen />);
 
@@ -240,14 +250,24 @@ describe("PaymentTransactionDetailScreen (MOVO-304)", () => {
       expect(within(getByTestId("breakdown-net")).getByText("$6.874")).toBeTruthy();
     });
 
-    it("reservado: no se muestra el neto, solo lo que pagó el emisor", async () => {
+    it("reservado: el estimado de lo que recibe con 'aprox.', sin desglose (MOVO-349)", async () => {
       mockQuery({
-        data: detail({ status: "reserved", amountArs: 12450, refundedAmountArs: null, capturedAt: null, card: undefined, movements: [], breakdown: null }),
+        data: detail({
+          status: "reserved",
+          amountArs: 12450,
+          refundedAmountArs: null,
+          capturedAt: null,
+          card: undefined,
+          movements: [],
+          breakdown: null,
+          receivedArs: 10190,
+          receivedIsEstimate: true,
+        }),
       });
       const { getByTestId, getByText, queryByText, queryByTestId } = await render(<PaymentTransactionDetailScreen />);
 
-      expect(getByText("Pagó el emisor")).toBeTruthy();
-      expect(getByTestId("transaction-hero-amount")).toHaveTextContent("$12.450");
+      expect(getByText("Recibís")).toBeTruthy();
+      expect(getByTestId("transaction-hero-amount")).toHaveTextContent("≈ $10.190");
       expect(queryByText("Te acreditaron")).toBeNull();
       expect(queryByText("Te queda")).toBeNull();
       expect(queryByTestId("transaction-breakdown")).toBeNull();
@@ -367,15 +387,69 @@ describe("PaymentTransactionDetailScreen — envío en efectivo (MOVO-37)", () =
 
   it("el transportista ve lo cobrado en mano y la comisión como saldo, sin comisión de Mercado Pago", async () => {
     mockParams = { id: "tx-1", role: "carrier" };
-    mockQuery({ data: cash({ breakdown: { grossArs: 8900, mpFeeArs: 0, commissionArs: 1161, debtOffsetArs: 0, netArs: 7739 } }) });
+    mockQuery({
+      data: cash({
+        breakdown: { grossArs: 8900, mpFeeArs: 0, commissionArs: 1161, debtOffsetArs: 0, netArs: 7739 },
+        receivedArs: 7739,
+        receivedIsEstimate: false,
+      }),
+    });
     const { getByTestId, getByText, queryByTestId } = await render(<PaymentTransactionDetailScreen />);
 
-    expect(within(getByTestId("transaction-hero")).getByText("Cobraste en efectivo")).toBeTruthy();
-    expect(within(getByTestId("transaction-hero")).getByText("$8.900")).toBeTruthy();
+    // MOVO-349: el hero muestra lo que le queda, lo mismo que la fila; lo cobrado en mano va en el desglose.
+    expect(within(getByTestId("transaction-hero")).getByText("Te queda del cobro en efectivo")).toBeTruthy();
+    expect(getByTestId("transaction-hero-amount")).toHaveTextContent("$7.739");
+    expect(within(getByTestId("breakdown-gross")).getByText("$8.900")).toBeTruthy();
     expect(getByTestId("transaction-cash-breakdown")).toBeTruthy();
     expect(queryByTestId("breakdown-mp-fee")).toBeNull();
 
     await press(getByTestId("transaction-cash-balance-link"));
     expect(mockPush).toHaveBeenCalledWith("/profile/payments?tab=balance");
+  });
+});
+
+describe("la fila del historial y el detalle muestran el mismo monto (MOVO-349)", () => {
+  const base = (overrides: Partial<TransactionDetail>): TransactionDetail => ({
+    id: "tx-1",
+    kind: "shipment",
+    shipmentId: SHIPMENT_ID,
+    date: "2026-10-04T17:32:00.000Z",
+    amountArs: 8900,
+    status: "completed",
+    refundedAmountArs: null,
+    debtAmountArs: null,
+    capturedAt: "2026-10-06T12:00:00.000Z",
+    releasedAt: null,
+    releaseReason: null,
+    movements: [],
+    breakdown: null,
+    ...overrides,
+  });
+
+  const cases: [string, TransactionDetail, "carrier" | "sender", string][] = [
+    ["cobro acreditado con comisión", base({ breakdown: BREAKDOWN, receivedArs: 7374, receivedIsEstimate: false }), "carrier", "$7.374"],
+    ["cobro capturado sin acreditar (estimado)", base({ receivedArs: 7300, receivedIsEstimate: true }), "carrier", "≈ $7.300"],
+    ["cobro reservado (estimado)", base({ status: "reserved", capturedAt: null, receivedArs: 1524.58, receivedIsEstimate: true }), "carrier", "≈ $1.525"],
+    ["cobro en efectivo", base({ kind: "cash_shipment", receivedArs: 7739, receivedIsEstimate: false }), "carrier", "$7.739"],
+    ["cobro liberado (no le quedó nada)", base({ status: "released", capturedAt: null, receivedArs: null }), "carrier", "$8.900"],
+    ["pago del emisor", base({ card: { brand: "visa", last4: "4242" } }), "sender", "$8.900"],
+  ];
+
+  it.each(cases)("%s", async (_name, data, role, expected) => {
+    mockParams = { id: "tx-1", role };
+    mockQuery({ data });
+    const { getByTestId } = await render(
+      <>
+        <PaymentTransactionDetailScreen />
+        <TransactionRow item={data} role={role} onPress={jest.fn()} />
+      </>,
+    );
+    expect(getByTestId("transaction-hero-amount")).toHaveTextContent(expected, { exact: true });
+    const row = getByTestId("transaction-row-tx-1");
+    expect(within(row).getByText(expected)).toBeTruthy();
+    // El lector de pantalla dice "aprox." en vez de leer el símbolo, igual en los dos.
+    const spoken = expected.replace("≈", "aprox.");
+    expect(getByTestId("transaction-hero-amount").props.accessibilityLabel).toBe(spoken);
+    expect(row.props.accessibilityLabel).toContain(`, ${spoken}, `);
   });
 });

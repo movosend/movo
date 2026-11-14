@@ -6,6 +6,8 @@ export interface ShipmentStatusChangedEvent {
   to: ShipmentStatus;
   /** Viajes `active` que esta transición dejó sin paquetes y se vencieron en la misma transacción. */
   expiredTripIds?: string[];
+  /** Viajes `active` cuyo último paquete terminó con esta transición (disputa o cierre) y se completaron en la misma transacción. */
+  completedTripIds?: string[];
 }
 
 /**

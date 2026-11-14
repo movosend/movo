@@ -132,6 +132,12 @@ export default fp(async (app: FastifyInstance) => {
         "Viaje vencido: se quedó sin paquetes"
       );
     }
+    for (const tripId of event.completedTripIds ?? []) {
+      app.log.info(
+        { event: "trip_auto_completed", tripId, reason: "last_shipment_finished", shipmentId: event.shipmentId, toStatus: event.to },
+        "Viaje completado: terminó su último paquete"
+      );
+    }
     // MOVO-250/AC6: cada transición se difunde a los suscriptores -- las pantallas de QR
     // del handshake (MOVO-159) dejan de consultar cada 2,5s. Va ANTES del cierre por
     // estado terminal, para que el cliente reciba el estado final antes del `4009`.

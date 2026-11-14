@@ -1,3 +1,4 @@
+import { disputeSummaryResponse } from "../disputes/dispute-summary-response";
 // Autocontenido a propósito (no importa de otros *.schema.ts) — mismo criterio que ya
 // usa movo-svc-users: cada schema no comparte definiciones entre sí.
 import { PACKAGE_INPUT_SANITY_MAX, PaymentMethod, ShipmentStatus } from "@movo/shared";
@@ -213,6 +214,8 @@ const shipmentResponse = {
     // y el viaje del transportista ya está `active`: desde ahí se difunde su ubicación (antes del
     // retiro también) y el mobile habilita el seguimiento en vivo.
     carrierTripActive: { type: "boolean" },
+    // Solo en `GET /shipments/:id` para las partes, con el envío en disputa.
+    dispute: disputeSummaryResponse,
   },
 };
 
@@ -387,6 +390,7 @@ const activeShipmentSummaryResponse = {
     "isToday",
     "pickupWindowExpired",
     "tripId",
+    "tripStarted",
     "transitAnomalyFlaggedAt",
     "paymentMethod",
   ],
@@ -412,6 +416,8 @@ const activeShipmentSummaryResponse = {
     isToday: { type: "boolean" },
     pickupWindowExpired: { type: "boolean" },
     tripId: { type: ["string", "null"], format: "uuid" },
+    // El viaje del transportista ya está en curso: en `assigned`, salió a retirar.
+    tripStarted: { type: "boolean" },
     // MOVO-278 (DD-045): envío `in_transit` demorado (ver shipmentResponse).
     transitAnomalyFlaggedAt: { type: ["string", "null"], format: "date-time" },
     // MOVO-37: modalidad de pago.

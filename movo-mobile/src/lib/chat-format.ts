@@ -1,3 +1,6 @@
+import type { DisputeSummary } from "@movo/shared/dist/types/dispute";
+import { disputeExplanation } from "./dispute-format";
+import { isOfferAcceptance, shouldShowEventReason } from "./shipment-format";
 import type { ChatDeliveryStatus, ChatMessage, ChatParticipantRole } from "@movo/shared/dist/types/chat";
 import type { ReceiverTransferRequest } from "@movo/shared/dist/types/receiver-transfer";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
@@ -123,7 +126,20 @@ export function formatUnreadCount(count: number): string {
 /** Mensaje propio que todavía no confirmó el servidor (envío optimista). */
 export type LocalChatMessage = ChatMessage & { localState?: "sending" | "failed" };
 
-export type ChatEventCard = { id: string; text: string; live: boolean; createdAt: string };
+export type ChatEventCard = {
+  id: string;
+  text: string;
+  live: boolean;
+  createdAt: string;
+  /** Estado al que pasó el envío: da el ícono y el color de la tarjeta (los de la línea de tiempo). Sin estado, una transferencia. */
+  status?: ShipmentStatus;
+  /** Segunda línea opcional (el motivo de una disputa). */
+  detail?: string | null;
+  /** Motivo que escribió una persona o un barrido (solo en una cancelación), para la hoja de info. */
+  reason?: string | null;
+  /** El emisor aceptó la oferta: se dibuja como "transportista elegido" aunque el estado sea `assigned` (efectivo). */
+  offerAccepted?: boolean;
+};
 
 /** Quién mira la conversación y los nombres que necesitan los textos de las tarjetas. */
 export type ChatEventViewer = {
@@ -132,27 +148,46 @@ export type ChatEventViewer = {
   carrierFirstName: string | null;
   /** Primer nombre del receptor ("Luis"). */
   receiverFirstName: string | null;
+  /** Primer nombre del emisor ("Juan"): es quien acepta la oferta. Opcional para los llamadores viejos. */
+  senderFirstName?: string | null;
+  /** Disputa sin resolver del envío, para decir en su tarjeta quién la abrió y por qué. */
+  dispute?: Pick<DisputeSummary, "reason" | "openedByRole"> | null;
 };
 
 /**
  * Tarjeta del envío para intercalar en la conversación, con el texto del prototipo según quién mira
- * ("Aceptaste el envío" para el transportista, "Diego aceptó el envío" para los demás). `null` si el
+ * ("Juan aceptó tu oferta" para el transportista, "Aceptaste la oferta de Diego" para el emisor). `null` si el
  * cambio de estado no merece una tarjeta (creación, publicación, pago). "Llegando" no existe: el
  * backend no tiene evento de cercanía.
  */
 export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): ChatEventCard | null {
   const carrier = viewer.carrierFirstName ?? "El transportista";
   const receiver = viewer.receiverFirstName ?? "El receptor";
+  const sender = viewer.senderFirstName ?? "El emisor";
+  const offerOf = viewer.carrierFirstName ? `de ${viewer.carrierFirstName}` : "del transportista";
   const isCarrier = viewer.role === "carrier";
   const isReceiver = viewer.role === "receiver";
-  const card = (text: string, live = false): ChatEventCard => ({ id: event.id, text, live, createdAt: event.createdAt });
+  const card = (text: string, live = false, detail: string | null = null): ChatEventCard => ({
+    id: event.id,
+    text,
+    live,
+    createdAt: event.createdAt,
+    status: event.toStatus,
+    detail,
+    reason: shouldShowEventReason(event.toStatus) ? (event.reason ?? null) : null,
+  });
+  // Solo la entrada desde `published` es una aceptación (también directo a `assigned`, en efectivo): `assigned →
+  // assigned_unfunded` es un hold perdido (DD-037) y `assignment_pending → assigned` es la reserva del pago.
+  // Quien acepta es el emisor (la oferta del transportista), no el transportista "el envío" (feedback de TestFlight).
+  if (isOfferAcceptance(event.toStatus, event.fromStatus)) {
+    const text = isCarrier
+      ? `${sender} aceptó tu oferta`
+      : viewer.role === "sender"
+        ? `Aceptaste la oferta ${offerOf}`
+        : `${sender} aceptó la oferta ${offerOf}`;
+    return { ...card(text), offerAccepted: true };
+  }
   switch (event.toStatus) {
-    case ShipmentStatus.ASSIGNMENT_PENDING:
-    case ShipmentStatus.ASSIGNED_UNFUNDED:
-      // Solo la entrada desde `published` es una aceptación: `assigned → assigned_unfunded` es un hold perdido
-      // (DD-037) y nadie aceptó nada.
-      if (event.fromStatus !== ShipmentStatus.PUBLISHED) return null;
-      return card(isCarrier ? "Aceptaste el envío" : `${carrier} aceptó el envío`);
     case ShipmentStatus.IN_TRANSIT:
       return card(
         isCarrier ? "Escaneaste el QR de retiro" : isReceiver ? `${carrier} retiró el paquete` : `${carrier} escaneó el QR de retiro`,
@@ -161,7 +196,7 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
     case ShipmentStatus.DELIVERED:
       return card(isReceiver ? "Confirmaste la entrega con QR" : `${receiver} confirmó la entrega con QR`);
     case ShipmentStatus.DISPUTED:
-      return card("Disputa abierta");
+      return card("Disputa abierta", false, viewer.dispute && viewer.role ? disputeExplanation(viewer.dispute, viewer.role) : null);
     case ShipmentStatus.CANCELLED:
       return card("Envío cancelado");
     default:
@@ -201,10 +236,7 @@ export function eventsSinceCurrentAssignment(events: readonly ShipmentEvent[]): 
 function currentAssignmentStartIndex(events: readonly ShipmentEvent[]): number {
   let start = -1;
   events.forEach((event, index) => {
-    const accepted =
-      event.fromStatus === ShipmentStatus.PUBLISHED &&
-      (event.toStatus === ShipmentStatus.ASSIGNMENT_PENDING || event.toStatus === ShipmentStatus.ASSIGNED_UNFUNDED);
-    if (accepted) start = index;
+    if (isOfferAcceptance(event.toStatus, event.fromStatus)) start = index;
   });
   return start;
 }
@@ -259,6 +291,25 @@ export type TimelineItem<M extends TimelineMessage, C extends TimelineCard> =
     };
 
 export type ChatTimelineItem = TimelineItem<LocalChatMessage, ChatEventCard>;
+
+/** Lugar de una tarjeta dentro de una seguidilla de tarjetas sin mensajes ni cambio de día en el medio. */
+export type ChatEventGroupPosition = "single" | "first" | "middle" | "last";
+
+/**
+ * Posición de cada tarjeta en su seguidilla, por `key`, sobre la conversación del más nuevo al más viejo (como la
+ * devuelve `buildTimeline`): "first" es la de arriba en pantalla (la más vieja). Dos estados seguidos se dibujan como
+ * una sola tarjeta unida por el riel, igual que la línea de tiempo.
+ */
+export function chatEventGroupPositions(items: readonly { kind: string; key: string }[]): Map<string, ChatEventGroupPosition> {
+  const positions = new Map<string, ChatEventGroupPosition>();
+  items.forEach((item, index) => {
+    if (item.kind !== "event") return;
+    const joinedAbove = items[index + 1]?.kind === "event";
+    const joinedBelow = items[index - 1]?.kind === "event";
+    positions.set(item.key, joinedAbove ? (joinedBelow ? "middle" : "last") : joinedBelow ? "first" : "single");
+  });
+  return positions;
+}
 
 /**
  * Conversación lista para dibujar, del MÁS NUEVO al más viejo (el `FlatList` va invertido):
@@ -357,4 +408,39 @@ export function chatReadOnlyCopy(params: {
   if (params.archived) return "Este chat está archivado. Podés leerlo, pero ya no admite mensajes.";
   if (params.status === ShipmentStatus.DISPUTED) return "El envío está en disputa. El chat queda en solo lectura.";
   return "El envío finalizó. El chat queda en solo lectura y se archiva en 24 h.";
+}
+
+/**
+ * Qué significa un cambio de estado del chat, para la hoja que se abre al tocar su tarjeta: qué pasó y qué sigue.
+ * En una disputa suma quién la abrió y por qué (`card.detail`); en una cancelación, el motivo (`card.reason`).
+ */
+export function chatEventExplanation(card: Pick<ChatEventCard, "status" | "detail" | "reason" | "offerAccepted">): string[] {
+  if (card.offerAccepted && card.status === ShipmentStatus.ASSIGNED) {
+    return ["El emisor eligió esta oferta. El envío se paga en efectivo al retirar el paquete, sin reserva previa."];
+  }
+  switch (card.status) {
+    case ShipmentStatus.ASSIGNMENT_PENDING:
+      return ["El emisor eligió esta oferta. Falta que reserve el pago para que el envío quede confirmado."];
+    case ShipmentStatus.ASSIGNED_UNFUNDED:
+      return ["El emisor eligió esta oferta. Como el retiro es más adelante, el pago se reserva cuando se acerque la fecha."];
+    case ShipmentStatus.IN_TRANSIT:
+      return ["El transportista escaneó el QR del emisor: el paquete cambió de manos y está en camino. Su ubicación se comparte en vivo hasta la entrega."];
+    case ShipmentStatus.DELIVERED:
+      return ["El receptor escaneó el QR del transportista y la entrega quedó confirmada. El pago al transportista se libera después de la confirmación."];
+    case ShipmentStatus.DISPUTED:
+      return [
+        ...(card.detail ? [card.detail] : []),
+        // Sin afirmar qué pasó con la plata: casi siempre se abre desde `completed`, con el cobro ya acreditado (DD-054).
+        "Movo revisa lo que pasó con las partes y les va a avisar cuando se resuelva. Mientras tanto el chat queda en solo lectura.",
+      ];
+    case ShipmentStatus.CANCELLED:
+      return [
+        "El envío se canceló y ya no se va a realizar.",
+        ...(card.reason ? [`Motivo: ${card.reason}`] : []),
+      ];
+    case undefined:
+      return ["La recepción pasó a otra persona. Desde ese momento es quien recibe el paquete y participa del chat."];
+    default:
+      return [];
+  }
 }

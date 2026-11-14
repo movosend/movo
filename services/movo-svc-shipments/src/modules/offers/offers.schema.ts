@@ -1,5 +1,7 @@
+import { disputeSummaryResponse } from "../disputes/dispute-summary-response";
 // Autocontenido a propósito (no importa de otros *.schema.ts) — mismo criterio que
-// shipments.schema.ts: cada schema no comparte definiciones entre sí.
+// shipments.schema.ts: cada schema no comparte definiciones entre sí. La excepción es
+// `disputeSummaryResponse`, que vive en un archivo propio (no un *.schema.ts) para no repetirlo en tres.
 
 // Alineado 1:1 con OfferStatus de @movo/shared (MOVO-102) — agregar un valor nuevo
 // ahí obliga a actualizar esta lista también.
@@ -55,6 +57,8 @@ const offerShipmentContextResponse = {
     description: { type: ["string", "null"] },
     // MOVO-37: modalidad de pago del envío.
     paymentMethod: { type: "string", enum: ["card", "cash"] },
+    // Solo en `GET /offers/mine`, con el envío en disputa.
+    dispute: disputeSummaryResponse,
   },
 };
 

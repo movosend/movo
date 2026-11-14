@@ -32,6 +32,7 @@ import { SkeletonBlock } from "../../../components/ui/skeleton-block";
 import { useActiveSuspension } from "../../../src/hooks/use-account-restriction";
 import { useMyOffers } from "../../../src/hooks/use-offers";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
+import { disputeExplanation } from "../../../src/lib/dispute-format";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useAuthStore } from "../../../src/store/auth-store";
 import {
@@ -254,12 +255,15 @@ export default function TransportShipmentDetailScreen() {
   const isAssignedToMe =
     !!currentUser?.userId && shipment?.carrierId === currentUser.userId;
   // Un envío ya terminado no es "te eligieron, el viaje arranca el…" (feedback de TestFlight, build 17).
+  // Uno en disputa tampoco: no hay nada que retirar. Sin afirmar retención: desde `completed` el cobro ya se acreditó (DD-054).
   const assignedOutcome =
     shipment?.status === ShipmentStatus.DELIVERED || shipment?.status === ShipmentStatus.COMPLETED
       ? "completed"
       : shipment?.status === ShipmentStatus.CANCELLED
         ? "cancelled"
-        : null;
+        : shipment?.status === ShipmentStatus.DISPUTED
+          ? "disputed"
+          : null;
 
   const openProfile = (userId: string) => router.push(`/profile/${userId}`);
 
@@ -448,15 +452,25 @@ export default function TransportShipmentDetailScreen() {
                 onPress={() => router.push(`/(app)/shipments/${shipment.id}`)}
                 accessibilityRole="button"
                 accessibilityLabel="Ver el detalle del envío"
-                className="rounded-[14px] border border-lime-500/50 bg-lime-100 p-4 active:opacity-80 dark:border-lime-500/30 dark:bg-lime-500/[0.14]"
+                className={`rounded-[14px] border p-4 active:opacity-80 ${
+                  assignedOutcome === "disputed"
+                    ? "border-warning-500/40 bg-warning-100"
+                    : "border-lime-500/50 bg-lime-100 dark:border-lime-500/30 dark:bg-lime-500/[0.14]"
+                }`}
               >
                 <View className="flex-row items-center justify-between gap-2">
-                  <Text className="font-sans-semibold text-small text-lime-800 dark:text-lime-300">
+                  <Text
+                    className={`font-sans-semibold text-small ${
+                      assignedOutcome === "disputed" ? "text-warning-700" : "text-lime-800 dark:text-lime-300"
+                    }`}
+                  >
                     {assignedOutcome === "completed"
                       ? "Entregaste este envío"
                       : assignedOutcome === "cancelled"
                         ? "Este envío se canceló"
-                        : "Te eligieron para este envío"}
+                        : assignedOutcome === "disputed"
+                          ? "Este envío está en disputa"
+                          : "Te eligieron para este envío"}
                   </Text>
                   <ChevronRight size={16} strokeWidth={2} color={activeOfferAccentColor} />
                 </View>
@@ -467,9 +481,13 @@ export default function TransportShipmentDetailScreen() {
                     explicando el próximo paso concreto: cuándo arranca el viaje. */}
                 <Text
                   testID="transport-assigned-to-me-detail"
-                  className="mt-1.5 font-sans text-[13px] leading-[19px] text-lime-800/80 dark:text-lime-200/80"
+                  className={`mt-1.5 font-sans text-[13px] leading-[19px] ${
+                    assignedOutcome === "disputed" ? "text-warning-700" : "text-lime-800/80 dark:text-lime-200/80"
+                  }`}
                 >
-                  {assignedOutcome === "completed" ? (
+                  {assignedOutcome === "disputed" ? (
+                    `${shipment.dispute ? `${disputeExplanation(shipment.dispute, "carrier")} ` : ""}Movo lo está revisando y te va a avisar cuando se resuelva.`
+                  ) : assignedOutcome === "completed" ? (
                     "Lo que cobraste y la calificación están en el detalle del envío."
                   ) : assignedOutcome === "cancelled" ? (
                     "Ya no tenés que retirarlo. El motivo está en el detalle del envío."
@@ -481,7 +499,11 @@ export default function TransportShipmentDetailScreen() {
                     </>
                   )}
                 </Text>
-                <Text className="mt-2.5 font-sans-semibold text-[13px] text-lime-800 dark:text-lime-300">
+                <Text
+                  className={`mt-2.5 font-sans-semibold text-[13px] ${
+                    assignedOutcome === "disputed" ? "text-warning-700" : "text-lime-800 dark:text-lime-300"
+                  }`}
+                >
                   Ver detalle del envío
                 </Text>
               </Pressable>
@@ -663,7 +685,8 @@ export default function TransportShipmentDetailScreen() {
                     </Text>
                     <View className="mt-2 self-start rounded-full bg-bg-mute px-3 py-2">
                       <Text className="font-sans-medium text-[12px] text-fg">
-                        Sin horario fijo · lo definís vos en la oferta
+                        {/* Ya asignado, la oferta está hecha: "lo definís vos en la oferta" ya no aplica. */}
+                        {isAssignedToMe ? "Sin horario fijo" : "Sin horario fijo · lo definís vos en la oferta"}
                       </Text>
                     </View>
                   </View>

@@ -175,8 +175,9 @@ describe("salida del in_transit demorado (Postgres, MOVO-278)", () => {
       const { shipmentId, trip, carrierId } = await inTransitPackage(25, randomUUID(), 13);
       await service().disputeOverdueFlaggedShipments();
 
-      expect(await tripRepo.completeFinishedActive(10)).toEqual([trip.id]);
+      // La disputa misma completa el viaje (su único paquete): el barrido ya no tiene nada que cerrar.
       expect((await tripRepo.findById(trip.id))?.status).toBe(TripStatus.COMPLETED);
+      expect(await tripRepo.completeFinishedActive(10)).toEqual([]);
 
       const next = await tripRepo.create(tripInput(carrierId, { departureAt: new Date() }));
       await attachAcceptedPackage(app.db, next);

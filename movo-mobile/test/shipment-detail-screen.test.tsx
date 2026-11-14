@@ -52,7 +52,7 @@ jest.mock("@react-native-menu/menu", () => {
 });
 
 const mockRouterSetParams = jest.fn();
-const mockSearchParams = jest.fn((): { id: string; map?: string } => ({ id: "shipment-1" }));
+const mockSearchParams = jest.fn((): { id: string; map?: string; tab?: string } => ({ id: "shipment-1" }));
 jest.mock("expo-router", () => ({
   router: {
     replace: (...args: unknown[]) => mockRouterReplace(...args),
@@ -349,6 +349,43 @@ describe("ShipmentDetailScreen", () => {
 
       expect(getByTestId("shipment-detail-status-badge")).toHaveTextContent("En camino");
       expect(queryByTestId("shipment-detail-delayed-banner")).toBeNull();
+    });
+  });
+
+  describe("envío en disputa", () => {
+    it("el banner dice quién la abrió y por qué", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-1" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: "carrier-1",
+          status: ShipmentStatus.DISPUTED,
+          dispute: { id: "d1", reason: "transit_anomaly" as never, openedByRole: null, openedAt: "2026-11-11T22:00:00.000Z" },
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-dispute-banner")).toHaveTextContent(
+        /La abrió Movo porque el envío quedó en camino más tiempo del esperado\./,
+      );
+    });
+
+    it("al transportista no le promete el cobro: dice 'Monto en disputa'", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "carrier-1" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: "carrier-1", status: ShipmentStatus.DISPUTED, agreedPriceArs: 1860 }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      const { getByText, queryByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByText("Monto en disputa")).toBeTruthy();
+      expect(queryByText(/^Recibís/)).toBeNull();
     });
   });
 
@@ -840,6 +877,22 @@ describe("ShipmentDetailScreen", () => {
 
     expect(getByTestId("shipment-detail-timeline")).toBeTruthy();
     expect(queryByTestId("shipment-detail-route-map")).toBeNull();
+  });
+
+  it("con tab=timeline (desde la hoja de un estado del chat) abre directo en la línea de tiempo", async () => {
+    mockSearchParams.mockReturnValue({ id: "shipment-1", tab: "timeline" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment(),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-timeline")).toBeTruthy();
+    mockSearchParams.mockReturnValue({ id: "shipment-1" });
   });
 
   it("muestra el banner de ofertas (siempre vacío, MOVO-17 sin arrancar) solo mientras el envío sigue abierto", async () => {

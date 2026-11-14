@@ -22,7 +22,7 @@ import {
 } from "./dispute-repository";
 import { transition as offerTransition } from "../domain/offer-state-machine";
 import { toArgentinaCalendarDate } from "../domain/pickup-window";
-import { expireEmptyActiveTrips } from "./trip-repository";
+import { completeFinishedActiveTrips, expireEmptyActiveTrips } from "./trip-repository";
 import {
   Shipment,
   ShipmentEvent,
@@ -1334,6 +1334,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
 
       // Viajes que quedaron sin paquetes y se cerraron en esta misma transacción: se informan con el evento.
       let expiredTripIds: string[] = [];
+      let completedTripIds: string[] = [];
       const row = await db.$transaction(async (tx) => {
         // MOVO-118: compare-and-swap, mismo patrón que
         // `offer-repository.ts#acceptOffer` (MOVO-102/AC9). El WHERE
@@ -1383,8 +1384,11 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         // El envío suelta su viaje cuando se cancela o cuando el transportista se baja: se anotan
         // los viajes de la oferta aceptada antes de cerrarla, para expirar al final los que se
         // queden `active` sin paquetes (ver `expireEmptyActiveTrips`).
-        const releasedTripIds =
-          to === ShipmentStatus.CANCELLED || revertsAssignment
+        // Una disputa o un cierre desde el panel no sueltan el viaje, pero pueden terminar su
+        // último paquete: esos viajes se completan al final (ver `completeFinishedActiveTrips`).
+        const finishesTrip = to === ShipmentStatus.DISPUTED || to === ShipmentStatus.COMPLETED;
+        const acceptedTripIds =
+          to === ShipmentStatus.CANCELLED || revertsAssignment || finishesTrip
             ? (
                 await tx.offer.findMany({
                   where: { shipmentId: id, status: OfferStatus.ACCEPTED },
@@ -1394,6 +1398,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
                 .map((offer) => offer.tripId)
                 .filter((tripId): tripId is string => tripId !== null)
             : [];
+        const releasedTripIds = finishesTrip ? [] : acceptedTripIds;
 
         // MOVO-334: el expediente nace con la transición. El índice único parcial
         // (`disputes_shipment_open_key`) es la red de seguridad de "una abierta por envío".
@@ -1508,6 +1513,9 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         if (releasedTripIds.length > 0) {
           expiredTripIds = await expireEmptyActiveTrips(tx, releasedTripIds);
         }
+        if (finishesTrip && acceptedTripIds.length > 0) {
+          completedTripIds = await completeFinishedActiveTrips(tx, acceptedTripIds);
+        }
 
         // `updateMany` no devuelve la fila actualizada (a diferencia de
         // `update`) — se reconstruye a mano en vez de pagar un SELECT extra,
@@ -1534,7 +1542,12 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
 
       // MOVO-201/AC4: recién después de que la transacción confirmó -- un rollback
       // (ej. ShipmentConcurrentModificationError) no debe cerrar ningún socket.
-      emitShipmentStatusChanged({ shipmentId: id, to, ...(expiredTripIds.length > 0 ? { expiredTripIds } : {}) });
+      emitShipmentStatusChanged({
+        shipmentId: id,
+        to,
+        ...(expiredTripIds.length > 0 ? { expiredTripIds } : {}),
+        ...(completedTripIds.length > 0 ? { completedTripIds } : {}),
+      });
 
       return mapShipmentRow(row, to === ShipmentStatus.REJECTED_BY_RECEIVER ? (reason ?? null) : null);
     },

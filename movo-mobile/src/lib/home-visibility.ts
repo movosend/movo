@@ -54,7 +54,7 @@ export function isPickupDayBeforeYesterday(pickupDate: string, now: Date = new D
 }
 
 /**
- * Card de "Estoy enviando"/"Voy a recibir": la oculta si la ventana venció antes de ayer. Como en "Actividad reciente"
+ * Card de "Envíos en curso" (los que mandás y los que recibís): la oculta si la ventana venció antes de ayer. Como en "Actividad reciente"
  * (`selectRecentShipments`), lo que le pide una acción a quien mira no sale: al emisor, un `assigned_unfunded` le pide
  * el pago. Al receptor no le pide nada.
  */

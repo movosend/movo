@@ -1,3 +1,4 @@
+import type { DisputeSummary } from "@movo/shared";
 import { TripStatus, ShipmentStatus } from "@movo/shared";
 import { Trip as TripRow } from "../generated/prisma/client";
 import { InvalidEnumValueError } from "./shipment";
@@ -74,6 +75,8 @@ export interface UpdateTripInput extends TripRecurrenceInput {
 export interface TripAcceptedPackage {
   shipmentId: string;
   status: ShipmentStatus;
+  /** Disputa sin resolver del envío (motivo y quién la abrió); `null` si no está en disputa. */
+  dispute: DisputeSummary | null;
   packageType: string;
   weightKg: number;
   pickupAddress: string;
@@ -102,6 +105,8 @@ export interface TripWithAcceptedPackages extends Trip {
    * para no ofrecer "Iniciar viaje" mientras todos esperan el pago.
    */
   executablePackagesCount: number;
+  /** Cuántos de los paquetes aceptados están en disputa: el viaje los da por terminados, pero no se llevaron. */
+  disputedPackagesCount: number;
   packages?: TripAcceptedPackage[];
 }
 

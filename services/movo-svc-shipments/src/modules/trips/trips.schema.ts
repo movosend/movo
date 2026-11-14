@@ -1,3 +1,4 @@
+import { disputeSummaryResponse } from "../disputes/dispute-summary-response";
 // MOVO-221: `declared` agregado como estado inicial real del ciclo de vida.
 // MOVO-260: `expired` separado de `cancelled`.
 const TRIP_STATUS_VALUES = ["declared", "active", "cancelled", "expired", "completed"];
@@ -76,6 +77,7 @@ const tripAcceptedPackageResponse = {
   required: [
     "shipmentId",
     "status",
+    "dispute",
     "packageType",
     "weightKg",
     "pickupAddress",
@@ -93,6 +95,7 @@ const tripAcceptedPackageResponse = {
     "senderPhotoUrl",
   ],
   properties: {
+    dispute: disputeSummaryResponse,
     shipmentId: { type: "string" },
     status: { type: "string" },
     packageType: { type: "string" },
@@ -115,7 +118,13 @@ const tripAcceptedPackageResponse = {
 
 const tripWithAcceptedPackagesResponse = {
   type: "object",
-  required: [...tripResponse.required, "hasAcceptedPackages", "acceptedPackagesCount", "executablePackagesCount"],
+  required: [
+    ...tripResponse.required,
+    "hasAcceptedPackages",
+    "acceptedPackagesCount",
+    "executablePackagesCount",
+    "disputedPackagesCount",
+  ],
   properties: {
     ...tripResponse.properties,
     hasAcceptedPackages: { type: "boolean" },
@@ -124,6 +133,10 @@ const tripWithAcceptedPackagesResponse = {
       type: "integer",
       description:
         "Paquetes aceptados que el viaje ya puede ejecutar (envío assigned o in_transit). POST /trips/:id/start exige al menos uno.",
+    },
+    disputedPackagesCount: {
+      type: "integer",
+      description: "Paquetes aceptados cuyo envío está en disputa. Cierran el viaje, pero no cuentan como llevados.",
     },
     packages: { type: "array", items: tripAcceptedPackageResponse },
   },

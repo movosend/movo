@@ -108,11 +108,15 @@ describe("Componentes de Tracking (MOVO-203)", () => {
       const { getByText, getByTestId } = await render(<TrackingActiveIndicator />);
 
       expect(getByTestId("tracking-active-indicator")).toBeTruthy();
-      expect(getByText("Transmitiendo ubicación en vivo")).toBeTruthy();
-      expect(getByText("2 envíos pendientes de entrega")).toBeTruthy();
+      expect(getByTestId("tracking-active-indicator-status-text")).toHaveTextContent("En vivo");
+      expect(getByText(" · Tu ubicación está siendo compartida")).toBeTruthy();
+      expect(getByTestId("tracking-live-dot")).toBeTruthy();
+      expect(getByTestId("tracking-active-indicator").props.accessibilityLabel).toBe(
+        "En vivo. Tu ubicación está siendo compartida con las partes de tus envíos.",
+      );
     });
 
-    it("muestra concordancia en singular cuando hay 1 solo envío en camino", async () => {
+    it("con 1 solo envío en camino dice lo mismo, sin contar envíos", async () => {
       mockTrackingState = {
         isTracking: true,
         inTransitCount: 1,
@@ -126,7 +130,7 @@ describe("Componentes de Tracking (MOVO-203)", () => {
 
       const { getByText } = await render(<TrackingActiveIndicator />);
 
-      expect(getByText("1 envío pendiente de entrega")).toBeTruthy();
+      expect(getByText(" · Tu ubicación está siendo compartida")).toBeTruthy();
     });
 
     it("muestra advertencia cuando el permiso fue denegado (AC5)", async () => {
@@ -143,7 +147,8 @@ describe("Componentes de Tracking (MOVO-203)", () => {
 
       const { getByText } = await render(<TrackingActiveIndicator />);
 
-      expect(getByText("Permiso de ubicación requerido")).toBeTruthy();
+      expect(getByText("Ubicación desactivada")).toBeTruthy();
+      expect(getByText(" · Tocá para activarla")).toBeTruthy();
     });
 
     it("muestra indicador de sin conexión a internet cuando el último envío falló por red (AC6)", async () => {
@@ -161,10 +166,8 @@ describe("Componentes de Tracking (MOVO-203)", () => {
 
       const { getByText } = await render(<TrackingActiveIndicator />);
 
-      expect(getByText("Sin conexión a internet")).toBeTruthy();
-      expect(
-        getByText("Tu ubicación se transmitirá a los participantes de tus envíos una vez que se restablezca")
-      ).toBeTruthy();
+      expect(getByText("Sin conexión")).toBeTruthy();
+      expect(getByText(" · Se envía al reconectar")).toBeTruthy();
     });
 
     it("MOVO-346: con posiciones en la cola pero sin fallas de envío no muestra sin conexión", async () => {
@@ -182,7 +185,7 @@ describe("Componentes de Tracking (MOVO-203)", () => {
 
       const { queryByText } = await render(<TrackingActiveIndicator />);
 
-      expect(queryByText("Sin conexión a internet")).toBeNull();
+      expect(queryByText("Sin conexión")).toBeNull();
     });
 
     it("abre el modal de permisos al presionar el indicador cuando el permiso está denegado", async () => {
@@ -221,10 +224,8 @@ describe("Componentes de Tracking (MOVO-203)", () => {
 
       const { getByTestId, getByText } = await render(<TrackingActiveIndicator />);
 
-      expect(getByText("Transmitiendo solo con app abierta")).toBeTruthy();
-      expect(
-        getByText("Toca para activar en segundo plano y apagar la pantalla sin pausar")
-      ).toBeTruthy();
+      expect(getByText("Solo con la app abierta")).toBeTruthy();
+      expect(getByText(" · Tocá para activar en segundo plano")).toBeTruthy();
 
       await fireEvent.press(getByTestId("tracking-active-indicator"));
 

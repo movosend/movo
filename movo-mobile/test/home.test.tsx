@@ -272,12 +272,11 @@ describe("AuthenticatedHomeScreen", () => {
   it("no renderiza las secciones de envíos activos ni tareas sin datos", async () => {
     const { queryByTestId } = await render(<AuthenticatedHomeScreen />);
 
-    expect(queryByTestId("app-home-sending")).toBeNull();
-    expect(queryByTestId("app-home-receiving")).toBeNull();
+    expect(queryByTestId("app-home-shipments")).toBeNull();
     expect(queryByTestId("app-home-attention")).toBeNull();
   });
 
-  it("renderiza 'Estoy enviando' con una card por envío activo", async () => {
+  it("renderiza 'Envíos en curso' con una card por envío activo y su rol", async () => {
     mockUseSendingShipments.mockReturnValue({
       data: [
         {
@@ -298,7 +297,8 @@ describe("AuthenticatedHomeScreen", () => {
 
     const { getByTestId, getByText } = await render(<AuthenticatedHomeScreen />);
 
-    expect(getByTestId("app-home-sending")).toBeTruthy();
+    expect(getByTestId("app-home-shipments")).toBeTruthy();
+    expect(getByTestId("app-home-shipments-card-s1-role")).toHaveTextContent("Enviás");
     expect(getByText("Lucía Gómez")).toBeTruthy();
     expect(getByText("Generar retiro")).toBeTruthy();
   });
@@ -377,16 +377,15 @@ describe("AuthenticatedHomeScreen", () => {
       pickupWindowExpired: false,
     };
 
-    it("una sección cargando muestra su skeleton y la que ya cargó se ve sin esperarla", async () => {
+    it("con una de las dos listas cargando, los envíos que ya llegaron se ven sin esperarla", async () => {
       mockUseSendingShipments.mockReturnValue({ data: undefined, isLoading: true, isError: false, refetch: jest.fn() });
       mockUseReceivingShipments.mockReturnValue({ data: [ACTIVE_SHIPMENT], isLoading: false, isError: false });
 
       const { getByTestId, getByText, queryByTestId } = await render(<AuthenticatedHomeScreen />);
 
-      expect(getByTestId("app-home-sending-skeleton")).toBeTruthy();
-      expect(getByTestId("app-home-receiving")).toBeTruthy();
+      expect(getByTestId("app-home-shipments")).toBeTruthy();
       expect(getByText("Lucía Gómez")).toBeTruthy();
-      expect(queryByTestId("app-home-receiving-skeleton")).toBeNull();
+      expect(queryByTestId("app-home-shipments-skeleton")).toBeNull();
       // La pantalla sigue viva: saludo, CTA y actividad reciente no esperan a nadie.
       expect(getByTestId("app-home-welcome")).toBeTruthy();
       expect(getByTestId("app-home-send-cta")).toBeTruthy();

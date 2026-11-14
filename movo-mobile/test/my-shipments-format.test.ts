@@ -151,7 +151,7 @@ describe("presentMyShipment", () => {
 
   it("en camino: pill en vivo; asignado: texto gris con el nombre del estado", () => {
     expect(present(shipment({ status: ShipmentStatus.IN_TRANSIT })).pill).toEqual({ label: "EN CAMINO", tone: "live" });
-    expect(present(shipment({ status: ShipmentStatus.ASSIGNED })).quietStatus).toBe("Asignado");
+    expect(present(shipment({ status: ShipmentStatus.ASSIGNED })).quietStatus).toBe("Por retirar");
   });
 
   it("historial: día de cierre y pill de entregado o cancelado", () => {
