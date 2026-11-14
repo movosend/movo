@@ -405,6 +405,7 @@ function buildReport(
       ...base,
       pendingConfirmation: { count: 4, amountArs: 52300 },
       escalated: { count: 1, amountArs: 18700 },
+      refundsToLedger: { count: 2, amountArs: 24500 },
       debt: { debtorUsers: 37, creditUsers: 5, creditArs: 6200 },
     } as AdminReportById["finance"]
   if (id === "distances") {

@@ -7,11 +7,17 @@ const plural = (n: number, one: string, many: string) =>
 
 /**
  * Lo que Finanzas no suma en sus totales (B8 de MOVO-35): las capturas que Mercado Pago todavía no
- * confirmó y las que pasaron a proceso manual. Van aparte y con su monto, nunca como cero.
+ * confirmó y las que pasaron a proceso manual (de cualquier fecha: siguen abiertas), y los reembolsos
+ * que cayeron a la cuenta corriente del transportista. Van aparte y con su monto, nunca como cero.
  */
 export function FinanceNotices({ report }: { report: FinanceReport }) {
-  const { pendingConfirmation: pending, escalated } = report
-  if (pending.count === 0 && escalated.count === 0) return null
+  const { pendingConfirmation: pending, escalated, refundsToLedger } = report
+  if (
+    pending.count === 0 &&
+    escalated.count === 0 &&
+    refundsToLedger.count === 0
+  )
+    return null
   return (
     <div className="flex flex-col gap-1.5">
       {pending.count > 0 && (
@@ -25,12 +31,22 @@ export function FinanceNotices({ report }: { report: FinanceReport }) {
       {escalated.count > 0 && (
         <p className="flex items-start gap-2 text-[13px] text-warn-fg">
           <TriangleAlert className="text-warn-icon mt-0.5 size-3.5 flex-none" />
+          {plural(escalated.count, "cobro pasó", "cobros pasaron")} a proceso
+          manual ({formatMetric("ars", escalated.amountArs)}). Tampoco entran en
+          los totales.
+        </p>
+      )}
+      {refundsToLedger.count > 0 && (
+        <p className="flex items-start gap-2 text-[13px] text-warn-fg">
+          <TriangleAlert className="text-warn-icon mt-0.5 size-3.5 flex-none" />
           {plural(
-            escalated.count,
-            "cobro pasó",
-            "cobros pasaron"
-          )} a proceso manual ({formatMetric("ars", escalated.amountArs)}).
-          Tampoco entran en los totales.
+            refundsToLedger.count,
+            "reembolso quedó",
+            "reembolsos quedaron"
+          )}{" "}
+          como deuda del transportista, que no tenía saldo (
+          {formatMetric("ars", refundsToLedger.amountArs)}). Al emisor todavía
+          no se le devolvió: no entra en lo reembolsado.
         </p>
       )}
     </div>

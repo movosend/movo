@@ -365,7 +365,7 @@ export const METRICS: Record<AdminReportId, Record<string, MetricMeta>> = {
       unit: "ars",
       good: "down",
       sums: true,
-      desc: "Reembolsos terminados, a Mercado Pago o a la cuenta corriente.",
+      desc: "Lo que Mercado Pago le devolvió al emisor. Un reembolso que cayó a la cuenta corriente del transportista va aparte.",
     },
     debtGenerated: {
       label: "Deuda generada",
@@ -379,7 +379,7 @@ export const METRICS: Record<AdminReportId, Record<string, MetricMeta>> = {
       unit: "ars",
       good: "up",
       sums: true,
-      desc: "Pagos y descuentos que bajaron la deuda de la cuenta corriente.",
+      desc: "Pagos y descuentos sobre cobros que bajaron una deuda. No incluye los créditos que da Movo.",
     },
     openDebt: {
       label: "Deuda abierta",
@@ -555,11 +555,6 @@ export const REPORT_TABS: ReportTab[] = [
     breakdowns: [
       { dimension: "kind", metric: "collected", title: "Cobrado por tipo" },
       {
-        dimension: "refundStatus",
-        metric: "refunded",
-        title: "Reembolsos por destino",
-      },
-      {
         dimension: "ledgerType",
         metric: "debtGenerated",
         title: "Deuda generada por tipo",
@@ -596,7 +591,6 @@ export const DIMENSION_LABEL: Record<string, string> = {
   cancelCause: "Causa",
   city: "Ciudad de retiro",
   kind: "Tipo de captura",
-  refundStatus: "Destino del reembolso",
   ledgerType: "Tipo de movimiento",
 }
 
@@ -625,11 +619,6 @@ export const SETTLEMENT_KIND_LABEL: Record<string, string> = {
   dispute_partial: "Disputas parciales",
 }
 
-export const REFUND_STATUS_LABEL: Record<string, string> = {
-  succeeded: "A Mercado Pago",
-  fallback_to_ledger: "A la cuenta corriente",
-}
-
 export const DELAY_REASON_LABEL: Record<DeliveryDelayReason, string> = {
   pickup_late: "Retiro fuera de horario",
   in_route: "Demora en ruta",
@@ -652,7 +641,6 @@ const KEY_LABELS: Record<string, Record<string, string>> = {
   cancelCause: CANCEL_CAUSE_LABEL,
   city: CITY_KEY_LABEL,
   kind: SETTLEMENT_KIND_LABEL,
-  refundStatus: REFUND_STATUS_LABEL,
   ledgerType: LEDGER_TYPE,
 }
 

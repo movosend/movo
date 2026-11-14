@@ -212,16 +212,11 @@ export const MOCK_DIMENSIONS: Record<string, [string, number][]> = {
     ["cancellation_penalty", 5],
     ["dispute_partial", 2],
   ],
-  refundStatus: [
-    ["succeeded", 82],
-    ["fallback_to_ledger", 18],
-  ],
   ledgerType: [
     ["cash_commission", 46],
     ["cancellation_penalty", 21],
     ["payment_surcharge", 18],
-    ["manual_adjustment", 9],
-    ["cancellation_compensation", 6],
+    ["manual_adjustment", 15],
   ],
 }
 

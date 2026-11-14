@@ -75,7 +75,11 @@ describe("estado de Métricas en la URL", () => {
       null
     )
     expect(
-      metricsHref({ ...EMPTY_METRICS_STATE, tab: "deliveries", city: "Córdoba" })
+      metricsHref({
+        ...EMPTY_METRICS_STATE,
+        tab: "deliveries",
+        city: "Córdoba",
+      })
     ).toBe("/metrics?tab=deliveries")
     expect(
       parseMetricsState({ tab: "operations", c: "x".repeat(121) }).city

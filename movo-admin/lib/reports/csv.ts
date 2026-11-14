@@ -202,6 +202,7 @@ export const FINANCE_ROW_HEADERS = [
   "mp_fee_ars",
   "net_ars",
   "refunded_ars",
+  "refunded_to_ledger_ars",
 ]
 
 /** El CSV de datos de demostración lo dice en el nombre: `movo-demo-…`. */
