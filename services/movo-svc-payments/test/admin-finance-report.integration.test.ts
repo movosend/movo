@@ -80,6 +80,8 @@ describe("reporte de Finanzas (Postgres) — MOVO-35", () => {
       data: {
         userId,
         type,
+        // Un ajuste manual exige motivo y admin (constraint de la tabla).
+        ...(type === "manual_adjustment" ? { reason: "ajuste a favor", adminId: randomUUID() } : {}),
         amountArs,
         status,
         idempotencyKey: randomUUID(),
