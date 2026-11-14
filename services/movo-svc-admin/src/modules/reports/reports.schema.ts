@@ -168,6 +168,7 @@ const REPORT_EXTRAS: Readonly<Record<AdminReportId, Record<string, object>>> = {
   finance: {
     pendingConfirmation: financeAmount,
     escalated: financeAmount,
+    refundsToLedger: financeAmount,
     debt: {
       type: "object",
       required: ["debtorUsers", "creditArs", "creditUsers"],

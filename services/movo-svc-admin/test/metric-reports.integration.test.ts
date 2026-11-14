@@ -65,11 +65,11 @@ const finance = {
   ...body(["collected", "shipmentPrice", "commission", "mpFee", "carrierNet", "refunded", "debtGenerated", "debtCollected", "openDebt"]),
   breakdowns: [
     { dimension: "kind", metric: "collected", total: value, rows: [] },
-    { dimension: "refundStatus", metric: "refunded", total: value, rows: [] },
     { dimension: "ledgerType", metric: "debtGenerated", total: value, rows: [] },
   ],
   pendingConfirmation: { count: 2, amountArs: 2300 },
   escalated: { count: 0, amountArs: 0 },
+  refundsToLedger: { count: 1, amountArs: 500 },
   debt: { debtorUsers: 3, creditUsers: 1, creditArs: 150 },
 };
 
@@ -88,6 +88,7 @@ const financeRows = {
       mpFeeArs: null,
       netArs: null,
       refundedArs: 0,
+      refundedToLedgerArs: 0,
     },
   ],
   truncated: true,
@@ -259,14 +260,15 @@ describe("GET /admin/reports/* — MOVO-35", () => {
   it("Finanzas trae lo pendiente de MP aparte, y su CSV de liquidaciones es de ids y montos", async () => {
     const report = (await get(`/admin/reports/finance?${QUERY}`)).json();
     expect(report.pendingConfirmation).toEqual({ count: 2, amountArs: 2300 });
+    expect(report.refundsToLedger).toEqual({ count: 1, amountArs: 500 });
     expect(report.debt).toEqual({ debtorUsers: 3, creditUsers: 1, creditArs: 150 });
 
     const res = await get(`/admin/reports/finance/export?${QUERY}&section=settlements`);
     expect(res.headers["x-export-truncated"]).toBe("true");
     expect(res.headers["x-export-rows"]).toBe("1");
     const csv = lines(res.body);
-    expect(csv[0]).toBe("settlement_id,shipment_id,kind,status,created_at,captured_at,gross_ars,debt_surcharge_ars,commission_ars,mp_fee_ars,net_ars,refunded_ars");
-    expect(csv[1]).toContain(",delivery,processing,2026-10-01T15:00:00.000Z,,1150,150,150,,,0");
+    expect(csv[0]).toBe("settlement_id,shipment_id,kind,status,created_at,captured_at,gross_ars,debt_surcharge_ars,commission_ars,mp_fee_ars,net_ars,refunded_ars,refunded_to_ledger_ars");
+    expect(csv[1]).toContain(",delivery,processing,2026-10-01T15:00:00.000Z,,1150,150,150,,,0,0");
   });
 
   it("una sección de otro reporte es 400", async () => {

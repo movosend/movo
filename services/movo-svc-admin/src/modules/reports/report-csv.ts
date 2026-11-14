@@ -95,6 +95,7 @@ const FINANCE_ROW_COLUMNS: readonly CsvColumn<FinanceReportRow>[] = [
   { header: "mp_fee_ars", value: (row) => row.mpFeeArs },
   { header: "net_ars", value: (row) => row.netArs },
   { header: "refunded_ars", value: (row) => row.refundedArs },
+  { header: "refunded_to_ledger_ars", value: (row) => row.refundedToLedgerArs },
 ];
 
 export const financeRowsCsv = (rows: readonly FinanceReportRow[]): CsvSection => ({ body: toCsv(FINANCE_ROW_COLUMNS, rows), rows: rows.length });

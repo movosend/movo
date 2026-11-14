@@ -67,7 +67,7 @@ const REPORT_DESCRIPTIONS: Readonly<Record<AdminReportId, string>> = {
   operations:
     "MOVO-35: `published` y `completed` por la primera vez que el envío llegó a ese estado, `cancelled` por la fecha de la cancelación. La demanda es la que contó el pricing al publicar cada envío (DD-059): `availableCarriers` solo existe en los envíos creados después de guardarla. `city` filtra por la ciudad del retiro; `cities` la ignora y es la lista del selector. No se filtra por distancia.",
   finance:
-    "MOVO-35: desde `svc-payments`, sin cruzar con envíos. Lo cobrado va por fecha de acreditación y solo con la captura confirmada por MP; lo que sigue `processing` va en `pendingConfirmation` y lo escalado a proceso manual en `escalated`, no como cero. `collected` incluye el recargo por deuda del emisor y `shipmentPrice` no. `openDebt` es lo que deben los usuarios con saldo deudor al cierre de cada período. No se filtra por distancia.",
+    "MOVO-35: desde `svc-payments`, sin cruzar con envíos. Lo cobrado va por fecha de acreditación y solo con la captura confirmada por MP; lo que sigue `processing` va en `pendingConfirmation` y lo escalado a proceso manual en `escalated` (los dos, de cualquier fecha), no como cero. `refunded` es solo lo que MP le devolvió al emisor: un reembolso que cayó a la cuenta corriente del transportista va en `refundsToLedger`. `collected` incluye el recargo por deuda del emisor y `shipmentPrice` no. `openDebt` es lo que deben los usuarios con saldo deudor al cierre de cada período. No se filtra por distancia.",
 };
 
 function rangeOf({ from, to }: ReportQuery): ReportRange {
