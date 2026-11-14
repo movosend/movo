@@ -81,6 +81,18 @@ describe("RoleSection (MOVO-193 AC1/AC2)", () => {
     expect(Haptics.selectionAsync).toHaveBeenCalledTimes(1);
   });
 
+  it("si la lista se achica estando en la última tarjeta, el contador no se pasa del total (review PR #343)", async () => {
+    const three = asSending([makeShipment("s1"), makeShipment("s2"), makeShipment("s3")]);
+    const { getByTestId, rerender } = await render(<RoleSection testID="sending" title="Estoy enviando" items={three} />);
+    const carousel = getByTestId("sending-carousel");
+    await fireEvent(carousel, "layout", { nativeEvent: { layout: { width: 400, height: 300 } } });
+    await fireEvent.scroll(carousel, { nativeEvent: { contentOffset: { x: 668, y: 0 } } });
+    expect(getByTestId("sending-counter")).toHaveTextContent("3 de 3");
+
+    await rerender(<RoleSection testID="sending" title="Estoy enviando" items={three.slice(0, 2)} />);
+    expect(getByTestId("sending-counter")).toHaveTextContent("2 de 2");
+  });
+
   it("con showRole cada tarjeta dice de qué lado está el usuario", async () => {
     const { getByTestId } = await render(
       <RoleSection

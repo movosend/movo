@@ -255,7 +255,7 @@ export default function TransportShipmentDetailScreen() {
   const isAssignedToMe =
     !!currentUser?.userId && shipment?.carrierId === currentUser.userId;
   // Un envío ya terminado no es "te eligieron, el viaje arranca el…" (feedback de TestFlight, build 17).
-  // Uno en disputa tampoco: no hay nada que retirar y el cobro queda retenido hasta la resolución.
+  // Uno en disputa tampoco: no hay nada que retirar. Sin afirmar retención: desde `completed` el cobro ya se acreditó (DD-054).
   const assignedOutcome =
     shipment?.status === ShipmentStatus.DELIVERED || shipment?.status === ShipmentStatus.COMPLETED
       ? "completed"
@@ -486,7 +486,7 @@ export default function TransportShipmentDetailScreen() {
                   }`}
                 >
                   {assignedOutcome === "disputed" ? (
-                    `${shipment.dispute ? `${disputeExplanation(shipment.dispute, "carrier")} ` : ""}Movo lo está revisando y el cobro queda retenido hasta que se resuelva.`
+                    `${shipment.dispute ? `${disputeExplanation(shipment.dispute, "carrier")} ` : ""}Movo lo está revisando y te va a avisar cuando se resuelva.`
                   ) : assignedOutcome === "completed" ? (
                     "Lo que cobraste y la calificación están en el detalle del envío."
                   ) : assignedOutcome === "cancelled" ? (

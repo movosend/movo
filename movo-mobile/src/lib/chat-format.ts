@@ -430,7 +430,8 @@ export function chatEventExplanation(card: Pick<ChatEventCard, "status" | "detai
     case ShipmentStatus.DISPUTED:
       return [
         ...(card.detail ? [card.detail] : []),
-        "Movo revisa lo que pasó con las partes. Mientras tanto el chat queda en solo lectura y el pago queda retenido hasta que se resuelva.",
+        // Sin afirmar qué pasó con la plata: casi siempre se abre desde `completed`, con el cobro ya acreditado (DD-054).
+        "Movo revisa lo que pasó con las partes y les va a avisar cuando se resuelva. Mientras tanto el chat queda en solo lectura.",
       ];
     case ShipmentStatus.CANCELLED:
       return [

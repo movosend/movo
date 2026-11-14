@@ -854,9 +854,10 @@ export default function ShipmentDetailScreen() {
                       <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
                         <GridPattern />
                         <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
-                          {/* En disputa el cobro queda retenido hasta la resolución: no es "Recibís". */}
+                          {/* En disputa el monto depende de la resolución: no es "Recibís". Neutro, porque desde `completed`
+                              el cobro ya se acreditó (DD-054) y no se puede decir que está pendiente. */}
                           {carrierReceivedArs !== null && shipment.status === ShipmentStatus.DISPUTED
-                            ? "Cobro en revisión"
+                            ? "Monto en disputa"
                             : carrierReceivedArs !== null
                             ? carrierCashInHand ? (FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? "Cobraste en mano" : "Cobrás en mano") : carrierReceivedIsExact ? "Recibís" : "Recibís aprox."
                             : hasAgreedPrice

@@ -1,3 +1,4 @@
+import { disputeSummaryResponse } from "../disputes/dispute-summary-response";
 // Autocontenido a propósito (no importa de otros *.schema.ts) — mismo criterio que ya
 // usa movo-svc-users: cada schema no comparte definiciones entre sí.
 import { PACKAGE_INPUT_SANITY_MAX, PaymentMethod, ShipmentStatus } from "@movo/shared";
@@ -74,21 +75,6 @@ const shipmentFundingView = {
     at: { type: "string", format: "date-time" },
   },
 } as const;
-
-// Resumen de la disputa sin resolver del envío (`DisputeSummary` de @movo/shared): por qué y quién la abrió.
-const disputeSummaryResponse = {
-  type: ["object", "null"],
-  required: ["id", "reason", "openedByRole", "openedAt"],
-  properties: {
-    id: { type: "string" },
-    reason: {
-      type: "string",
-      enum: ["damaged", "not_delivered", "wrong_delivery", "other", "transit_anomaly", "pickup_no_show"],
-    },
-    openedByRole: { type: ["string", "null"], enum: ["sender", "receiver", "carrier", null] },
-    openedAt: { type: "string", format: "date-time" },
-  },
-};
 
 const shipmentResponse = {
   type: "object",

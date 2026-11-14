@@ -373,7 +373,7 @@ describe("ShipmentDetailScreen", () => {
       );
     });
 
-    it("al transportista no le promete el cobro: dice 'Cobro en revisión'", async () => {
+    it("al transportista no le promete el cobro: dice 'Monto en disputa'", async () => {
       mockCurrentUser.mockReturnValue({ userId: "carrier-1" });
       mockUseShipment.mockReturnValue({
         isLoading: false,
@@ -384,7 +384,7 @@ describe("ShipmentDetailScreen", () => {
       });
       const { getByText, queryByText } = await render(<ShipmentDetailScreen />);
 
-      expect(getByText("Cobro en revisión")).toBeTruthy();
+      expect(getByText("Monto en disputa")).toBeTruthy();
       expect(queryByText(/^Recibís/)).toBeNull();
     });
   });

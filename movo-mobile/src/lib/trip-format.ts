@@ -241,7 +241,7 @@ export function tripDisputedChipLabel(count: number): string {
 /** Aviso del detalle de un viaje con paquetes en disputa. */
 export function tripDisputedNotice(count: number): string {
   const subject = count === 1 ? "Este viaje tiene 1 paquete en disputa" : `Este viaje tiene ${count} paquetes en disputa`;
-  return `${subject}: no cuenta como llevado. Movo está revisando lo que pasó y el cobro queda retenido hasta que se resuelva.`;
+  return `${subject}: no cuenta como llevado. Movo está revisando lo que pasó y te va a avisar cuando se resuelva.`;
 }
 
 /** Encabezado de mes para agrupar el historial ("Septiembre 2026"), por `departureAt`. */

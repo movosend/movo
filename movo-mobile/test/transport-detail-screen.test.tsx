@@ -467,7 +467,8 @@ describe("TransportShipmentDetailScreen", () => {
 
       expect(getByTestId("transport-assigned-to-me-card")).toHaveTextContent(/Este envío está en disputa/);
       expect(getByTestId("transport-assigned-to-me-detail")).toHaveTextContent(/La abrió el emisor porque el paquete llegó dañado\./);
-      expect(getByTestId("transport-assigned-to-me-detail")).toHaveTextContent(/el cobro queda retenido/);
+      expect(getByTestId("transport-assigned-to-me-detail")).toHaveTextContent(/te va a avisar cuando se resuelva/);
+      expect(getByTestId("transport-assigned-to-me-detail")).not.toHaveTextContent(/retenido/);
       expect(getByTestId("transport-assigned-to-me-detail")).not.toHaveTextContent(/El viaje arranca/);
       expect(getByText("Sin horario fijo")).toBeTruthy();
       expect(queryByText("Sin horario fijo · lo definís vos en la oferta")).toBeNull();

@@ -42,7 +42,7 @@ export function acceptedOfferOutcome(offer: Pick<MyOfferSummary, "status" | "shi
   const status = offer.shipment.status;
   if (status === ShipmentStatus.DELIVERED || status === ShipmentStatus.COMPLETED) return "completed";
   if (status === ShipmentStatus.CANCELLED) return "cancelled";
-  // Sin acción del transportista en la app y con el cobro retenido hasta la resolución: ni "Confirmado" ni "Seguí el retiro".
+  // Sin acción del transportista en la app y con el monto sujeto a la resolución: ni "Confirmado" ni "Seguí el retiro".
   if (status === ShipmentStatus.DISPUTED) return "disputed";
   return null;
 }
@@ -102,7 +102,8 @@ export function myOfferAmountLabel(offer: Pick<MyOfferSummary, "status" | "shipm
   const outcome = acceptedOfferOutcome(offer);
   if (outcome === "completed") return cash ? "Cobraste en mano" : "Cobraste aprox.";
   if (outcome === "cancelled") return receivedAmountLabel(OfferStatus.SHIPMENT_CANCELLED, cash);
-  if (outcome === "disputed") return "Cobro en revisión";
+  // Neutro: desde `completed` el cobro ya se acreditó (DD-054), así que no se puede decir que está pendiente.
+  if (outcome === "disputed") return "Monto en disputa";
   return receivedAmountLabel(offer.status, cash);
 }
 

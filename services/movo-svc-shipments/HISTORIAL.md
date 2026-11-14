@@ -4033,3 +4033,7 @@ Mensajes señalados: ventana móvil de 7 días, porque ni un mensaje moderado ni
 ### Feedback de TestFlight — paquetes en disputa y su motivo en las respuestas del transportista
 
 `GET /trips` y `GET /trips/:id` suman `disputedPackagesCount` (la app no cuenta un paquete en disputa como llevado). El detalle del viaje (`packages[].dispute`), `GET /shipments/:id` (`dispute`, solo para las partes) y `GET /offers/mine` (`shipment.dispute`, solo en una aceptada) suman el `DisputeSummary` de la disputa sin resolver (`open` o `resolving`), con `findUnresolvedDisputeSummaries` (`dispute-repository.ts`, una consulta por lote). El motivo no se expone a un transportista que evalúa el envío ni a una oferta que perdió.
+
+### Review de PR #343 — un solo schema del `DisputeSummary`
+
+`disputeSummaryResponse` vive en `src/modules/disputes/dispute-summary-response.ts`, con los motivos derivados de `Object.values(DisputeReason)`, y lo importan `trips.schema.ts`, `shipments.schema.ts` y `offers.schema.ts` (antes copiado en los tres, con los motivos a mano). Va en un archivo propio y no en un `*.schema.ts` para no romper la regla de que esos schemas no importan unos de otros.

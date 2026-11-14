@@ -158,7 +158,8 @@ describe("ShipmentChatScreen (MOVO-284)", () => {
     await fireEvent.press(getByTestId("chat-event-e1-press"));
     expect(getByTestId("chat-event-sheet-title")).toHaveTextContent("Disputa abierta");
     expect(getByTestId("chat-event-sheet-body")).toHaveTextContent(/La abrió el emisor porque el paquete llegó dañado\./);
-    expect(getByTestId("chat-event-sheet-body")).toHaveTextContent(/el pago queda retenido/);
+    expect(getByTestId("chat-event-sheet-body")).toHaveTextContent(/les va a avisar cuando se resuelva/);
+    expect(getByTestId("chat-event-sheet-body")).not.toHaveTextContent(/retenido/);
 
     await fireEvent.press(getByTestId("chat-event-sheet-timeline"));
     expect(router.push).toHaveBeenCalledWith({ pathname: "/shipments/[id]", params: { id: "s1", tab: "timeline" } });

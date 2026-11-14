@@ -1,3 +1,4 @@
+import { disputeSummaryResponse } from "../disputes/dispute-summary-response";
 // MOVO-221: `declared` agregado como estado inicial real del ciclo de vida.
 // MOVO-260: `expired` separado de `cancelled`.
 const TRIP_STATUS_VALUES = ["declared", "active", "cancelled", "expired", "completed"];
@@ -69,21 +70,6 @@ const recurrenceUntilBody = {
   type: "string",
   format: "date",
   description: "Último día de la serie (YYYY-MM-DD, inclusive, calendario argentino).",
-};
-
-// Resumen de la disputa sin resolver del envío (`DisputeSummary` de @movo/shared): por qué y quién la abrió.
-const disputeSummaryResponse = {
-  type: ["object", "null"],
-  required: ["id", "reason", "openedByRole", "openedAt"],
-  properties: {
-    id: { type: "string" },
-    reason: {
-      type: "string",
-      enum: ["damaged", "not_delivered", "wrong_delivery", "other", "transit_anomaly", "pickup_no_show"],
-    },
-    openedByRole: { type: ["string", "null"], enum: ["sender", "receiver", "carrier", null] },
-    openedAt: { type: "string", format: "date-time" },
-  },
 };
 
 const tripAcceptedPackageResponse = {

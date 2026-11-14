@@ -244,7 +244,7 @@ describe("MyOffersSummaryScreen (MOVO-151)", () => {
     expect(getByTestId("my-offers-accepted-total")).toHaveTextContent("$0");
     await fireEvent.press(getByTestId("my-offers-tab-closed"));
     expect(getByTestId("my-offers-closed-d1")).toHaveTextContent(/En disputa/);
-    expect(getByTestId("my-offers-closed-d1")).toHaveTextContent(/cobro en revisión/);
+    expect(getByTestId("my-offers-closed-d1")).toHaveTextContent(/monto en disputa/);
     expect(getByTestId("my-offers-closed-d1")).toHaveTextContent(/La abrió el emisor porque el paquete llegó dañado\./);
   });
 

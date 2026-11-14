@@ -116,7 +116,7 @@ describe("chatEventExplanation", () => {
     expect(chatEventExplanation({ status: ShipmentStatus.IN_TRANSIT })[0]).toMatch(/está en camino/);
     expect(chatEventExplanation({ status: ShipmentStatus.DISPUTED, detail: "La abrió el emisor por otro motivo." })).toEqual([
       "La abrió el emisor por otro motivo.",
-      expect.stringMatching(/pago queda retenido/),
+      expect.stringMatching(/les va a avisar cuando se resuelva/),
     ]);
     expect(chatEventExplanation({ status: ShipmentStatus.CANCELLED, reason: "El receptor no confirmó dentro del plazo" })).toEqual([
       "El envío se canceló y ya no se va a realizar.",

@@ -1,5 +1,7 @@
+import { disputeSummaryResponse } from "../disputes/dispute-summary-response";
 // Autocontenido a propósito (no importa de otros *.schema.ts) — mismo criterio que
-// shipments.schema.ts: cada schema no comparte definiciones entre sí.
+// shipments.schema.ts: cada schema no comparte definiciones entre sí. La excepción es
+// `disputeSummaryResponse`, que vive en un archivo propio (no un *.schema.ts) para no repetirlo en tres.
 
 // Alineado 1:1 con OfferStatus de @movo/shared (MOVO-102) — agregar un valor nuevo
 // ahí obliga a actualizar esta lista también.
@@ -12,21 +14,6 @@ const PACKAGE_TYPE_VALUES = ["letter_document", "standard_package", "fragile_ite
 // "HH:MM" o "HH:MM:SS", sin offset — mismo patrón que TIME_PATTERN en
 // shipments.schema.ts (autocontenido a propósito, no se importa de ahí).
 const TIME_PATTERN = "^([01]\\d|2[0-3]):[0-5]\\d(:[0-5]\\d)?$";
-
-// Resumen de la disputa sin resolver del envío (`DisputeSummary` de @movo/shared): por qué y quién la abrió.
-const disputeSummaryResponse = {
-  type: ["object", "null"],
-  required: ["id", "reason", "openedByRole", "openedAt"],
-  properties: {
-    id: { type: "string" },
-    reason: {
-      type: "string",
-      enum: ["damaged", "not_delivered", "wrong_delivery", "other", "transit_anomaly", "pickup_no_show"],
-    },
-    openedByRole: { type: ["string", "null"], enum: ["sender", "receiver", "carrier", null] },
-    openedAt: { type: "string", format: "date-time" },
-  },
-};
 
 const offerShipmentContextResponse = {
   type: "object",

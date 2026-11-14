@@ -101,6 +101,10 @@ function RoleCarousel({
   const interval = cardWidth + CARD_GAP;
 
   const activeIndexRef = useRef(0);
+  // Si la lista se achica con el carrusel montado (un envío sale de "en curso" estando en la última tarjeta), el índice
+  // guardado queda fuera de rango: se acota al dibujar para no mostrar "3 de 2" ni perder el punto activo (review PR #343).
+  const shownIndex = Math.max(0, Math.min(activeIndex, items.length - 1));
+  activeIndexRef.current = Math.min(activeIndexRef.current, Math.max(0, items.length - 1));
 
   // Al cruzar a otra tarjeta mientras se desliza: actualiza el contador y vibra (selección, como el slider de confirmar).
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -116,7 +120,7 @@ function RoleCarousel({
       <View className="flex-row items-center justify-between">
         <Text className="font-sans-medium text-caption uppercase text-fg-3">{title}</Text>
         <Text testID={testID ? `${testID}-counter` : undefined} className="font-sans-medium text-caption text-fg-3">
-          {`${activeIndex + 1} de ${items.length}`}
+          {`${shownIndex + 1} de ${items.length}`}
         </Text>
       </View>
       <ScrollView
@@ -143,8 +147,8 @@ function RoleCarousel({
         {items.map(({ shipment, role }, index) => (
           <View
             key={`${role}-${shipment.id}`}
-            style={{ width: index === activeIndex ? 14 : 5, height: 5 }}
-            className={`rounded-full ${index === activeIndex ? "bg-lime-500" : "bg-bg-mute"}`}
+            style={{ width: index === shownIndex ? 14 : 5, height: 5 }}
+            className={`rounded-full ${index === shownIndex ? "bg-lime-500" : "bg-bg-mute"}`}
           />
         ))}
       </View>
