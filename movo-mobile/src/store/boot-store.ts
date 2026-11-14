@@ -14,11 +14,21 @@ interface BootState {
    */
   initialRouteResolved: boolean;
   markInitialRouteResolved: () => void;
+  /**
+   * Usuario para el que ya se decidió si volver al viaje en curso al llegar a Inicio (`useResumeActiveTrip`):
+   * una vez por sesión de la app y por usuario, así volver a Inicio desde el viaje no lo reabre.
+   */
+  activeTripResumeCheckedFor: string | null;
+  markActiveTripResumeChecked: (userId: string) => void;
 }
 
 export const useBootStore = create<BootState>((set, get) => ({
   initialRouteResolved: false,
   markInitialRouteResolved: () => {
     if (!get().initialRouteResolved) set({ initialRouteResolved: true });
+  },
+  activeTripResumeCheckedFor: null,
+  markActiveTripResumeChecked: (userId) => {
+    if (get().activeTripResumeCheckedFor !== userId) set({ activeTripResumeCheckedFor: userId });
   },
 }));

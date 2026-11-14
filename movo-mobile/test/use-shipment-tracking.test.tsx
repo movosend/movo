@@ -83,4 +83,51 @@ describe("useShipmentTracking", () => {
     expect(latest?.planned).toEqual([]);
     expect(latest?.data).toBeUndefined();
   });
+
+  // MOVO-359: la ruta del vehículo al retiro, antes del retiro.
+  describe("approach", () => {
+    const APPROACH = { polyline: "_p~iF~ps|U_ulLnnqC_mqNvxq`@", distanceMeters: 800, durationSeconds: 90 };
+
+    it("decodifica `approachRoute`", async () => {
+      mockGetTracking.mockResolvedValue({ ...tracking("live"), approachRoute: APPROACH });
+
+      await renderHarness();
+      await waitFor(() => expect(latest?.approach).toHaveLength(3));
+    });
+
+    it("sin `approachRoute` (en camino a la entrega) no hay tramo", async () => {
+      mockGetTracking.mockResolvedValue(tracking("live"));
+
+      await renderHarness();
+      await waitFor(() => expect(latest?.planned).toHaveLength(3));
+      expect(latest?.approach).toEqual([]);
+    });
+
+    it("si un pedido la trae null conserva la última, para que la línea no salte a la ruta entera", async () => {
+      mockGetTracking.mockResolvedValueOnce({ ...tracking("live"), approachRoute: APPROACH });
+      mockGetTracking.mockResolvedValue({ ...tracking("live"), approachRoute: null });
+
+      await renderHarness();
+      await waitFor(() => expect(latest?.approach).toHaveLength(3));
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(15_000);
+      });
+      expect(mockGetTracking).toHaveBeenCalledTimes(2);
+      expect(latest?.approach).toHaveLength(3);
+    });
+
+    // Review PR-340: ausente = el backend decidió no calcularla (se sumó otro retiro al viaje).
+    it("si un pedido la trae ausente no conserva la anterior: esa línea ya no es la que sigue el auto", async () => {
+      mockGetTracking.mockResolvedValueOnce({ ...tracking("live"), approachRoute: APPROACH });
+      mockGetTracking.mockResolvedValue(tracking("live"));
+
+      await renderHarness();
+      await waitFor(() => expect(latest?.approach).toHaveLength(3));
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(15_000);
+      });
+      expect(mockGetTracking).toHaveBeenCalledTimes(2);
+      expect(latest?.approach).toEqual([]);
+    });
+  });
 });

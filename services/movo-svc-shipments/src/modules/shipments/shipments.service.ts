@@ -367,6 +367,8 @@ export interface ActiveShipmentResult {
   isToday: boolean;
   pickupWindowExpired: boolean;
   tripId: string | null;
+  /** El viaje del transportista ya está en curso (`active`): en `assigned`, ya salió a retirar. */
+  tripStarted: boolean;
   /** MOVO-278 (DD-045): marca de `in_transit` demorado (MOVO-258 D4), `null` si no la tiene. */
   transitAnomalyFlaggedAt: Date | null;
   /** MOVO-37: modalidad de pago. */
@@ -3296,6 +3298,26 @@ export function createShipmentsService(
         );
       }
 
+      // Si el viaje del transportista ya arrancó (feedback de TestFlight: el receptor veía "todavía no salió" con el
+      // transportista yendo a retirar). Un lookup por viaje distinto; si falla, se informa como no iniciado.
+      const startedTripIds = new Set<string>();
+      const tripIds = new Set(Array.from(tripIdByShipmentId.values()).filter((id): id is string => id !== null));
+      if (tripRepository && tripIds.size > 0) {
+        await Promise.all(
+          Array.from(tripIds).map(async (tripId) => {
+            try {
+              const trip = await tripRepository.findById(tripId);
+              if (trip?.status === TripStatus.ACTIVE) startedTripIds.add(tripId);
+            } catch (err) {
+              logger?.warn(
+                { err, event: "active_shipment_trip_lookup_failed", tripId },
+                "No se pudo resolver el estado del viaje de un envío activo"
+              );
+            }
+          })
+        );
+      }
+
       const now = new Date();
       return shipments.map((shipment) => {
         // Garantizado por `ACTIVE_SHIPMENT_STATUSES` -- `repository.listActiveShipments`
@@ -3324,6 +3346,7 @@ export function createShipmentsService(
             now
           ),
           tripId: tripIdByShipmentId.get(shipment.id) ?? null,
+          tripStarted: startedTripIds.has(tripIdByShipmentId.get(shipment.id) ?? ""),
           transitAnomalyFlaggedAt: shipment.transitAnomalyFlaggedAt,
           paymentMethod: shipment.paymentMethod,
         };

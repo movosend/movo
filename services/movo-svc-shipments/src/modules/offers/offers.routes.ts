@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
-import { OfferStatus, decomposeOfferGrossPrice } from "@movo/shared";
+import { OfferStatus, ShipmentStatus, decomposeOfferGrossPrice } from "@movo/shared";
 import { createOffersService, PatchOfferInput } from "./offers.service";
 import { offersSchemas } from "./offers.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
@@ -9,6 +9,7 @@ import { PaymentsClient } from "../../adapters/payments-client";
 import { createAppPaymentsClient } from "../../adapters/simulated-payments-client";
 import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
+import { findUnresolvedDisputeSummaries } from "../../repositories/dispute-repository";
 import { createOfferRepository } from "../../repositories/offer-repository";
 import { createRatingRepository } from "../../repositories/rating-repository";
 import { createRatingsService } from "../ratings/ratings.service";
@@ -119,7 +120,21 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
       const carrierId = requireUserIdFromHeader(request);
       const { page, limit, status } = request.query as { page: number; limit: number; status?: OfferStatus };
       const result = await service.listMyOffers(carrierId, page, limit, status);
-      return { ...result, items: result.items.map(toMyOfferDto) };
+      // Solo las aceptadas: el motivo de una disputa es para el transportista del envío, no para quien ofertó y perdió.
+      const disputes = await findUnresolvedDisputeSummaries(
+        app.db,
+        result.items
+          .filter((o) => o.status === OfferStatus.ACCEPTED && o.shipment.status === ShipmentStatus.DISPUTED)
+          .map((o) => o.shipmentId),
+      );
+      return {
+        ...result,
+        items: result.items.map((o) => {
+          const dto = toMyOfferDto(o);
+          const dispute = o.status === OfferStatus.ACCEPTED ? disputes.get(o.shipmentId) : undefined;
+          return dispute ? { ...dto, shipment: { ...dto.shipment, dispute } } : dto;
+        }),
+      };
     }
   );
 

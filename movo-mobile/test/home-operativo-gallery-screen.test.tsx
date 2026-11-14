@@ -25,23 +25,21 @@ jest.mock("../src/hooks/use-shipments", () => ({
 // vale la pena cubrir con un smoke test — que las 3 piezas se vean con datos y que
 // desaparezcan (AC2, "sin envíos no se renderiza") al vaciar el fixture.
 describe("HomeOperativoGalleryScreen", () => {
-  it("con datos, muestra una card de cada sección y las tareas de atención", async () => {
+  it("con datos, muestra los envíos de los dos lados juntos y las tareas de atención", async () => {
     const { getByTestId, getByText } = await render(<HomeOperativoGalleryScreen />);
 
-    expect(getByTestId("dev-home-sending")).toBeTruthy();
-    expect(getByTestId("dev-home-receiving")).toBeTruthy();
+    expect(getByTestId("dev-home-shipments")).toBeTruthy();
     expect(getByTestId("dev-home-attention")).toBeTruthy();
     expect(getByText("Lucía Gómez retira con este código")).toBeTruthy();
     expect(getByText("Julia te quiere enviar un paquete")).toBeTruthy();
   });
 
-  it("al tocar 'Sin envíos activos', las 3 secciones dejan de renderizarse", async () => {
+  it("al tocar 'Sin envíos activos', los envíos y las tareas dejan de renderizarse", async () => {
     const { getByTestId, queryByTestId } = await render(<HomeOperativoGalleryScreen />);
 
     await fireEvent.press(getByTestId("dev-home-toggle-empty"));
 
-    expect(queryByTestId("dev-home-sending")).toBeNull();
-    expect(queryByTestId("dev-home-receiving")).toBeNull();
+    expect(queryByTestId("dev-home-shipments")).toBeNull();
     expect(queryByTestId("dev-home-attention")).toBeNull();
   });
 

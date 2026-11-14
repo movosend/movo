@@ -1,5 +1,7 @@
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
+import { ArrowRight, Map } from "lucide-react-native";
+import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { TripStatus, type TripWithAcceptedPackages } from "../../src/api/trips-client";
 import {
   formatDepartureDateOnly,
@@ -16,6 +18,8 @@ interface CarrierTripCtaProps {
   onStart?: (trip: TripWithAcceptedPackages) => void | Promise<void>;
   isStarting?: boolean;
   errorMessage?: string | null;
+  /** Pie de la tarjeta, debajo del botón (en Inicio, el aviso de ubicación compartida del viaje en curso). */
+  footer?: React.ReactNode;
   testID?: string;
 }
 
@@ -25,7 +29,7 @@ interface CarrierTripCtaProps {
  *
  * AC1: Cuando el viaje está `declared` con paquetes aceptados (`hasAcceptedPackages: true`),
  * muestra el CTA visible "Iniciar viaje" (h-[52px], bg-lime-500, font-sans-semibold, text-ink-950).
- * AC2/AC3: Al pasar a `active`, el botón se convierte en "Viaje en curso · ver mapa" (bg-fg, text-bg),
+ * AC2/AC3: Al pasar a `active`, el botón se convierte en "Ver mapa" (la pill "En curso" ya dice el estado) (bg-fg, text-bg),
  * que navega a la vista de mapa `/route?tripId=...`.
  * AC4/AC5/AC6: Muestra banner de error ante fallos de inicio (límite de 1 viaje activo, fecha futura, red).
  * AC8: Si no está en `declared` con paquetes aceptados ni en `active`, no se renderiza.
@@ -47,8 +51,10 @@ export function CarrierTripCta({
   onStart,
   isStarting = false,
   errorMessage,
+  footer,
   testID,
 }: CarrierTripCtaProps) {
+  const colors = useThemeColors();
   // AC8: Si es declared sin paquetes aceptados (o cancelado/completado), no renderiza CTA
   if (
     trip.status !== TripStatus.ACTIVE &&
@@ -152,15 +158,19 @@ export function CarrierTripCta({
               } as any)
             }
             accessibilityRole="button"
-            accessibilityLabel="Viaje en curso, ver mapa"
-            className="h-[52px] w-full items-center justify-center rounded-[8px] bg-fg active:opacity-90"
+            accessibilityLabel="Ver mapa del viaje en curso"
+            className="h-[52px] w-full flex-row items-center justify-between rounded-[8px] bg-fg px-4 active:opacity-90"
           >
-            <Text className="font-sans-semibold text-[15px] text-bg">
-              Viaje en curso · ver mapa
-            </Text>
+            {/* Ícono y flecha: se lee como una acción que lleva al mapa, no solo un rótulo. */}
+            <View className="flex-row items-center gap-2.5">
+              <Map size={18} color={colors.bg} strokeWidth={2} />
+              <Text className="font-sans-semibold text-[15px] text-bg">Ver mapa</Text>
+            </View>
+            <ArrowRight size={18} color={colors.bg} strokeWidth={2.2} />
           </Pressable>
         ) : null}
       </View>
+      {footer}
     </View>
   );
 }

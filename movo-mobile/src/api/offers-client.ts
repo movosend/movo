@@ -1,3 +1,4 @@
+import type { DisputeSummary } from "@movo/shared/dist/types/dispute";
 import type { OfferAcceptanceAssignment } from "@movo/shared/dist/types/funding";
 import type { OfferStatus } from "@movo/shared/dist/types/offer";
 import type { PackageType } from "../store/shipment-wizard-store";
@@ -105,6 +106,8 @@ export interface MyOfferShipmentContext {
   description: string | null;
   /** MOVO-37: con efectivo el desglose de la oferta cambia (cobro en mano, comisión como deuda). */
   paymentMethod?: ShipmentPaymentMethod;
+  /** Solo en una aceptada con el envío en disputa: motivo y quién la abrió. */
+  dispute?: DisputeSummary | null;
 }
 
 /**

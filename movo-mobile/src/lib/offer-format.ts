@@ -35,21 +35,64 @@ export function offerStatusLabel(status: OfferStatus): string {
  * en "Activas" como "Ya te aceptaron" (feedback de TestFlight, build 17). `null` mientras el envío
  * sigue en curso, o si la oferta no es `accepted`.
  */
-export type AcceptedOfferOutcome = "completed" | "cancelled";
+export type AcceptedOfferOutcome = "completed" | "cancelled" | "disputed";
 
 export function acceptedOfferOutcome(offer: Pick<MyOfferSummary, "status" | "shipment">): AcceptedOfferOutcome | null {
   if (offer.status !== OfferStatus.ACCEPTED) return null;
   const status = offer.shipment.status;
   if (status === ShipmentStatus.DELIVERED || status === ShipmentStatus.COMPLETED) return "completed";
   if (status === ShipmentStatus.CANCELLED) return "cancelled";
+  // Sin acción del transportista en la app y con el monto sujeto a la resolución: ni "Confirmado" ni "Seguí el retiro".
+  if (status === ShipmentStatus.DISPUTED) return "disputed";
   return null;
 }
 
-/** Chip de una oferta en "Mis ofertas": el estado de la oferta, o cómo terminó el envío si ya terminó. */
+/**
+ * En qué va el envío de una oferta aceptada que todavía no terminó: la oferta se queda en `accepted`, pero con el viaje
+ * en curso "Aceptada · Ya te aceptaron" no decía nada (feedback de TestFlight). `null` si la oferta no es `accepted`,
+ * si el envío ya terminó (`acceptedOfferOutcome`) o si está en un estado que no corresponde a una fase.
+ */
+export type AcceptedOfferPhase = "awaiting_payment" | "to_pickup" | "in_transit";
+
+export function acceptedOfferPhase(offer: Pick<MyOfferSummary, "status" | "shipment">): AcceptedOfferPhase | null {
+  if (offer.status !== OfferStatus.ACCEPTED) return null;
+  switch (offer.shipment.status) {
+    case ShipmentStatus.ASSIGNMENT_PENDING:
+    case ShipmentStatus.ASSIGNED_UNFUNDED:
+      return "awaiting_payment";
+    case ShipmentStatus.ASSIGNED:
+      return "to_pickup";
+    case ShipmentStatus.IN_TRANSIT:
+      return "in_transit";
+    default:
+      return null;
+  }
+}
+
+const ACCEPTED_PHASE_LABEL: Record<AcceptedOfferPhase, string> = {
+  awaiting_payment: "Aceptada",
+  to_pickup: "Por retirar",
+  in_transit: "En camino",
+};
+
+/** Aviso de una oferta aceptada según en qué va su envío ("Mis ofertas"). */
+export const ACCEPTED_PHASE_NOTICE: Record<AcceptedOfferPhase, string> = {
+  awaiting_payment: "Te aceptaron. Falta que el emisor reserve el pago.",
+  to_pickup: "Retirá el paquete: código y dirección en el detalle del envío.",
+  in_transit: "Ya lo retiraste. Falta entregarlo.",
+};
+
+/**
+ * Chip de una oferta en "Mis ofertas": cómo terminó el envío si ya terminó, en qué va si la aceptaron y sigue en
+ * curso, y si no, el estado de la oferta.
+ */
 export function myOfferStatusLabel(offer: Pick<MyOfferSummary, "status" | "shipment">): string {
   const outcome = acceptedOfferOutcome(offer);
   if (outcome === "completed") return "Completada";
   if (outcome === "cancelled") return "Cancelada";
+  if (outcome === "disputed") return "En disputa";
+  const phase = acceptedOfferPhase(offer);
+  if (phase) return ACCEPTED_PHASE_LABEL[phase];
   return offerStatusLabel(offer.status);
 }
 
@@ -59,6 +102,8 @@ export function myOfferAmountLabel(offer: Pick<MyOfferSummary, "status" | "shipm
   const outcome = acceptedOfferOutcome(offer);
   if (outcome === "completed") return cash ? "Cobraste en mano" : "Cobraste aprox.";
   if (outcome === "cancelled") return receivedAmountLabel(OfferStatus.SHIPMENT_CANCELLED, cash);
+  // Neutro: desde `completed` el cobro ya se acreditó (DD-054), así que no se puede decir que está pendiente.
+  if (outcome === "disputed") return "Monto en disputa";
   return receivedAmountLabel(offer.status, cash);
 }
 

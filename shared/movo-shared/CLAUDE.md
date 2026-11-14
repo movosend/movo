@@ -834,3 +834,15 @@ Los contratos de MOVO-345 (`AdminReportById` y los de cada pestaña), más `dist
 ### MOVO-354 — `RecentRatingComment.raterRole`
 
 `types/user-profile.ts`: `ShipmentPartyRole` (`sender`/`carrier`/`receiver`) y `RecentRatingComment.raterRole?: ShipmentPartyRole | null`, el rol de quien calificó en ese envío. Opcional para no romper literales armados a mano ni a un `svc-users` anterior. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+### MOVO-359 — `AdminShipmentTracking.approachRoute` (`types/admin-shipments.ts`)
+
+`approachRoute?: { polyline; distanceMeters; durationSeconds } | null`: la ruta por calle del transportista al punto de retiro, solo en `GET /shipments/:id/tracking` y solo para el emisor, con el envío `assigned`, el viaje iniciado y sin otro retiro pendiente en el viaje; `null` si corresponde pero no se pudo (proveedor caído o tope de llamadas sin ruta previa, sin posición reciente); ausente si no corresponde (panel, receptor, otro retiro pendiente, fuera de `assigned`). La diferencia la usa el móvil: conserva la última línea con `null`, no con el campo ausente. Opcional para no romper literales armados a mano ni la app contra un backend anterior. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### Feedback de TestFlight — `ActiveShipmentSummary.tripStarted`
+
+`tripStarted?: boolean` en `types/shipment.ts`: el viaje del transportista ya está en curso (en `assigned`, salió a retirar). Opcional para no romper literales armados a mano ni un backend anterior. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+
+### Feedback de TestFlight — `DisputeSummary`
+
+`DisputeSummary` (`types/dispute.ts`: `id`, `reason`, `openedByRole`, `openedAt`): la disputa sin resolver de un envío, para que las pantallas de la app que dicen "en disputa" expliquen por qué y quién la abrió. Sin la descripción libre (va en el expediente). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

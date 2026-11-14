@@ -10,8 +10,15 @@ import { SkeletonBlock } from "../../../../components/ui/skeleton-block";
 import type { MyOfferSummary } from "../../../../src/api/offers-client";
 import { useMyOffers } from "../../../../src/hooks/use-offers";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
-import { acceptedOfferOutcome, competitiveRankNotice, offerReceivedArs } from "../../../../src/lib/offer-format";
+import {
+  ACCEPTED_PHASE_NOTICE,
+  acceptedOfferOutcome,
+  acceptedOfferPhase,
+  competitiveRankNotice,
+  offerReceivedArs,
+} from "../../../../src/lib/offer-format";
 import { formatPriceArs } from "../../../../src/lib/shipment-format";
+import { disputeExplanation } from "../../../../src/lib/dispute-format";
 
 const CLOSED_STATUSES: readonly OfferStatus[] = [
   OfferStatus.REJECTED,
@@ -33,6 +40,9 @@ function byRecent(a: MyOfferSummary, b: MyOfferSummary): number {
  * MOVO-151: solo lo que necesita una acción del transportista se destaca). */
 function noticeFor(offer: MyOfferSummary): MyOfferCardNotice | null {
   if (offer.status === OfferStatus.ACCEPTED) {
+    // Según en qué va el envío, no solo "ya te aceptaron": con el viaje en curso, eso ya no decía nada.
+    const phase = acceptedOfferPhase(offer);
+    if (phase) return { text: ACCEPTED_PHASE_NOTICE[phase], tone: phase === "awaiting_payment" ? "warning" : "positive" };
     return { text: "Ya te aceptaron. Seguí el retiro desde el detalle del envío.", tone: "positive" };
   }
   if (offer.status === OfferStatus.PENDING) {
@@ -104,7 +114,7 @@ export default function MyOffersSummaryScreen() {
 
   const items = data?.items ?? [];
   const pending = items.filter((o) => o.status === OfferStatus.PENDING);
-  // Una aceptada cuyo envío ya terminó (entregado o cancelado) va a "Cerradas": la oferta no tiene un estado de
+  // Una aceptada cuyo envío ya terminó (entregado, cancelado o en disputa) va a "Cerradas": la oferta no tiene un estado de
   // cierre propio y seguía como "Ya te aceptaron" (feedback de TestFlight, build 17).
   const accepted = items.filter((o) => o.status === OfferStatus.ACCEPTED && acceptedOfferOutcome(o) === null);
   const closed = useMemo(() => {
@@ -125,19 +135,26 @@ export default function MyOffersSummaryScreen() {
   const acceptedTotal = accepted.reduce((sum, o) => sum + offerReceivedArs(o), 0);
 
   // Mismo criterio que el aviso de cada card: "requiere algo tuyo" = tiene aviso.
+  // Una aceptada que espera el pago del emisor no depende del transportista: va a "El resto", con su aviso.
   const attention = useMemo(
-    () => [...accepted, ...pending.filter((o) => noticeFor(o) !== null)].sort(byRecent),
+    () =>
+      [
+        ...accepted.filter((o) => acceptedOfferPhase(o) !== "awaiting_payment"),
+        ...pending.filter((o) => noticeFor(o) !== null),
+      ].sort(byRecent),
     [accepted, pending],
   );
   const attentionIds = useMemo(() => new Set(attention.map((o) => o.id)), [attention]);
   const rest = useMemo(
-    () => pending.filter((o) => !attentionIds.has(o.id)).sort(byRecent),
-    [pending, attentionIds],
+    () => [...accepted, ...pending].filter((o) => !attentionIds.has(o.id)).sort(byRecent),
+    [accepted, pending, attentionIds],
   );
 
   function goToOffer(offer: MyOfferSummary) {
     if (offer.status === OfferStatus.ACCEPTED) {
-      router.push(`/transport/${offer.shipmentId}`);
+      // Directo al detalle del envío: `/transport/:id` es la pantalla para evaluar y ofertar, y con la oferta aceptada
+      // solo llevaba a este mismo detalle con un paso de más (feedback de TestFlight).
+      router.push(`/shipments/${offer.shipmentId}`);
     } else {
       router.push(`/carrier/offers/${offer.id}`);
     }
@@ -269,6 +286,9 @@ export default function MyOffersSummaryScreen() {
                         key={offer.id}
                         testID={`my-offers-active-${offer.id}`}
                         offer={offer}
+                        // Solo las aceptadas esperando el pago traen aviso acá; no se destacan, no dependen de vos.
+                        notice={noticeFor(offer)}
+                        emphasized={false}
                         onPress={() => goToOffer(offer)}
                       />
                     ))}
@@ -296,6 +316,13 @@ export default function MyOffersSummaryScreen() {
                   key={offer.id}
                   testID={`my-offers-closed-${offer.id}`}
                   offer={offer}
+                  // En disputa, el por qué: sin eso la card solo decía "En disputa".
+                  notice={
+                    acceptedOfferOutcome(offer) === "disputed" && offer.shipment.dispute
+                      ? { text: disputeExplanation(offer.shipment.dispute, "carrier"), tone: "warning" }
+                      : undefined
+                  }
+                  emphasized={false}
                   showSentAgo
                   onPress={() => goToOffer(offer)}
                 />

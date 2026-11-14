@@ -164,12 +164,26 @@ describe("OfflineQueueStorage (MOVO-242 / AC9)", () => {
     );
 
     const loaded = await storage.loadTrackingContext();
-    expect(loaded).toEqual(contextData);
+    expect(loaded).toEqual({ status: "found", context: contextData });
 
     await storage.clearTrackingContext();
     expect(mockDeleteAsync).toHaveBeenCalledWith(
       "file:///mock/data/movo_carrier_tracking_context.json",
       { idempotent: true }
     );
+  });
+
+  it("distingue un contexto que no existe de uno que no se pudo leer", async () => {
+    const storage = createStorage();
+
+    mockGetInfoAsync.mockResolvedValue({ exists: false });
+    expect(await storage.loadTrackingContext()).toEqual({ status: "missing" });
+
+    mockGetInfoAsync.mockResolvedValue({ exists: true });
+    mockReadAsStringAsync.mockResolvedValue('{"tripId":"trip-1","shipm');
+    expect(await storage.loadTrackingContext()).toEqual({ status: "unreadable" });
+
+    mockReadAsStringAsync.mockRejectedValue(new Error("EIO"));
+    expect(await storage.loadTrackingContext()).toEqual({ status: "unreadable" });
   });
 });

@@ -2,6 +2,7 @@ import { ArrowRight, ChevronRight, Clock } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
 import { Text, View } from "react-native";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import { disputeExplanation } from "../../src/lib/dispute-format";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { packageTypeIcon } from "../send/category-grid";
 import type { PackageType } from "../../src/store/shipment-wizard-store";
@@ -21,6 +22,9 @@ import { PressableScale } from "./pressable-scale";
 function packageStatus(status: ShipmentStatus, dark: boolean): { label: string; bg: string; fg: string } {
   if (status === ShipmentStatus.ASSIGNED) {
     return { label: "Por retirar", bg: "rgba(245,185,58,0.2)", fg: dark ? "#F5B93A" : "#7A5200" };
+  }
+  if (status === ShipmentStatus.DISPUTED) {
+    return { label: "En disputa", bg: "rgba(245,185,58,0.2)", fg: dark ? "#F5B93A" : "#7A5200" };
   }
   if (status === ShipmentStatus.IN_TRANSIT) {
     return dark
@@ -106,6 +110,11 @@ export function TripPackageRow({
           {formatPriceArs(pkg.agreedPriceArs)}
         </Text>
       </View>
+      {pkg.dispute ? (
+        <Text testID={testID ? `${testID}-dispute` : undefined} className="font-sans text-[13px] leading-[18px] text-warning-700">
+          {disputeExplanation(pkg.dispute, "carrier")}
+        </Text>
+      ) : null}
     </PressableScale>
   );
 }
