@@ -69,11 +69,17 @@ describe("reporte de Finanzas (Postgres) — MOVO-35", () => {
     });
   }
 
-  async function ledger(userId: string, amountArs: number, createdAt: Date, status: "pending" | "reserved" | "settled" | "voided" = "pending") {
+  async function ledger(
+    userId: string,
+    amountArs: number,
+    createdAt: Date,
+    status: "pending" | "reserved" | "settled" | "voided" = "pending",
+    type: "cash_commission" | "voluntary_payment" | "cancellation_compensation" | "manual_adjustment" = amountArs > 0 ? "cash_commission" : "voluntary_payment",
+  ) {
     return app.db.userLedgerEntry.create({
       data: {
         userId,
-        type: amountArs > 0 ? "cash_commission" : "voluntary_payment",
+        type,
         amountArs,
         status,
         idempotencyKey: randomUUID(),
@@ -89,8 +95,10 @@ describe("reporte de Finanzas (Postgres) — MOVO-35", () => {
     return response.json();
   }
 
-  it("suma solo lo que MP confirmó y cuenta aparte lo pendiente y lo escalado", async () => {
+  it("suma solo lo que MP confirmó y cuenta aparte lo pendiente y lo escalado, de cualquier fecha", async () => {
     await settlement({ status: "credited", createdAt: noon("2026-10-01") });
+    // Trabada desde antes del rango: sigue fuera de los totales, así que tiene que estar en el aviso.
+    await settlement({ status: "processing", createdAt: noon("2026-09-01") });
     await settlement({ status: "credited", createdAt: noon("2026-09-30") });
     await settlement({ status: "processing", createdAt: noon("2026-10-02") });
     await settlement({ status: "escalated", createdAt: noon("2026-10-02"), gross: 2000 });
@@ -103,12 +111,12 @@ describe("reporte de Finanzas (Postgres) — MOVO-35", () => {
     expect(report.kpis.commission.value).toBe(150);
     expect(report.kpis.mpFee.value).toBe(50);
     expect(report.kpis.carrierNet.value).toBe(800);
-    expect(report.pendingConfirmation).toEqual({ count: 1, amountArs: 1150 });
+    expect(report.pendingConfirmation).toEqual({ count: 2, amountArs: 2300 });
     expect(report.escalated).toEqual({ count: 1, amountArs: 2000 });
     expect(report.series.collected.map((point) => point.value)).toEqual([1150, 0]);
   });
 
-  it("desglosa lo cobrado por tipo de captura y suma los reembolsos terminados", async () => {
+  it("desglosa lo cobrado por tipo de captura; reembolsado es solo lo que MP devolvió", async () => {
     const delivered = await settlement({ status: "credited", createdAt: noon("2026-10-01") });
     await settlement({ status: "credited", createdAt: noon("2026-10-01"), kind: "cancellation_penalty", gross: 300, surcharge: 0 });
     const refund = (amountArs: number, status: "succeeded" | "fallback_to_ledger" | "failed", attempt: number) =>
@@ -136,24 +144,28 @@ describe("reporte de Finanzas (Postgres) — MOVO-35", () => {
 
     const report = await get();
     const kinds = report.breakdowns.find((row) => row.dimension === "kind")?.rows ?? [];
-    const refunds = report.breakdowns.find((row) => row.dimension === "refundStatus")?.rows ?? [];
 
     expect(kinds.map((row) => [row.key, row.value])).toEqual([
       ["delivery", 1150],
       ["cancellation_penalty", 300],
       ["dispute_partial", 0],
     ]);
-    expect(report.kpis.refunded.value).toBe(300);
-    expect(refunds.map((row) => [row.key, row.value])).toEqual([
-      ["succeeded", 200],
-      ["fallback_to_ledger", 100],
-    ]);
+    // El `fallback_to_ledger` no le devolvió nada al emisor: va aparte, no como reembolsado.
+    expect(report.kpis.refunded.value).toBe(200);
+    expect(report.refundsToLedger).toEqual({ count: 1, amountArs: 100 });
+    expect(report.breakdowns.map((row) => row.dimension)).toEqual(["kind", "ledgerType"]);
 
     const rows = await app.inject({ method: "GET", url: `/internal/payments/admin/reports/finance/rows?from=${FROM}&to=${TO}&limit=1` });
     const body: FinanceReportRowsResponse = rows.json();
     expect(body.truncated).toBe(true);
     expect(body.items).toHaveLength(1);
     expect(Object.keys(body.items[0] ?? {})).not.toContain("carrierId");
+
+    const all: FinanceReportRowsResponse = (
+      await app.inject({ method: "GET", url: `/internal/payments/admin/reports/finance/rows?from=${FROM}&to=${TO}&limit=10` })
+    ).json();
+    const refundedRow = all.items.find((item) => item.settlementId === delivered.id);
+    expect(refundedRow).toMatchObject({ refundedArs: 200, refundedToLedgerArs: 100 });
   });
 
   it("lee la deuda abierta al cierre de cada período, como el saldo de la cuenta corriente", async () => {
@@ -165,13 +177,20 @@ describe("reporte de Finanzas (Postgres) — MOVO-35", () => {
     await ledger(debtor, -300, noon("2026-10-01"), "reserved");
     await ledger(debtor, 1000, noon("2026-10-01"), "voided");
     await ledger(creditor, -150, noon("2026-10-02"), "settled");
+    // Debía 100 al cierre del período anterior y pagó de más: termina con saldo a favor.
+    const flipped = randomUUID();
+    await ledger(flipped, 100, noon("2026-09-30"));
+    await ledger(flipped, -250, noon("2026-10-02"), "settled");
+    // Créditos que da Movo: bajan el saldo, pero nadie pagó deuda.
+    await ledger(randomUUID(), -3000, noon("2026-10-01"), "settled", "cancellation_compensation");
+    await ledger(randomUUID(), -400, noon("2026-10-02"), "settled", "manual_adjustment");
 
     const report = await get();
 
-    expect(report.kpis.openDebt).toEqual({ value: 300, previous: 500 });
+    expect(report.kpis.openDebt).toEqual({ value: 300, previous: 600 });
     expect(report.kpis.debtGenerated.value).toBe(0);
-    expect(report.kpis.debtCollected.value).toBe(350);
-    expect(report.series.openDebt.map((point) => point.value)).toEqual([300, 300]);
-    expect(report.debt).toEqual({ debtorUsers: 1, creditUsers: 1, creditArs: 150 });
+    expect(report.kpis.debtCollected.value).toBe(600);
+    expect(report.series.openDebt.map((point) => point.value)).toEqual([400, 300]);
+    expect(report.debt).toEqual({ debtorUsers: 1, creditUsers: 4, creditArs: 3700 });
   });
 });
