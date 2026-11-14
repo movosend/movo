@@ -668,9 +668,10 @@ export interface OperationsReport extends Report<OperationsKpi> {
  * Desde `svc-payments`, sin cruzar con envíos. Las cinco primeras van por fecha de acreditación y solo con la captura
  * confirmada por MP (`mpFeeArs` y `netAmountArs` ya no son `null`); lo que no se confirmó va en `pendingConfirmation`,
  * no como cero. `collected` es lo que pagó el emisor (incluye el recargo por deuda de MOVO-311) y `shipmentPrice` lo
- * mismo sin ese recargo. `refunded`: reembolsos terminados (a MP o a la cuenta corriente). `debtGenerated` y
- * `debtCollected`: movimientos de la cuenta corriente creados en el período, positivos y negativos. `openDebt`: lo que
- * deben los usuarios con saldo deudor al cierre del período.
+ * mismo sin ese recargo. `refunded`: reembolsos que MP le devolvió al emisor; los que cayeron a la cuenta corriente
+ * del transportista van en `refundsToLedger`. `debtGenerated`: movimientos positivos de la cuenta corriente creados en
+ * el período. `debtCollected`: pagos y descuentos sobre cobros que bajaron una deuda, sin los créditos que da Movo
+ * (compensaciones, ajustes a favor). `openDebt`: lo que deben los usuarios con saldo deudor al cierre del período.
  */
 export const FINANCE_KPIS = [
   "collected",
@@ -699,10 +700,15 @@ export interface FinanceDebtSnapshot {
 }
 
 export interface FinanceReport extends Report<FinanceKpi> {
-  /** Creadas en el rango y todavía `processing`: MP no confirmó la captura. */
+  /** Todas las liquidaciones todavía `processing`, cualquiera sea su fecha: MP no confirmó la captura. */
   pendingConfirmation: FinanceAmount;
-  /** Creadas en el rango y pasadas a proceso manual (`escalated`). */
+  /** Todas las liquidaciones en proceso manual (`escalated`), cualquiera sea su fecha. */
   escalated: FinanceAmount;
+  /**
+   * Reembolsos terminados en el rango como `fallback_to_ledger`: el transportista no tenía saldo, el monto se anotó
+   * como su deuda (y entra en `debtGenerated`) y la devolución al emisor queda a mano (DD-056). No son `refunded`.
+   */
+  refundsToLedger: FinanceAmount;
   debt: FinanceDebtSnapshot;
 }
 
@@ -719,7 +725,10 @@ export interface FinanceReportRow {
   commissionArs: number;
   mpFeeArs: number | null;
   netArs: number | null;
+  /** Reembolsado al emisor por MP. */
   refundedArs: number;
+  /** Reembolso que cayó a la cuenta corriente del transportista: el emisor todavía no lo recibió. */
+  refundedToLedgerArs: number;
 }
 
 export interface FinanceReportRowsResponse {
@@ -777,7 +786,7 @@ const REPORT_BREAKDOWNS: Readonly<Record<AdminReportId, readonly string[]>> = {
   support: ["topic"],
   disputes: DISPUTES_REPORT_BREAKDOWNS,
   operations: ["cancelCause", "city"],
-  finance: ["kind", "refundStatus", "ledgerType"],
+  finance: ["kind", "ledgerType"],
 };
 const REPORT_EXTRA_SECTIONS: Readonly<Record<AdminReportId, readonly AdminReportExportSection[]>> = {
   cashflow: [],
@@ -818,11 +827,17 @@ export function reportMedian(values: readonly number[]): number | null {
 /** Porcentaje de 0 a 100; `null` si no hay denominador. */
 export const reportRate = (part: number, total: number): number | null => (total === 0 ? null : reportRound((part / total) * 100));
 
+/** Instantes de un rango de días de Argentina, para SQL: `>= start` y `< end`. La única copia de los límites. */
+export function reportRangeBounds(range: ReportRange): { start: Date; end: Date } {
+  return { start: argentinaDayBounds(range.from).start, end: argentinaDayBounds(range.to).end };
+}
+
 /** Si un instante cae dentro de un rango de días de Argentina. */
 export function isInReportRange(instant: string | null, range: ReportRange): boolean {
   if (!instant) return false;
   const at = Date.parse(instant);
-  return at >= argentinaDayBounds(range.from).start.getTime() && at < argentinaDayBounds(range.to).end.getTime();
+  const { start, end } = reportRangeBounds(range);
+  return at >= start.getTime() && at < end.getTime();
 }
 
 /** KPIs y series de un reporte a partir de una sola función: un total y sus buckets no pueden medir distinto. */

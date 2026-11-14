@@ -541,6 +541,7 @@ export {
   reportMedian,
   reportRate,
   isInReportRange,
+  reportRangeBounds,
   buildReportBody,
 } from "./types/admin-reports";
 export type {
