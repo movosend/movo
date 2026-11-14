@@ -1,9 +1,10 @@
 @startuml arq-contexto
 ' Vista de contexto (C4 nivel 1): Movo, sus usuarios y los sistemas externos.
+' De arriba hacia abajo: actores -> clientes de Movo -> backend -> sistemas externos.
 skinparam linetype ortho
-skinparam nodesep 50
-skinparam ranksep 60
-left to right direction
+skinparam nodesep 40
+skinparam ranksep 55
+top to bottom direction
 
 actor "Emisor" as E
 actor "Transportista" as T
@@ -16,14 +17,17 @@ rectangle "Movo" <<movo>> as MOVO {
   rectangle "Backend\n(API Gateway + microservicios)" as BE
 }
 
-rectangle "Didit.me\n(verificación de identidad)" <<externo>> as DIDIT
-rectangle "Mercado Pago\n(pagos, split y OAuth)" <<externo>> as MP
-rectangle "Google Maps Platform\n(Routes, Geocoding, Places)" <<externo>> as GM
-rectangle "Twilio\n(SMS)" <<externo>> as TW
-rectangle "Resend\n(email)" <<externo>> as RS
-rectangle "Expo Push\n(notificaciones)" <<externo>> as EX
-rectangle "Amazon S3\n(imágenes)" <<externo>> as S3
 rectangle "ArcGIS (Esri)\n(mapa del panel)" <<externo>> as ESRI
+
+rectangle "Servicios externos que consume el backend (HTTPS)" as EXT {
+  rectangle "Didit.me\n(verificación de identidad)" <<externo>> as DIDIT
+  rectangle "Mercado Pago\n(pagos, split y OAuth)" <<externo>> as MP
+  rectangle "Google Maps Platform\n(Routes, Geocoding, Places)" <<externo>> as GM
+  rectangle "Amazon S3\n(imágenes)" <<externo>> as S3
+  rectangle "Twilio\n(SMS)" <<externo>> as TW
+  rectangle "Resend\n(email)" <<externo>> as RS
+  rectangle "Expo Push\n(notificaciones)" <<externo>> as EX
+}
 
 E --> APP
 T --> APP
@@ -31,12 +35,17 @@ R --> APP
 A --> ADMIN
 APP --> BE : HTTPS + WebSocket
 ADMIN --> BE : HTTPS
-BE --> DIDIT
-BE --> MP
-BE --> GM
-BE --> TW
-BE --> RS
-BE --> EX
-BE --> S3
 ADMIN --> ESRI : teselas
+BE --> EXT
+
+' Grilla de externos: 4 arriba, 3 abajo, alineados por columna.
+DIDIT -[hidden]right- MP
+MP -[hidden]right- GM
+GM -[hidden]right- S3
+DIDIT -[hidden]down- TW
+MP -[hidden]down- RS
+GM -[hidden]down- EX
+' Ancla el bloque bajo el backend.
+BE -[hidden]down- MP
+BE -[hidden]down- GM
 @enduml
