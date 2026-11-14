@@ -68,6 +68,19 @@ export interface DisputeStatement {
 }
 
 /**
+ * Resumen de la disputa sin resolver de un envío (`open` o `resolving`), para que las pantallas que muestran
+ * "en disputa" digan por qué y quién la abrió. Sin la descripción libre: va en el expediente (`GET /disputes/:id`).
+ */
+export interface DisputeSummary {
+  id: string;
+  reason: DisputeReason;
+  /** `null`: la abrió el sistema (barrido de `transit_anomaly`/`pickup_no_show`). */
+  openedByRole: DisputePartyRole | null;
+  /** ISO date. */
+  openedAt: string;
+}
+
+/**
  * Expediente de una disputa para las partes (`GET /disputes/:id`, respuesta de la apertura).
  * Nunca incluye notas internas del admin.
  */

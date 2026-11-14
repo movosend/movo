@@ -45,6 +45,13 @@ const ratingResponse = {
   },
 };
 
+// Lectura interna del perfil: suma el rol de quien calificó en ese envío (`null` si el envío ya no lo ubica).
+const recentRatingResponse = {
+  ...ratingResponse,
+  required: [...ratingResponse.required, "raterRole"],
+  properties: { ...ratingResponse.properties, raterRole: { type: ["string", "null"], enum: [...RATING_ROLE_VALUES, null] } },
+};
+
 // MOVO-170: subconjunto de estadísticas de uso calculable con datos ya persistidos,
 // agregado por rol -- ver shipment-repository.ts#getUsageStatsByRole.
 const usageStats = {
@@ -194,9 +201,9 @@ export const ratingsSchemas = {
     type: "object",
     required: ["all", "asSender", "asCarrier"],
     properties: {
-      all: { type: "array", items: ratingResponse },
-      asSender: { type: "array", items: ratingResponse },
-      asCarrier: { type: "array", items: ratingResponse },
+      all: { type: "array", items: recentRatingResponse },
+      asSender: { type: "array", items: recentRatingResponse },
+      asCarrier: { type: "array", items: recentRatingResponse },
     },
   },
 
@@ -205,7 +212,7 @@ export const ratingsSchemas = {
     type: "object",
     required: ["items", "nextCursor"],
     properties: {
-      items: { type: "array", items: ratingResponse },
+      items: { type: "array", items: recentRatingResponse },
       nextCursor: { type: ["string", "null"] },
     },
   },

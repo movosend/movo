@@ -14,7 +14,8 @@ import { formatTimeOfDay, formatTimeRange } from "./time-format";
 export type ActiveShipmentRole = "sending" | "receiving";
 
 const ACTIVE_STATUS_LABEL: Record<Exclude<ActiveShipmentSummary["status"], "assigned_unfunded">, string> = {
-  assigned: "Asignado",
+  // "Por retirar", no "Asignado" (jerga del sistema): el mismo chip que ve el transportista en "Mis ofertas".
+  assigned: "Por retirar",
   in_transit: "En camino",
 };
 
@@ -162,7 +163,9 @@ export function activeShipmentInfoText(
       : "Pendiente de que se reserven los fondos.";
   }
   if (role === "sending" && shipment.status === "in_transit") return "En camino a destino.";
-  if (role === "receiving" && shipment.status === "assigned") return "Todavía no salió a entregar.";
+  if (role === "receiving" && shipment.status === "assigned") {
+    return shipment.tripStarted ? "Ya salió a retirar el paquete." : "Todavía no salió a entregar.";
+  }
   return "";
 }
 
@@ -177,10 +180,13 @@ export function activeShipmentFooterText(
   const name = shipment.counterparty.name;
   if (isTransitDelayed(shipment)) return TRANSIT_DELAYED_INFO_TEXT;
   if (shipment.status === "assigned_unfunded") return activeShipmentInfoText(role, shipment);
+  // Con el viaje del transportista en curso ya salió a retirar: "todavía no salió" era falso (feedback de TestFlight).
   if (role === "sending") {
-    return shipment.status === "assigned" ? `${name} retira con este código` : `${name} lo lleva`;
+    if (shipment.status !== "assigned") return `${name} lo lleva`;
+    return shipment.tripStarted ? `${name} ya salió a retirar` : `${name} retira con este código`;
   }
-  return shipment.status === "assigned" ? `${name} todavía no salió` : `${name} te lo trae`;
+  if (shipment.status !== "assigned") return `${name} te lo trae`;
+  return shipment.tripStarted ? `${name} ya salió a retirar` : `${name} todavía no salió`;
 }
 
 /**
@@ -262,4 +268,53 @@ export const ACTIVE_SHIPMENT_STEPS = ["Retiro", "En camino", "Llegando", "Entreg
  */
 export function activeShipmentStepIndex(status: ActiveShipmentSummary["status"]): number {
   return status === "in_transit" ? 1 : 0;
+}
+
+/** Un envío activo con el lado desde el que lo ve el usuario. */
+export interface ActiveShipmentItem {
+  shipment: ActiveShipmentSummary;
+  role: ActiveShipmentRole;
+}
+
+/** "Enviás" / "Recibís": de qué lado está el usuario, en la sección única de Inicio. */
+export const ACTIVE_SHIPMENT_ROLE_LABEL: Record<ActiveShipmentRole, string> = {
+  sending: "Enviás",
+  receiving: "Recibís",
+};
+
+/**
+ * Urgencia de un envío en "Envíos en curso" (menor = antes): lo que pide acción hoy o venció su ventana, lo que pide
+ * acción, lo que está en camino, lo asignado sin nada que hacer y lo que espera el pago.
+ */
+function activeShipmentUrgency({ shipment, role }: ActiveShipmentItem): number {
+  const cta = activeShipmentCta(role, shipment);
+  const needsAction = cta !== null && cta.variant !== "secondary";
+  if (shipment.pickupWindowExpired || (needsAction && shipment.isToday)) return 0;
+  if (needsAction) return 1;
+  if (shipment.status === "in_transit") return 2;
+  if (shipment.status === "assigned") return 3;
+  return 4;
+}
+
+/**
+ * Los envíos que mandás y los que recibís en una sola lista (feedback: dos secciones con su carrusel empujaban el resto
+ * de Inicio), ordenada por urgencia y, a igual urgencia, por fecha de retiro.
+ */
+export function mergeActiveShipments(
+  sending: ActiveShipmentSummary[],
+  receiving: ActiveShipmentSummary[],
+): ActiveShipmentItem[] {
+  const items: ActiveShipmentItem[] = [
+    ...sending.map((shipment) => ({ shipment, role: "sending" as const })),
+    ...receiving.map((shipment) => ({ shipment, role: "receiving" as const })),
+  ];
+  return items
+    .map((item, index) => ({ item, index, urgency: activeShipmentUrgency(item) }))
+    .sort(
+      (a, b) =>
+        a.urgency - b.urgency ||
+        (a.item.shipment.pickupDate ?? "").localeCompare(b.item.shipment.pickupDate ?? "") ||
+        a.index - b.index,
+    )
+    .map(({ item }) => item);
 }

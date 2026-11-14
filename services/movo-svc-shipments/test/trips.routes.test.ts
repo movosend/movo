@@ -31,6 +31,7 @@ function mockTrip(overrides: Record<string, any> = {}) {
     hasAcceptedPackages: false,
     acceptedPackagesCount: 0,
     executablePackagesCount: 0,
+    disputedPackagesCount: 0,
     ...overrides,
   };
 }

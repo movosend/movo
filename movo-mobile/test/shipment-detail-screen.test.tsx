@@ -1,3 +1,4 @@
+import type { ReactElement } from "react";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
@@ -50,6 +51,8 @@ jest.mock("@react-native-menu/menu", () => {
   };
 });
 
+const mockRouterSetParams = jest.fn();
+const mockSearchParams = jest.fn((): { id: string; map?: string; tab?: string } => ({ id: "shipment-1" }));
 jest.mock("expo-router", () => ({
   router: {
     replace: (...args: unknown[]) => mockRouterReplace(...args),
@@ -57,8 +60,9 @@ jest.mock("expo-router", () => ({
     push: (...args: unknown[]) => mockRouterPush(...args),
     dismissTo: (...args: unknown[]) => mockRouterDismissTo(...args),
     canGoBack: () => mockCanGoBack(),
+    setParams: (...args: unknown[]) => mockRouterSetParams(...args),
   },
-  useLocalSearchParams: () => ({ id: "shipment-1" }),
+  useLocalSearchParams: () => mockSearchParams(),
   useIsFocused: () => true,
   useFocusEffect: (cb: () => void) => {
     const React = require("react");
@@ -113,12 +117,16 @@ jest.mock("../src/hooks/use-offers", () => ({
 }));
 
 // MOVO-346 (puntos 12 y 18): el mapa de la ruta suma al transportista en vivo y su recorrido.
-const mockLivePosition = jest.fn(() => ({ position: null as { lat: number; lng: number; capturedAt: string } | null, isStale: false }));
+const mockLivePosition = jest.fn(() => ({
+  position: null as { lat: number; lng: number; capturedAt: string } | null,
+  isStale: false,
+  isLoadingInitial: false,
+}));
 jest.mock("../src/hooks/use-live-position", () => ({
   useLivePosition: (...args: unknown[]) => mockLivePosition(...(args as [])),
 }));
 jest.mock("../src/hooks/use-shipment-tracking", () => ({
-  useShipmentTracking: () => ({ data: undefined, trace: [], planned: [] }),
+  useShipmentTracking: () => ({ data: undefined, trace: [], planned: [], approach: [], refetch: jest.fn() }),
 }));
 
 const mockRefetchRatings = jest.fn();
@@ -341,6 +349,43 @@ describe("ShipmentDetailScreen", () => {
 
       expect(getByTestId("shipment-detail-status-badge")).toHaveTextContent("En camino");
       expect(queryByTestId("shipment-detail-delayed-banner")).toBeNull();
+    });
+  });
+
+  describe("envío en disputa", () => {
+    it("el banner dice quién la abrió y por qué", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-1" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: "carrier-1",
+          status: ShipmentStatus.DISPUTED,
+          dispute: { id: "d1", reason: "transit_anomaly" as never, openedByRole: null, openedAt: "2026-11-11T22:00:00.000Z" },
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-dispute-banner")).toHaveTextContent(
+        /La abrió Movo porque el envío quedó en camino más tiempo del esperado\./,
+      );
+    });
+
+    it("al transportista no le promete el cobro: dice 'Monto en disputa'", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "carrier-1" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: "carrier-1", status: ShipmentStatus.DISPUTED, agreedPriceArs: 1860 }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      const { getByText, queryByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByText("Monto en disputa")).toBeTruthy();
+      expect(queryByText(/^Recibís/)).toBeNull();
     });
   });
 
@@ -832,6 +877,22 @@ describe("ShipmentDetailScreen", () => {
 
     expect(getByTestId("shipment-detail-timeline")).toBeTruthy();
     expect(queryByTestId("shipment-detail-route-map")).toBeNull();
+  });
+
+  it("con tab=timeline (desde la hoja de un estado del chat) abre directo en la línea de tiempo", async () => {
+    mockSearchParams.mockReturnValue({ id: "shipment-1", tab: "timeline" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment(),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-timeline")).toBeTruthy();
+    mockSearchParams.mockReturnValue({ id: "shipment-1" });
   });
 
   it("muestra el banner de ofertas (siempre vacío, MOVO-17 sin arrancar) solo mientras el envío sigue abierto", async () => {
@@ -1862,8 +1923,14 @@ describe("ShipmentDetailScreen — seguimiento en vivo (MOVO-271 AC3/AC5)", () =
   beforeEach(() => {
     mockCanGoBack.mockReturnValue(true);
     mockCurrentUser.mockReturnValue({ userId: "user-1" });
+    // `clearAllMocks` no limpia los `mockReturnValue` de un test anterior.
+    mockLivePosition.mockReturnValue({ position: null, isStale: false, isLoadingInitial: false });
+    mockSearchParams.mockReturnValue({ id: "shipment-1" });
   });
-  afterEach(() => jest.clearAllMocks());
+  afterEach(() => {
+    jest.clearAllMocks();
+    mockSearchParams.mockReturnValue({ id: "shipment-1" });
+  });
 
   function mockShipment(overrides: Partial<ShipmentSummary>) {
     mockUseShipment.mockReturnValue({
@@ -1875,27 +1942,101 @@ describe("ShipmentDetailScreen — seguimiento en vivo (MOVO-271 AC3/AC5)", () =
     });
   }
 
+  type MapProps = {
+    live: { viewer?: string } | null;
+    notice: { title: string; tone: string } | null;
+    openFullscreenOnMount: boolean;
+    onOpenedFullscreenOnMount: () => void;
+    renderFullscreenSheet?: (ctx: {
+      close: (then?: () => void) => void;
+      estimate: { kind: "unknown" };
+      onHeightChange: (h: number) => void;
+    }) => ReactElement;
+  };
+  const lastMapProps = () => mockRouteMapCard.mock.calls.at(-1)?.[0] as MapProps;
+
   it.each([ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.ASSIGNED])(
-    "antes del retiro (%s) muestra el placeholder y no navega",
+    "MOVO-361 AC7: antes del recorrido (%s) el aviso va dentro del mapa, sin franja aparte",
     async (status) => {
       mockShipment({ carrierId: "carrier-1", status });
 
-      const { getByTestId, queryByTestId, getByText } = await render(<ShipmentDetailScreen />);
+      const { queryByTestId } = await render(<ShipmentDetailScreen />);
 
-      expect(getByTestId("shipment-detail-live-tracking-pending")).toBeTruthy();
+      expect(lastMapProps().notice).toEqual(expect.objectContaining({ title: "Seguimiento en vivo", tone: "neutral" }));
       expect(queryByTestId("shipment-detail-live-tracking")).toBeNull();
-      expect(getByText("Se activa al iniciar el recorrido")).toBeTruthy();
+      expect(queryByTestId("shipment-detail-live-tracking-pending")).toBeNull();
     },
   );
 
-  it("en tránsito habilita la card y navega al mapa", async () => {
+  it("MOVO-361 AC3: en tránsito no hay tarjeta 'En vivo': el mapa trae el sheet a pantalla completa", async () => {
+    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.IN_TRANSIT });
+    mockLivePosition.mockReturnValue({
+      position: { lat: -31.41, lng: -64.18, capturedAt: "2026-10-25T22:00:00Z" },
+      isStale: false,
+      isLoadingInitial: false,
+    });
+
+    const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-live-tracking")).toBeNull();
+    const props = lastMapProps();
+    expect(props.notice).toBeNull();
+    expect(props.openFullscreenOnMount).toBe(false);
+    expect(props.renderFullscreenSheet).toEqual(expect.any(Function));
+  });
+
+  it("MOVO-361 AC2: el Chat del sheet cierra la pantalla completa antes de navegar", async () => {
+    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.IN_TRANSIT });
+    await render(<ShipmentDetailScreen />);
+    const close = jest.fn((then?: () => void) => then?.());
+
+    const sheet = await render(
+      lastMapProps().renderFullscreenSheet!({ close, estimate: { kind: "unknown" }, onHeightChange: jest.fn() }),
+    );
+    await fireEvent.press(sheet.getByTestId("shipment-detail-live-sheet-chat"));
+
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(mockRouterPush).toHaveBeenCalledWith("/(app)/shipments/shipment-1/chat");
+  });
+
+  it("MOVO-361 AC7: en tránsito sin ubicación, el aviso va en el mapa", async () => {
     mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.IN_TRANSIT });
 
-    const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+    await render(<ShipmentDetailScreen />);
 
-    expect(queryByTestId("shipment-detail-live-tracking-pending")).toBeNull();
-    await fireEvent.press(getByTestId("shipment-detail-live-tracking"));
-    expect(mockRouterPush).toHaveBeenCalledWith("/(app)/shipments/shipment-1/tracking");
+    expect(lastMapProps().notice).toEqual(
+      expect.objectContaining({ title: "No tenemos la ubicación del transportista", tone: "warning" }),
+    );
+  });
+
+  it("MOVO-361: mientras carga la primera posición no avisa que falta", async () => {
+    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.IN_TRANSIT });
+    mockLivePosition.mockReturnValue({ position: null, isStale: false, isLoadingInitial: true });
+
+    await render(<ShipmentDetailScreen />);
+
+    expect(lastMapProps().notice).toBeNull();
+  });
+
+  it("MOVO-361 AC4: con map=live abre el mapa a pantalla completa una vez y limpia el parámetro", async () => {
+    mockSearchParams.mockReturnValue({ id: "shipment-1", map: "live" });
+    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.IN_TRANSIT });
+
+    await render(<ShipmentDetailScreen />);
+
+    const props = lastMapProps();
+    expect(props.openFullscreenOnMount).toBe(true);
+    props.onOpenedFullscreenOnMount();
+    expect(mockRouterSetParams).toHaveBeenCalledWith({ map: undefined });
+  });
+
+  it("MOVO-361: map=live antes del recorrido no abre nada", async () => {
+    mockSearchParams.mockReturnValue({ id: "shipment-1", map: "live" });
+    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.ASSIGNED });
+
+    await render(<ShipmentDetailScreen />);
+
+    expect(lastMapProps().openFullscreenOnMount).toBe(false);
   });
 
   it("MOVO-346: en tránsito el mapa de la ruta muestra al transportista en vivo (un solo mapa)", async () => {
@@ -1903,6 +2044,7 @@ describe("ShipmentDetailScreen — seguimiento en vivo (MOVO-271 AC3/AC5)", () =
     mockLivePosition.mockReturnValue({
       position: { lat: -31.41, lng: -64.18, capturedAt: "2026-10-25T22:00:00Z" },
       isStale: false,
+      isLoadingInitial: false,
     });
 
     await render(<ShipmentDetailScreen />);
@@ -1911,6 +2053,9 @@ describe("ShipmentDetailScreen — seguimiento en vivo (MOVO-271 AC3/AC5)", () =
       expect.objectContaining({ live: expect.objectContaining({ position: { lat: -31.41, lng: -64.18 }, stale: false }) }),
     );
     expect(mockLivePosition).toHaveBeenLastCalledWith("shipment-1", { enabled: true });
+    expect(mockRouteMapCard).toHaveBeenLastCalledWith(
+      expect.objectContaining({ live: expect.objectContaining({ viewer: "sender" }) }),
+    );
   });
 
   it("MOVO-346: antes del retiro no abre el canal en vivo", async () => {
@@ -1922,32 +2067,31 @@ describe("ShipmentDetailScreen — seguimiento en vivo (MOVO-271 AC3/AC5)", () =
     expect(mockLivePosition).toHaveBeenLastCalledWith(undefined, { enabled: false });
   });
 
-  it("el receptor también la ve", async () => {
+  it("el receptor también lo ve, como receptor (el sheet no le da la llegada al retiro)", async () => {
     mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
     mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.IN_TRANSIT });
 
-    const { getByTestId } = await render(<ShipmentDetailScreen />);
+    await render(<ShipmentDetailScreen />);
 
-    expect(getByTestId("shipment-detail-live-tracking")).toBeTruthy();
+    expect(lastMapProps().live).toEqual(expect.objectContaining({ viewer: "receiver" }));
   });
 
   it("no la muestra al transportista, sin transportista ni con el envío entregado", async () => {
     mockCurrentUser.mockReturnValue({ userId: "carrier-1" });
     mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.IN_TRANSIT });
     const asCarrier = await render(<ShipmentDetailScreen />);
-    expect(asCarrier.queryByTestId("shipment-detail-live-tracking")).toBeNull();
+    expect(lastMapProps()).toEqual(expect.objectContaining({ live: null, notice: null }));
     await asCarrier.unmount();
 
     mockCurrentUser.mockReturnValue({ userId: "user-1" });
     mockShipment({ carrierId: null, status: ShipmentStatus.PUBLISHED });
     const withoutCarrier = await render(<ShipmentDetailScreen />);
-    expect(withoutCarrier.queryByTestId("shipment-detail-live-tracking-pending")).toBeNull();
+    expect(lastMapProps()).toEqual(expect.objectContaining({ live: null, notice: null }));
     await withoutCarrier.unmount();
 
     mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.DELIVERED });
-    const delivered = await render(<ShipmentDetailScreen />);
-    expect(delivered.queryByTestId("shipment-detail-live-tracking")).toBeNull();
-    expect(delivered.queryByTestId("shipment-detail-live-tracking-pending")).toBeNull();
+    await render(<ShipmentDetailScreen />);
+    expect(lastMapProps()).toEqual(expect.objectContaining({ live: null, notice: null }));
   });
 
   it("le pasa al detalle el polling del placeholder", async () => {

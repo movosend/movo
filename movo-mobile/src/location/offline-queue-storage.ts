@@ -17,6 +17,16 @@ export interface TrackingContextData {
   shipmentIds: string[];
 }
 
+/**
+ * Resultado de leer el contexto de disco. `missing` (no hay archivo, o está vacío) se distingue de
+ * `unreadable` (falló la lectura o el JSON está roto) porque la tarea de fondo solo se frena sola
+ * cuando sabe que no queda nada que trackear, no cuando no pudo averiguarlo.
+ */
+export type TrackingContextRead =
+  | { status: "found"; context: TrackingContextData }
+  | { status: "missing" }
+  | { status: "unreadable" };
+
 export const MAX_OFFLINE_QUEUE_SIZE = 100;
 
 export interface FileSystemAdapter {
@@ -203,20 +213,20 @@ export class OfflineQueueStorage {
   /**
    * Carga el contexto de tracking persistido en disco.
    */
-  async loadTrackingContext(): Promise<TrackingContextData | null> {
+  async loadTrackingContext(): Promise<TrackingContextRead> {
     return this.withLock(async () => {
       try {
         const info = await this.fs.getInfoAsync(this.contextFilePath);
-        if (!info.exists) return null;
+        if (!info.exists) return { status: "missing" };
         const raw = await this.fs.readAsStringAsync(this.contextFilePath);
-        if (!raw) return null;
+        if (!raw) return { status: "missing" };
         const parsed = JSON.parse(raw) as TrackingContextData;
         if (parsed && Array.isArray(parsed.shipmentIds)) {
-          return parsed;
+          return { status: "found", context: parsed };
         }
-        return null;
+        return { status: "unreadable" };
       } catch {
-        return null;
+        return { status: "unreadable" };
       }
     });
   }

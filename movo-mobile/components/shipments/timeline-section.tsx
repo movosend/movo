@@ -1,18 +1,9 @@
 import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { ReceiverTransferRequest } from "@movo/shared/dist/types/receiver-transfer";
 import {
-  AlertTriangle,
   ArrowLeftRight,
-  BadgeCheck,
-  CircleSlash,
   Clock,
-  Megaphone,
-  PackageCheck,
   PackagePlus,
-  Truck,
-  UserCheck,
-  Wallet,
-  XCircle,
   type LucideIcon,
 } from "lucide-react-native";
 import { ScrollView, Text, View } from "react-native";
@@ -39,6 +30,7 @@ import { getFirstName } from "../../src/lib/profile-format";
 import { useAuthStore } from "../../src/store/auth-store";
 import {
   formatEventTimestamp,
+  isOfferAcceptance,
   remainingLifecycleSteps,
   shipmentActorLabel,
   shipmentEventDetail,
@@ -48,41 +40,8 @@ import {
   shipmentStatusTone,
 } from "../../src/lib/shipment-format";
 import { ErrorBanner } from "../ui/error-banner";
+import { SHIPMENT_STATUS_ICON, SHIPMENT_STATUS_TONE_STYLE } from "./shipment-status-visual";
 import { SkeletonBlock } from "../ui/skeleton-block";
-
-const EVENT_ICON: Record<ShipmentStatus, LucideIcon> = {
-  [Status.AWAITING_RECEIVER_CONFIRMATION]: Clock,
-  [Status.REJECTED_BY_RECEIVER]: CircleSlash,
-  [Status.PUBLISHED]: Megaphone,
-  // Entrar a `assignment_pending`/`assigned_unfunded` es aceptar una oferta, o sea elegir
-  // al transportista (retiro cercano o lejano, MOVO-208).
-  [Status.ASSIGNMENT_PENDING]: UserCheck,
-  [Status.ASSIGNED_UNFUNDED]: UserCheck,
-  // Pasar a `assigned` es reservar el pago: el transportista ya estaba elegido.
-  [Status.ASSIGNED]: Wallet,
-  [Status.IN_TRANSIT]: Truck,
-  [Status.DELIVERED]: PackageCheck,
-  // MOVO-208: entregado y pago liberado (MOVO-212) -- inalcanzable hasta esa historia.
-  [Status.COMPLETED]: BadgeCheck,
-  [Status.CANCELLED]: XCircle,
-  [Status.DISPUTED]: AlertTriangle,
-};
-
-/** Mismo mapa de tonos que `ShipmentStatusBadge`, pero acá se necesita el hex del
- * icono además de la clase de fondo (los iconos de lucide reciben `color` en JS, no
- * className — mismo criterio que `CounterpartCard`). */
-const TONE_STYLE: Record<
-  ReturnType<typeof shipmentStatusTone>,
-  { bgClass: string; iconColor: string | null }
-> = {
-  success: { bgClass: "bg-success-100", iconColor: "#16754A" },
-  warning: { bgClass: "bg-warning-100", iconColor: "#A97714" },
-  danger: { bgClass: "bg-danger-100", iconColor: "#972327" },
-  info: { bgClass: "bg-info-100", iconColor: "#173EA3" },
-  // Único tono sin hex propio: su fondo (`bg-mute`) sí cambia con el tema, así que el
-  // icono tiene que seguir a `fg-3` en vez de quedar fijo en el valor light.
-  neutral: { bgClass: "bg-bg-mute", iconColor: null },
-};
 
 export interface TimelineSectionProps {
   shipmentId: string;
@@ -185,7 +144,9 @@ function EventRow({
   isReceiver: boolean;
 }) {
   const colors = useThemeColors();
-  const tone = TONE_STYLE[shipmentStatusTone(event.toStatus)];
+  // Una aceptación en efectivo cae directo en `assigned`: se dibuja como "transportista elegido", no como pago reservado.
+  const visualStatus = isOfferAcceptance(event.toStatus, event.fromStatus) ? Status.ASSIGNMENT_PENDING : event.toStatus;
+  const tone = SHIPMENT_STATUS_TONE_STYLE[shipmentStatusTone(visualStatus)];
   const timestamp = formatEventTimestamp(event.createdAt);
   // MOVO-253: tras elegir otro receptor, `parties.receiverId` es el receptor NUEVO — un
   // rechazo anterior lo hizo otra persona y no puede tomar su nombre ni su rol.
@@ -209,7 +170,7 @@ function EventRow({
 
   return (
     <TimelineRow
-      Icon={EVENT_ICON[event.toStatus] ?? Clock}
+      Icon={SHIPMENT_STATUS_ICON[visualStatus] ?? Clock}
       iconColor={tone.iconColor ?? colors.fg3}
       circleClass={tone.bgClass}
       railClass="bg-border"
@@ -269,7 +230,7 @@ function PendingStepRow({
 
   return (
     <TimelineRow
-      Icon={EVENT_ICON[status] ?? Clock}
+      Icon={SHIPMENT_STATUS_ICON[status] ?? Clock}
       iconColor={colors.fg3}
       circleClass="border border-dashed border-border-strong bg-bg-sub"
       railClass="bg-border"

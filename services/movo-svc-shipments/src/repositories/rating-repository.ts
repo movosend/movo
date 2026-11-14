@@ -1,6 +1,7 @@
 import { PrismaClient, Rating as RatingRow } from "../generated/prisma/client";
 import {
   Rating,
+  RatingWithRaterRole,
   CreateRatingInput,
   RatingCategoryScores,
   RatingCategoryScoresInput,
@@ -139,7 +140,7 @@ export interface RatingRepository {
     cursor?: string,
     /** Solo las recibidas en esos roles; sin roles, todas. */
     roles?: readonly RatingRole[],
-  ): Promise<{ items: Rating[]; nextCursor: string | null }>;
+  ): Promise<{ items: RatingWithRaterRole[]; nextCursor: string | null }>;
   /**
    * MOVO-222: TODAS las calificaciones que `raterId` ya hizo, acotadas a los
    * `shipmentId` dados — batch en vez de un `findByPair` por candidato (mismo
@@ -174,6 +175,7 @@ export function createRatingRepository(db: PrismaClient): RatingRepository {
             raterId: input.raterId,
             rateeId: input.rateeId,
             role: input.role,
+            raterRole: input.raterRole ?? null,
             score: input.score,
             comment: input.comment ?? null,
             ...categoryScoreColumns(input),
@@ -220,7 +222,7 @@ export function createRatingRepository(db: PrismaClient): RatingRepository {
       limit: number,
       cursor?: string,
       roles?: readonly RatingRole[],
-    ): Promise<{ items: Rating[]; nextCursor: string | null }> {
+    ): Promise<{ items: RatingWithRaterRole[]; nextCursor: string | null }> {
       const cursorFilter = cursor ? decodeRatingCursor(cursor) : null;
       const rows = await db.rating.findMany({
         where: {
@@ -240,7 +242,11 @@ export function createRatingRepository(db: PrismaClient): RatingRepository {
         // Pide una de más para saber si hay próxima página sin una segunda query.
         take: limit + 1,
       });
-      const items = rows.slice(0, limit).map(mapRating);
+      // El rol de quien califica ya viene en la fila (MOVO-354): sin consulta extra a `shipment`.
+      const items = rows.slice(0, limit).map((row) => ({
+        ...mapRating(row),
+        raterRole: row.raterRole ? parseRatingRole(row.raterRole, "rater_role") : null,
+      }));
       const hasMore = rows.length > limit;
       return { items, nextCursor: hasMore ? encodeRatingCursor(items[items.length - 1]) : null };
     },

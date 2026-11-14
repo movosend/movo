@@ -9,6 +9,7 @@ import {
   transactionTitle,
   transactionRowSubtitle,
   transactionRowAmount,
+  transactionAmountA11y,
   transactionStatusLabel,
 } from "../../src/lib/transaction-format";
 import { TransactionStatusPill } from "./transaction-status-pill";
@@ -41,7 +42,7 @@ export function TransactionRow({
     <Pressable
       testID={`transaction-row-${item.id}`}
       accessibilityRole="button"
-      accessibilityLabel={`${role === "sender" ? "Pago" : "Cobro"} · ${title}, ${amount}, ${transactionStatusLabel(item.status, role)}`}
+      accessibilityLabel={`${role === "sender" ? "Pago" : "Cobro"} · ${title}, ${transactionAmountA11y(item, role)}, ${transactionStatusLabel(item.status, role)}`}
       accessibilityHint="Abre el detalle"
       onPress={onPress}
       className="flex-row items-center gap-3 border-b border-border px-5 py-3 active:bg-bg-sub"

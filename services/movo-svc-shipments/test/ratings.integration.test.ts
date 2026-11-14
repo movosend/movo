@@ -327,6 +327,24 @@ describe("Calificaciones post-entrega — /shipments/:id/ratings (Postgres) — 
     expect(body.nextCursor).toBeNull();
   });
 
+  it("MOVO-354: las lecturas del perfil traen el rol que tenía quien calificó en ese envío", async () => {
+    const shipmentId = await createDeliveredShipment();
+    await app.inject({
+      method: "POST",
+      url: `/shipments/${shipmentId}/ratings`,
+      headers: { "x-user-id": senderId },
+      payload: { rateeId: receiverId, score: 4 },
+    });
+
+    const recent = await app.inject({ method: "GET", url: `/internal/users/${receiverId}/ratings/recent` });
+    const byRole = await app.inject({ method: "GET", url: `/internal/users/${receiverId}/ratings/recent-by-role?limit=5` });
+
+    // El emisor calificó al receptor: quien califica fue el emisor de ese envío.
+    expect(recent.json().items[0].raterRole).toBe("sender");
+    expect(byRole.json().all[0].raterRole).toBe("sender");
+    expect(byRole.json().asSender[0].raterRole).toBe("sender");
+  });
+
   it("filtra por el rol del calificado: una reseña como receptor no aparece al pedir las de transportista", async () => {
     const shipmentId = await createDeliveredShipment();
     await app.inject({

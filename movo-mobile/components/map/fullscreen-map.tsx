@@ -17,6 +17,11 @@ interface FullscreenMapProps {
   /** Polylines y marcadores, los mismos que dibuja el mapa de la card. */
   children: ReactNode;
   onClose: () => void;
+  /** Alto de lo que tapa el borde de abajo (el bottom sheet del seguimiento): el encuadre lo deja
+   * libre y el botón de recentrar queda por encima. */
+  bottomInset?: number;
+  /** Capas por encima del mapa (aviso del seguimiento, bottom sheet). */
+  overlay?: ReactNode;
   testID?: string;
 }
 
@@ -25,7 +30,14 @@ interface FullscreenMapProps {
  * libres (pan, zoom, rotación) y los dos controles mínimos — cerrar y recentrar sobre la
  * ruta. Lo monta `ExpandableMap` dentro de su modal; no sabe nada de la animación.
  */
-export function FullscreenMap({ fitPoints, children, onClose, testID }: FullscreenMapProps) {
+export function FullscreenMap({
+  fitPoints,
+  children,
+  onClose,
+  bottomInset = 0,
+  overlay,
+  testID,
+}: FullscreenMapProps) {
   const { colorScheme } = useColorScheme();
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
@@ -34,7 +46,7 @@ export function FullscreenMap({ fitPoints, children, onClose, testID }: Fullscre
   const fit = (animated: boolean) => {
     if (fitPoints.length === 0) return;
     mapRef.current?.fitToCoordinates(fitPoints, {
-      edgePadding: { top: insets.top + 72, right: 56, bottom: insets.bottom + 72, left: 56 },
+      edgePadding: { top: insets.top + 72, right: 56, bottom: Math.max(insets.bottom, bottomInset) + 72, left: 56 },
       animated,
     });
   };
@@ -65,7 +77,7 @@ export function FullscreenMap({ fitPoints, children, onClose, testID }: Fullscre
 
       <Pressable
         testID={testID ? `${testID}-close` : undefined}
-        onPress={onClose}
+        onPress={() => onClose()}
         hitSlop={8}
         accessibilityRole="button"
         accessibilityLabel="Cerrar mapa"
@@ -82,10 +94,12 @@ export function FullscreenMap({ fitPoints, children, onClose, testID }: Fullscre
         accessibilityRole="button"
         accessibilityLabel="Recentrar ruta"
         className="absolute right-4 h-11 w-11 items-center justify-center rounded-full bg-bg active:opacity-80"
-        style={[{ bottom: insets.bottom + 16 }, CONTROL_SHADOW]}
+        style={[{ bottom: Math.max(insets.bottom, bottomInset) + 16 }, CONTROL_SHADOW]}
       >
         <Crosshair size={20} color={colors.fg1} strokeWidth={1.8} />
       </Pressable>
+
+      {overlay}
     </View>
   );
 }

@@ -831,6 +831,22 @@ Los contratos de MOVO-345 (`AdminReportById` y los de cada pestaña), más `dist
 
 `normalizePersonName` (nombre y apellido por separado: cada palabra con inicial mayúscula, partículas "de/del/la/…" en minúscula salvo al principio, apóstrofes y guiones; no toca las tildes) y `PERSON_NAME_FIELD_PATTERN` (el patrón de un campo de nombre, una sola copia para el registro, el perfil y el panel). `types/admin-kyc.ts`: `ADMIN_KYC_NAME_MAX_LENGTH`, `AdminKycReviewDetail.firstName`/`lastName`, `AdminKycDecisionRequest.firstName`/`lastName` y `KYC_DECISION_NAME_RULES` (el nombre y el apellido van juntos y solo al aprobar, para el JSON Schema de `svc-admin` y `svc-users`). `ApiErrorCode` suma `KYC_REVIEW_IDENTITY_MISSING` (409). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
 
+### MOVO-354 — `RecentRatingComment.raterRole`
+
+`types/user-profile.ts`: `ShipmentPartyRole` (`sender`/`carrier`/`receiver`) y `RecentRatingComment.raterRole?: ShipmentPartyRole | null`, el rol de quien calificó en ese envío. Opcional para no romper literales armados a mano ni a un `svc-users` anterior. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+### MOVO-359 — `AdminShipmentTracking.approachRoute` (`types/admin-shipments.ts`)
+
+`approachRoute?: { polyline; distanceMeters; durationSeconds } | null`: la ruta por calle del transportista al punto de retiro, solo en `GET /shipments/:id/tracking` y solo para el emisor, con el envío `assigned`, el viaje iniciado y sin otro retiro pendiente en el viaje; `null` si corresponde pero no se pudo (proveedor caído o tope de llamadas sin ruta previa, sin posición reciente); ausente si no corresponde (panel, receptor, otro retiro pendiente, fuera de `assigned`). La diferencia la usa el móvil: conserva la última línea con `null`, no con el campo ausente. Opcional para no romper literales armados a mano ni la app contra un backend anterior. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### Feedback de TestFlight — `ActiveShipmentSummary.tripStarted`
+
+`tripStarted?: boolean` en `types/shipment.ts`: el viaje del transportista ya está en curso (en `assigned`, salió a retirar). Opcional para no romper literales armados a mano ni un backend anterior. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+
+### Feedback de TestFlight — `DisputeSummary`
+
+`DisputeSummary` (`types/dispute.ts`: `id`, `reason`, `openedByRole`, `openedAt`): la disputa sin resolver de un envío, para que las pantallas de la app que dicen "en disputa" expliquen por qué y quién la abrió. Sin la descripción libre (va en el expediente). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
 ### MOVO-35 — Operación y Finanzas (`types/admin-reports.ts`, DD-059)
 
 `ADMIN_REPORT_IDS` suma `operations` y `finance` (rompe los `Record<AdminReportId, …>` armados a mano: tocó el catálogo y los fixtures de `movo-admin`). `OperationsReport` (`OPERATIONS_KPIS`, `CANCELLATION_CAUSES`, `city`, `cities` y las claves reservadas `OPERATIONS_UNKNOWN_CITY`/`OPERATIONS_OTHER_CITIES` del desglose por ciudad) y `FinanceReport` (`FINANCE_KPIS`, `pendingConfirmation`, `escalated`, `debt`, `FinanceReportRow(s)`). `reportAppliesCity` (solo Operación) y `reportAppliesBand` deja afuera también a los dos nuevos; `AdminReportQuery.city` y la sección de export `settlements`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

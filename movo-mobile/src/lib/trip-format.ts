@@ -119,9 +119,13 @@ export function tripPlaceLabel(address: string): string {
 }
 
 /** "Córdoba → Rosario" — identificador principal de un viaje en Inicio, en vez de la
- * fecha (que ya va en el subtítulo). */
+ * fecha (que ya va en el subtítulo). Dentro de una misma localidad, "Viaje en Córdoba":
+ * "Córdoba → Córdoba" se leía como un error (feedback de TestFlight). */
 export function tripRouteLabel(trip: { originAddress: string; destinationAddress: string }): string {
-  return `${tripPlaceLabel(trip.originAddress)} → ${tripPlaceLabel(trip.destinationAddress)}`;
+  const origin = tripPlaceLabel(trip.originAddress);
+  const destination = tripPlaceLabel(trip.destinationAddress);
+  if (origin.localeCompare(destination, "es", { sensitivity: "base" }) === 0) return `Viaje en ${origin}`;
+  return `${origin} → ${destination}`;
 }
 
 export function formatPackagesCount(count: number): string {
@@ -216,11 +220,28 @@ export function tripHistorySubtext(trip: {
 }
 
 /**
- * Chip del historial para un viaje completado: "Llevaste 3 paquetes". No dice "entregados":
- * el conteo de paquetes aceptados incluye los que quedaron en disputa.
+ * Chip del historial para un viaje completado: "Llevaste 3 paquetes". No dice "entregados" (un
+ * `delivered` todavía espera la confirmación del receptor). Los que quedaron en disputa no
+ * cuentan: el backend da el viaje por terminado, pero el paquete no se llevó.
  */
 export function tripCarriedChipLabel(count: number): string {
   return `Llevaste ${count} ${count === 1 ? "paquete" : "paquetes"}`;
+}
+
+/** Paquetes del viaje que se llevaron: los aceptados menos los que están en disputa. */
+export function tripCarriedCount(trip: Pick<TripWithAcceptedPackages, "acceptedPackagesCount" | "disputedPackagesCount">): number {
+  return Math.max(0, trip.acceptedPackagesCount - (trip.disputedPackagesCount ?? 0));
+}
+
+/** "1 paquete en disputa" / "2 paquetes en disputa". */
+export function tripDisputedChipLabel(count: number): string {
+  return `${count} ${count === 1 ? "paquete" : "paquetes"} en disputa`;
+}
+
+/** Aviso del detalle de un viaje con paquetes en disputa. */
+export function tripDisputedNotice(count: number): string {
+  const subject = count === 1 ? "Este viaje tiene 1 paquete en disputa" : `Este viaje tiene ${count} paquetes en disputa`;
+  return `${subject}: no cuenta como llevado. Movo está revisando lo que pasó y te va a avisar cuando se resuelva.`;
 }
 
 /** Encabezado de mes para agrupar el historial ("Septiembre 2026"), por `departureAt`. */

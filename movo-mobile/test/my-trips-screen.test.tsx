@@ -384,6 +384,28 @@ describe("MyTripsScreen", () => {
     expect(getByText(/^Lo cancelaste el /)).toBeTruthy();
   });
 
+  it("un viaje completado con su paquete en disputa no dice 'Llevaste': muestra el chip de disputa", async () => {
+    mockUseMyTrips.mockReturnValue(
+      listOf({ ...TRIP_COMPLETED, acceptedPackagesCount: 1, disputedPackagesCount: 1 }),
+    );
+
+    const { getByText, getByTestId, queryByText } = await render(<MyTripsScreen />);
+    await fireEvent.press(getByTestId("my-trips-tab-history"));
+
+    expect(getByText("1 paquete en disputa")).toBeTruthy();
+    expect(queryByText(/^Llevaste/)).toBeNull();
+  });
+
+  it("con uno llevado y otro en disputa, muestra los dos chips", async () => {
+    mockUseMyTrips.mockReturnValue(listOf({ ...TRIP_COMPLETED, acceptedPackagesCount: 2, disputedPackagesCount: 1 }));
+
+    const { getByText, getByTestId } = await render(<MyTripsScreen />);
+    await fireEvent.press(getByTestId("my-trips-tab-history"));
+
+    expect(getByText("Llevaste 1 paquete")).toBeTruthy();
+    expect(getByText("1 paquete en disputa")).toBeTruthy();
+  });
+
   it("MOVO-262 AC4: el historial se agrupa por mes", async () => {
     mockUseMyTrips.mockReturnValue(listOf(TRIP_COMPLETED, { ...TRIP_EXPIRED, departureAt: "2026-08-05T12:00:00.000Z" }));
 

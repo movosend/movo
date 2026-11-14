@@ -1,3 +1,4 @@
+import type { DisputeSummary } from "@movo/shared/dist/types/dispute";
 import { httpClient } from "./http-client";
 import { TripStatus } from "@movo/shared/dist/types/trip";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
@@ -42,6 +43,8 @@ export interface Trip {
 export interface TripAcceptedPackage {
   shipmentId: string;
   status: ShipmentStatus;
+  /** Disputa sin resolver del envío: motivo y quién la abrió. Opcional para tolerar un backend anterior. */
+  dispute?: DisputeSummary | null;
   packageType: string;
   weightKg: number;
   pickupAddress: string;
@@ -69,6 +72,9 @@ export interface TripWithAcceptedPackages extends Trip {
    * (envío `assigned`/`in_transit`). `POST /trips/:id/start` exige al menos uno; los que
    * esperan el hold de fondos (`assignment_pending`/`assigned_unfunded`) no cuentan. */
   executablePackagesCount: number;
+  /** Cuántos de los paquetes aceptados están en disputa: cierran el viaje, pero no se llevaron.
+   * Opcional para tolerar un backend anterior al campo. */
+  disputedPackagesCount?: number;
   packages?: TripAcceptedPackage[];
 }
 

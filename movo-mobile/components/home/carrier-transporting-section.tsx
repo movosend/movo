@@ -7,6 +7,8 @@ import { useMyTrips, useStartTrip } from "../../src/hooks/use-trips";
 import { formatTripStartErrorMessage, splitCarrierHomeTrips } from "../../src/lib/trip-format";
 import { CarrierRequirementsSheet } from "../carrier/carrier-requirements-checklist";
 import { CarrierTripCta } from "../trips/carrier-trip-cta";
+import { TrackingActiveIndicator } from "../location/tracking-active-indicator";
+import { TripStatus } from "../../src/api/trips-client";
 import { HomeSectionSkeleton, TRIP_CARD_SKELETON_HEIGHT } from "./home-section-states";
 import { requireCarrierLocation } from "../../src/store/carrier-location-gate-store";
 
@@ -82,6 +84,8 @@ export function CarrierTransportingSection({
         onStart={handleStartTrip}
         isStarting={startingTripId === primaryTrip.id}
         errorMessage={startTripError?.id === primaryTrip.id ? startTripError.message : null}
+        // El "en vivo" va con el viaje, no como un aviso suelto arriba que repetía el punto de "En curso".
+        footer={primaryTrip.status === TripStatus.ACTIVE ? <TrackingActiveIndicator variant="inline" /> : undefined}
       />
       <CarrierRequirementsSheet {...requirements.sheetProps} />
     </View>

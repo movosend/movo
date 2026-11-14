@@ -1,5 +1,6 @@
 import { argentinaWeekday } from "@movo/shared/dist/config/trip-recurrence";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { MenuView } from "@react-native-menu/menu";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
@@ -26,7 +27,12 @@ import { useCancelTrip, useStartTrip, useTrip, useUpdateTrip } from "../../../..
 import { useThemeColors } from "../../../../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../../../../src/lib/error-messages";
 import { canCarrierWithdraw, formatPriceArs, shortAddressLabel } from "../../../../../src/lib/shipment-format";
-import { formatTripDateLong, formatTripStartErrorMessage, tripDisplayCode } from "../../../../../src/lib/trip-format";
+import {
+  formatTripDateLong,
+  formatTripStartErrorMessage,
+  tripDisplayCode,
+  tripDisputedNotice,
+} from "../../../../../src/lib/trip-format";
 import { weekdayName } from "../../../../../src/lib/trip-recurrence";
 import { requireCarrierLocation } from "../../../../../src/store/carrier-location-gate-store";
 import { TripStatus, type TripAcceptedPackage, type TripWithAcceptedPackages } from "../../../../../src/api/trips-client";
@@ -264,6 +270,7 @@ export default function TripDetailScreen() {
 
   const packages = trip.packages ?? [];
   const hasPackages = trip.acceptedPackagesCount > 0;
+  const disputedCount = trip.disputedPackagesCount ?? packages.filter((p) => p.status === ShipmentStatus.DISPUTED).length;
   const isDeclared = trip.status === TripStatus.DECLARED;
   const canEdit = isDeclared && !hasPackages;
   // MOVO-314: con paquetes se puede cancelar mientras todos sean retirables (ninguno en tránsito).
@@ -369,6 +376,14 @@ export default function TripDetailScreen() {
                 <TripRecurrenceBadge testID="trip-detail-recurrence" weekdays={trip.recurrenceWeekdays} />
               ) : null}
             </View>
+            {/* "Completado" solo, con un paquete en disputa, se leía como si lo hubieras llevado. */}
+            {disputedCount > 0 ? (
+              <View testID="trip-detail-disputed-notice" className="rounded-lg bg-warning-100 px-3.5 py-3">
+                <Text className="font-sans text-[13px] leading-[19px] text-warning-700">
+                  {tripDisputedNotice(disputedCount)}
+                </Text>
+              </View>
+            ) : null}
 
             <View>
               <View className="flex-row gap-3.5">

@@ -304,6 +304,36 @@ describe("Reputación real en el perfil (MOVO-152)", () => {
       expect(JSON.parse(response.body).recentRatingComments[0].raterName).toBe("Ana Gomez");
     });
 
+    it("MOVO-354: raterRole viaja en el perfil público y en el listado paginado de reseñas", async () => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput());
+      const rater = await repo.create(buildInput({ firstName: "Ana", lastName: "Gomez" }));
+      fake.setReputation(target.id, buildSummary());
+      fake.setComments(target.id, [
+        { id: randomUUID(), raterId: rater.id, score: 5, comment: null, createdAt: new Date().toISOString(), raterRole: "receiver" },
+      ]);
+
+      const profile = await app.inject({ method: "GET", url: `/users/${target.id}`, headers: { "x-user-id": caller.id } });
+      const list = await app.inject({ method: "GET", url: `/users/${target.id}/ratings`, headers: { "x-user-id": caller.id } });
+
+      expect(JSON.parse(profile.body).recentRatingComments[0].raterRole).toBe("receiver");
+      expect(JSON.parse(list.body).items[0].raterRole).toBe("receiver");
+    });
+
+    it("MOVO-354: sin raterRole en la respuesta de svc-shipments, queda null (no se inventa un rol)", async () => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput());
+      const rater = await repo.create(buildInput());
+      fake.setReputation(target.id, buildSummary());
+      fake.setComments(target.id, [
+        { id: randomUUID(), raterId: rater.id, score: 4, comment: null, createdAt: new Date().toISOString() },
+      ]);
+
+      const profile = await app.inject({ method: "GET", url: `/users/${target.id}`, headers: { "x-user-id": caller.id } });
+
+      expect(JSON.parse(profile.body).recentRatingComments[0].raterRole ?? null).toBeNull();
+    });
+
     it("MOVO-170: memberSince/phoneVerified/emailVerified viajan en el perfil público", async () => {
       const caller = await repo.create(buildInput());
       const target = await repo.create(buildInput());

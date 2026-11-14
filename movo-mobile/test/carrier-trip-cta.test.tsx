@@ -1,4 +1,5 @@
-import { fireEvent, render } from "@testing-library/react-native";
+import { fireEvent, render, within } from "@testing-library/react-native";
+import { Text } from "react-native";
 import { CarrierTripCta } from "../components/trips/carrier-trip-cta";
 import { TripStatus, type TripWithAcceptedPackages } from "../src/api/trips-client";
 
@@ -89,7 +90,7 @@ describe("CarrierTripCta (MOVO-252)", () => {
     expect(q2("cta-completed")).toBeNull();
   });
 
-  it("AC2/AC3: cuando el viaje está active, renderiza 'Viaje en curso · ver mapa' y navega a la ruta", async () => {
+  it("AC2/AC3: cuando el viaje está active, renderiza 'Ver mapa' y navega a la ruta", async () => {
     const activeTrip: TripWithAcceptedPackages = {
       ...BASE_TRIP,
       status: TripStatus.ACTIVE,
@@ -99,7 +100,7 @@ describe("CarrierTripCta (MOVO-252)", () => {
       <CarrierTripCta trip={activeTrip} testID="carrier-cta" />,
     );
 
-    expect(getByText("Viaje en curso · ver mapa")).toBeTruthy();
+    expect(getByText("Ver mapa")).toBeTruthy();
     expect(getByTestId("carrier-cta-view-map-button")).toBeTruthy();
 
     fireEvent.press(getByTestId("carrier-cta-view-map-button"));
@@ -107,6 +108,17 @@ describe("CarrierTripCta (MOVO-252)", () => {
       pathname: "/route",
       params: { tripId: activeTrip.id },
     });
+  });
+
+  it("muestra el pie dentro de la tarjeta, debajo del botón (aviso de ubicación compartida en Inicio)", async () => {
+    const { getByTestId } = await render(
+      <CarrierTripCta
+        trip={{ ...BASE_TRIP, status: TripStatus.ACTIVE }}
+        testID="carrier-cta"
+        footer={<Text testID="carrier-cta-footer">pie</Text>}
+      />,
+    );
+    expect(within(getByTestId("carrier-cta")).getByTestId("carrier-cta-footer")).toBeTruthy();
   });
 
   it("AC4/AC5/AC6: muestra el banner de error cuando errorMessage está presente", async () => {

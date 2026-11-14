@@ -38,7 +38,7 @@ describe("DevChatScreen (galería, solo dev)", () => {
 
     await fireEvent.press(getByTestId("dev-chat-role-carrier"));
     expect(getByText("Estás llegando al destino")).toBeTruthy();
-    expect(getByText("Aceptaste el envío")).toBeTruthy();
+    expect(getByText("Paula aceptó tu oferta")).toBeTruthy();
   });
 
   it("simula un mensaje en vivo y la advertencia de lenguaje", async () => {

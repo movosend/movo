@@ -29,6 +29,9 @@ import {
   transactionTitle,
   transactionHeroLabel,
   transactionHeroPill,
+  transactionAmountA11y,
+  transactionRowAmount,
+  transactionShownAmount,
 } from "../../../../../src/lib/transaction-format";
 
 function SectionLabel({ children }: { children: string }) {
@@ -110,24 +113,26 @@ function ShipmentLink({ detail, subtitle }: { detail: TransactionDetail; subtitl
 }
 
 function Hero({ detail, role }: { detail: TransactionDetail; role: TransactionRole }) {
-  // MOVO-37: en efectivo el monto es lo que se pagó en mano, no un neto acreditado (la comisión va al saldo).
+  // MOVO-349: el mismo monto que la fila del historial. En Cobros, lo que le quedó al transportista (neto acreditado,
+  // estimado (con "≈") o, en efectivo, lo cobrado en mano menos la comisión); si no le quedó nada, el precio.
   const cash = isCashTransaction(detail);
-  const breakdown = !cash && role === "carrier" && detail.status === "completed" ? detail.breakdown : null;
-  const amount = breakdown ? breakdown.netArs : detail.amountArs;
+  const shown = transactionShownAmount(detail, role);
+  const received = shown.received ? (shown.estimate ? "estimate" : "credited") : null;
+  let label: string;
+  if (cash) label = role === "sender" ? "Pagaste en efectivo" : shown.received ? "Te queda del cobro en efectivo" : "Cobraste en efectivo";
+  else label = transactionHeroLabel(detail.status, role, received, !!detail.capturedAt);
+  const highlight = !cash && received === "credited";
   return (
     <View testID="transaction-hero" className="mx-5 mt-2 gap-1.5 overflow-hidden rounded-[20px] bg-ink-950 p-5 dark:border dark:border-border-strong">
       <CornerDotPattern />
-      <Text className="font-sans text-[12.5px] text-ink-300">
-        {cash
-          ? role === "sender" ? "Pagaste en efectivo" : "Cobraste en efectivo"
-          : transactionHeroLabel(detail.status, role, !!breakdown, !!detail.capturedAt)}
-      </Text>
+      <Text className="font-sans text-[12.5px] text-ink-300">{label}</Text>
       <Text
         testID="transaction-hero-amount"
-        className={`font-sans-semibold text-[34px] leading-[40px] ${breakdown ? "text-lime-500" : "text-ink-50"}`}
+        accessibilityLabel={transactionAmountA11y(detail, role)}
+        className={`font-sans-semibold text-[34px] leading-[40px] ${highlight ? "text-lime-500" : "text-ink-50"}`}
         style={{ fontVariant: ["tabular-nums"] }}
       >
-        {formatTransactionAmount(amount)}
+        {transactionRowAmount(detail, role)}
       </Text>
       <View className="mt-0.5 flex-row flex-wrap items-center gap-2">
         {/* La pill va sobre fondo oscuro: se fuerza el relleno claro del canvas para el contorno. */}

@@ -1,8 +1,14 @@
-import { ArrowRight, Package } from "lucide-react-native";
+import { AlertTriangle, ArrowRight, Package } from "lucide-react-native";
 import { Text, View } from "react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { shortAddressLabel } from "../../src/lib/shipment-format";
-import { tripCarriedChipLabel, tripHistoryDate, tripHistorySubtext } from "../../src/lib/trip-format";
+import {
+  tripCarriedChipLabel,
+  tripCarriedCount,
+  tripDisputedChipLabel,
+  tripHistoryDate,
+  tripHistorySubtext,
+} from "../../src/lib/trip-format";
 import { TripStatus, type TripWithAcceptedPackages } from "../../src/api/trips-client";
 import { PressableScale } from "./pressable-scale";
 import { TripStatusPill } from "./trip-status-pill";
@@ -22,6 +28,8 @@ export function TripHistoryCard({
 }) {
   const colors = useThemeColors();
   const subtext = tripHistorySubtext(trip);
+  const carried = tripCarriedCount(trip);
+  const disputed = trip.disputedPackagesCount ?? 0;
 
   return (
     <PressableScale
@@ -43,17 +51,28 @@ export function TripHistoryCard({
           {shortAddressLabel(trip.destinationAddress)}
         </Text>
       </View>
-      {/* "Llevaste N paquetes", no "entregados": `acceptedPackagesCount` incluye los que
-          quedaron en disputa, que el cierre del viaje cuenta como terminados. */}
-      {trip.status === TripStatus.COMPLETED ? (
-        <View
-          testID={testID ? `${testID}-delivered-chip` : undefined}
-          className="h-6 flex-row items-center gap-1.5 self-start rounded-full bg-bg-mute px-[9px]"
-        >
-          <Package size={14} color="#1B7A4C" strokeWidth={2} />
-          <Text className="font-sans-medium text-[12px] text-fg-2">
-            {tripCarriedChipLabel(trip.acceptedPackagesCount)}
-          </Text>
+      {/* El cierre del viaje cuenta un paquete en disputa como terminado, pero no se llevó:
+          va en su propio chip y no suma a "Llevaste N paquetes". */}
+      {trip.status === TripStatus.COMPLETED && (carried > 0 || disputed > 0) ? (
+        <View className="flex-row flex-wrap gap-1.5">
+          {carried > 0 ? (
+            <View
+              testID={testID ? `${testID}-delivered-chip` : undefined}
+              className="h-6 flex-row items-center gap-1.5 rounded-full bg-bg-mute px-[9px]"
+            >
+              <Package size={14} color="#1B7A4C" strokeWidth={2} />
+              <Text className="font-sans-medium text-[12px] text-fg-2">{tripCarriedChipLabel(carried)}</Text>
+            </View>
+          ) : null}
+          {disputed > 0 ? (
+            <View
+              testID={testID ? `${testID}-disputed-chip` : undefined}
+              className="h-6 flex-row items-center gap-1.5 rounded-full bg-warning-100 px-[9px]"
+            >
+              <AlertTriangle size={13} color="#A97714" strokeWidth={2} />
+              <Text className="font-sans-medium text-[12px] text-warning-700">{tripDisputedChipLabel(disputed)}</Text>
+            </View>
+          ) : null}
         </View>
       ) : null}
       {subtext ? (

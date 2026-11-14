@@ -1,3 +1,5 @@
+import { haversineKm } from "./geo";
+
 /** Decodificador del algoritmo estándar de polyline de Google (5 decimales de
  * precisión) — implementado a mano en vez de sumar una dependencia por ~25 líneas de
  * aritmética estándar. Usado por `RouteMapCard` para dibujar el polyline que devuelve
@@ -90,6 +92,15 @@ export function simplifyPolyline(points: LatLngPoint[], toleranceDeg: number): L
   const result: LatLngPoint[] = [];
   for (let i = 0; i < n; i++) if (keep[i]) result.push(points[i]);
   return result;
+}
+
+/** Largo de un trazo en km (suma de haversines entre puntos consecutivos). */
+export function polylineLengthKm(points: LatLngPoint[]): number {
+  return points.reduce(
+    (total, b, i) =>
+      i === 0 ? 0 : total + haversineKm(points[i - 1].latitude, points[i - 1].longitude, b.latitude, b.longitude),
+    0,
+  );
 }
 
 /**

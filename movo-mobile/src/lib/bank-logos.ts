@@ -1,5 +1,5 @@
 import type { ImageSourcePropType } from "react-native";
-import { normalizeSearchText } from "../data/vehicle-catalog";
+import { normalizeSearchText } from "./search-text";
 
 /**
  * Logos de bancos para las tarjetas guardadas (MOVO-101), en `assets/bank-logos/`: los

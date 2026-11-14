@@ -154,13 +154,14 @@ describe("subtítulo de la fila (AC4)", () => {
 });
 
 describe("hero del detalle", () => {
-  it("el transportista solo ve 'Te acreditaron' (el neto) cuando hay desglose", () => {
-    expect(transactionHeroLabel("completed", "carrier", true)).toBe("Te acreditaron");
-    expect(transactionHeroLabel("reserved", "carrier", false)).toBe("Pagó el emisor");
+  it("el transportista ve 'Te acreditaron' con el neto real, 'Recibís' con el estimado y si no, lo que pagó el emisor", () => {
+    expect(transactionHeroLabel("completed", "carrier", "credited")).toBe("Te acreditaron");
+    expect(transactionHeroLabel("reserved", "carrier", "estimate")).toBe("Recibís");
+    expect(transactionHeroLabel("released", "carrier", null)).toBe("Pagó el emisor");
     expect(transactionHeroLabel("completed", "sender")).toBe("Pagaste");
     expect(transactionHeroLabel("released", "sender")).toBe("Reservaste");
     expect(transactionHeroLabel("reserved", "sender")).toBe("Reservaste");
-    expect(transactionHeroLabel("reserved", "sender", false, true)).toBe("Pagaste");
+    expect(transactionHeroLabel("reserved", "sender", null, true)).toBe("Pagaste");
   });
 
   it("un reembolso parcial lo aclara en la pill; uno total no", () => {
@@ -289,13 +290,17 @@ describe("pagos de saldo y deuda en el historial", () => {
 describe("transactionRowAmount (feedback de TestFlight build 18)", () => {
   const base = { amountArs: 1170 };
 
-  it("en Cobros muestra lo que le quedó al transportista, con aprox. si es estimado", () => {
+  it("en Cobros muestra lo que le quedó al transportista, con ≈ si es estimado", () => {
     expect(transactionRowAmount({ ...base, receivedArs: 1017.39, receivedIsEstimate: false }, "carrier")).toBe(
       formatTransactionAmount(1017.39)
     );
     expect(transactionRowAmount({ ...base, receivedArs: 950, receivedIsEstimate: true }, "carrier")).toBe(
-      `aprox. ${formatTransactionAmount(950)}`
+      `≈ ${formatTransactionAmount(950)}`
     );
+  });
+
+  it("un estimado va en pesos enteros, sin centavos (MOVO-349)", () => {
+    expect(transactionRowAmount({ ...base, receivedArs: 1524.58, receivedIsEstimate: true }, "carrier")).toBe("≈ $1.525");
   });
 
   it("cae al precio sin receivedArs (liberado o backend anterior) y en Pagos", () => {

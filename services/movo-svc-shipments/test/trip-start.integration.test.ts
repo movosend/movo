@@ -154,6 +154,22 @@ describe("POST /trips/:id/start (MOVO-277)", () => {
     expect([...stopShipmentIds]).toEqual([executable.shipmentId]);
   });
 
+  it("GET /trips (historial) y GET /trips/:id cuentan aparte los paquetes en disputa", async () => {
+    const trip = await tripRepo.create(tripInput());
+    await attachAcceptedPackage(app.db, trip, ShipmentStatus.DELIVERED);
+    await attachAcceptedPackage(app.db, trip, ShipmentStatus.DISPUTED);
+    await app.db.trip.update({ where: { id: trip.id }, data: { status: TripStatus.COMPLETED } });
+    const headers = { "x-user-id": trip.carrierId, "x-user-roles": "carrier" };
+    profiles[trip.carrierId] = fakePublicProfile({ id: trip.carrierId, isVerified: true });
+
+    const list = await app.inject({ method: "GET", url: "/trips?scope=history", headers });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().items[0]).toMatchObject({ acceptedPackagesCount: 2, disputedPackagesCount: 1, executablePackagesCount: 0 });
+
+    const detail = await app.inject({ method: "GET", url: `/trips/${trip.id}`, headers });
+    expect(detail.json()).toMatchObject({ acceptedPackagesCount: 2, disputedPackagesCount: 1 });
+  });
+
   it("el Swagger generado documenta executablePackagesCount en GET /trips y GET /trips/:id", () => {
     const spec = app.swagger() as {
       paths: Record<string, Record<string, { responses: Record<string, { content?: Record<string, { schema: unknown }> }> }>>;

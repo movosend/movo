@@ -110,6 +110,7 @@ describe("ShipmentsClient (adapter concreto)", () => {
               raterId: "rater-1",
               rateeId: "user-1",
               role: "sender",
+              raterRole: "receiver",
               score: 5,
               comment: "Todo perfecto",
               createdAt: "2026-08-01T00:00:00.000Z",
@@ -125,7 +126,15 @@ describe("ShipmentsClient (adapter concreto)", () => {
       expect(url).toBe("http://svc-shipments.test/internal/users/user-1/ratings/recent?limit=10");
       expect(result).toEqual({
         items: [
-          { id: "rating-1", raterId: "rater-1", score: 5, comment: "Todo perfecto", createdAt: "2026-08-01T00:00:00.000Z" },
+          {
+            id: "rating-1",
+            raterId: "rater-1",
+            score: 5,
+            comment: "Todo perfecto",
+            createdAt: "2026-08-01T00:00:00.000Z",
+            // MOVO-354: el rol de quien calificó sí viaja; el del calificado (`role`) sigue descartado.
+            raterRole: "receiver",
+          },
         ],
         nextCursor: null,
       });
@@ -178,7 +187,8 @@ describe("ShipmentsClient (adapter concreto)", () => {
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(fetchMock.mock.calls[0][0]).toBe("http://svc-shipments.test/internal/users/user-1/ratings/recent-by-role?limit=10");
-      const raw = { id: "r1", raterId: "u2", score: 4, comment: "ok", createdAt: "2026-11-01T00:00:00.000Z" };
+      // MOVO-354: sin `raterRole` en la respuesta de svc-shipments (despliegue anterior), queda null y no se inventa un rol.
+      const raw = { id: "r1", raterId: "u2", score: 4, comment: "ok", createdAt: "2026-11-01T00:00:00.000Z", raterRole: null };
       expect(result).toEqual({ all: [raw], asSender: [], asCarrier: [raw] });
     });
 

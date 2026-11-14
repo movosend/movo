@@ -1,9 +1,9 @@
 import { useInvalidateOnPushOrForeground } from "./use-invalidate-on-push-or-foreground";
 import { TRIPS_LIST_QUERY_KEY } from "./use-trips";
 
-/** Pushes que pueden dejar a un viaje del transportista sin paquetes (el backend ya lo
- * expira en la misma transacción): el emisor canceló el envío. */
-const TRIP_CHANGING_PUSH_TYPES: readonly string[] = ["shipment_cancelled"];
+/** Pushes que pueden cerrar un viaje del transportista (el backend lo hace en la misma
+ * transacción): el emisor canceló el envío, o se abrió una disputa sobre su último paquete. */
+const TRIP_CHANGING_PUSH_TYPES: readonly string[] = ["shipment_cancelled", "dispute_opened"];
 
 /**
  * Mantiene al día los viajes de Inicio cuando el cambio lo hace otra persona. Sin esto,

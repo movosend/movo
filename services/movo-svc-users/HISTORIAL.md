@@ -1435,3 +1435,7 @@ Las tildes no se tocan: `normalizePersonName` solo ajusta las mayúsculas. `kyc.
 **Detalle de Didit** (`GET /internal/admin/kyc/reviews/:sessionId/evidence`, `kyc-evidence.ts#buildKycEvidence`): pide a Didit la decisión completa y devuelve, con una lista blanca tipada, datos del documento, puntuaciones, IP, alertas, revisiones (sin quién las hizo) y las imágenes como links `https` temporales. No se persiste ni se loguea nada (AC9 prohíbe guardarlo, no mostrarlo), responde `Cache-Control: no-store` y un campo ausente o de otro tipo es `null`, nunca un error. `KYC_EVIDENCE_NOT_FOUND` es 422 y no 404 porque el cliente interno de `svc-admin` lee todo 404 como "no existe el objetivo".
 
 Pendiente: confirmar contra el sandbox de Didit que la `DIDIT_API_KEY` tiene permiso de escritura y si Didit manda un webhook tras `update-status` (el diseño no depende de eso). Contra una sesión real de Didit hay que verificar los nombres de los campos de imagen y puntuación (`reference_image`, `source_image`, `target_image`, `score`, `ip_*`), que salen de su documentación: solo `front_image` está confirmado contra un payload real.
+
+### MOVO-354 — `raterRole` en `RecentRatingComment`
+
+`adapters/shipments-client.ts` toma `raterRole` de `svc-shipments` y `users.schema.ts` lo expone en `recentRatingComments`, `recentRatingCommentsByRole` y `GET /users/:id/ratings`. Opcional y `null` si el servicio de envíos no lo manda (despliegue en cualquier orden), nunca se inventa un rol. `@movo/shared` suma `ShipmentPartyRole` y `RecentRatingComment.raterRole`.

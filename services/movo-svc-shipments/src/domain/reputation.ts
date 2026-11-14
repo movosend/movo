@@ -1,3 +1,4 @@
+import { MIN_RATINGS_FOR_ESTABLISHED_PROFILE } from "@movo/shared";
 import type { RatingCategoryDefinition, RatingCategoryScoreField, ReputationCategoryScore } from "@movo/shared";
 
 /**
@@ -58,8 +59,8 @@ export interface ReputationResult {
 
 /** AC2 de la US (MOVO-25): umbral de "perfil nuevo", no configurable vía env -- es un
  * AC fijo del ticket, a diferencia de `confidenceConstant`/`decayHalfLifeDays` que sí
- * son parámetros del modelo. */
-export const MIN_RATINGS_FOR_ESTABLISHED_PROFILE = 3;
+ * son parámetros del modelo. Vive en `@movo/shared` (el mobile avisa cuántas faltan). */
+export { MIN_RATINGS_FOR_ESTABLISHED_PROFILE };
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 

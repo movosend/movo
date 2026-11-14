@@ -14,6 +14,7 @@ import {
 import { distanceToSegmentKm } from "../domain/geo";
 import { tripDepartureOnPickupDay } from "../domain/trip-compatibility";
 import { TRIP_EXECUTABLE_SHIPMENT_STATUSES } from "../domain/shipment-state-machine";
+import { findUnresolvedDisputeSummaries } from "./dispute-repository";
 
 /**
  * MOVO-138: prefiltro SQL de `countAvailableCarriersNear` -- un viaje solo puede pasar a
@@ -110,6 +111,38 @@ const TRIP_FINISHED_SHIPMENT_STATUSES: ShipmentStatus[] = [
   ShipmentStatus.CANCELLED,
   ShipmentStatus.DISPUTED,
 ];
+
+/** Viaje `active` con al menos un paquete y todos terminados (`TRIP_FINISHED_SHIPMENT_STATUSES`): pasa a `completed`. */
+const ACTIVE_FINISHED_WHERE = {
+  status: TripStatus.ACTIVE,
+  offers: {
+    some: ACCEPTED_OFFER_FILTER,
+    none: {
+      status: "accepted" as const,
+      shipment: { status: { notIn: TRIP_FINISHED_SHIPMENT_STATUSES } },
+    },
+  },
+} satisfies Prisma.TripWhereInput;
+
+/**
+ * Completa, de `tripIds`, los `active` cuyos paquetes ya terminaron. Corre dentro de la
+ * transacción que llevó un envío a `disputed`/`completed`: sin esto el viaje seguía "en curso"
+ * en la app hasta la próxima corrida del barrido (`completeFinishedActive`, que queda como red).
+ */
+export async function completeFinishedActiveTrips(
+  tx: Prisma.TransactionClient,
+  tripIds: readonly string[],
+): Promise<string[]> {
+  const completed: string[] = [];
+  for (const id of new Set(tripIds)) {
+    const result = await tx.trip.updateMany({
+      where: { ...ACTIVE_FINISHED_WHERE, id },
+      data: { status: TripStatus.COMPLETED },
+    });
+    if (result.count > 0) completed.push(id);
+  }
+  return completed;
+}
 
 /**
  * MOVO-260: transiciona un viaje `declared` a un estado de baja (`cancelled`/`expired`)
@@ -447,6 +480,10 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       }
 
       const offers = row.offers;
+      const disputes = await findUnresolvedDisputeSummaries(
+        db,
+        offers.filter((offer) => offer.shipment.status === ShipmentStatus.DISPUTED).map((offer) => offer.shipmentId),
+      );
       const packages = offers.map((offer) => {
         const sh = offer.shipment;
         const pickupDateStr = offer.offeredDate.toISOString().slice(0, 10);
@@ -459,6 +496,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         return {
           shipmentId: sh.id,
           status: sh.status as ShipmentStatus,
+          dispute: disputes.get(sh.id) ?? null,
           packageType: sh.packageType,
           weightKg: sh.weightKg.toNumber(),
           pickupAddress: sh.pickupAddress,
@@ -490,6 +528,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         hasAcceptedPackages: offers.length > 0,
         acceptedPackagesCount: offers.length,
         executablePackagesCount: packages.filter((p) => TRIP_EXECUTABLE_SHIPMENT_STATUSES.includes(p.status)).length,
+        disputedPackagesCount: packages.filter((p) => p.status === ShipmentStatus.DISPUTED).length,
         packages,
       };
     },
@@ -547,14 +586,22 @@ export function createTripRepository(db: PrismaClient): TripRepository {
 
       // MOVO-277: `_count` no admite dos filtros distintos sobre la misma relación, así
       // que el conteo ejecutable sale de una consulta aparte sobre los viajes de la página.
+      // Los de disputa salen de la misma consulta: el historial no cuenta un paquete en disputa como "llevado".
       const executableByTripId = new Map<string, number>();
+      const disputedByTripId = new Map<string, number>();
       if (rows.length > 0) {
-        const executableOffers = await db.offer.findMany({
-          where: { tripId: { in: rows.map((row) => row.id) }, ...EXECUTABLE_OFFER_FILTER },
-          select: { tripId: true },
+        const countedOffers = await db.offer.findMany({
+          where: {
+            tripId: { in: rows.map((row) => row.id) },
+            status: "accepted",
+            shipment: { status: { in: [...TRIP_EXECUTABLE_SHIPMENT_STATUSES, ShipmentStatus.DISPUTED] } },
+          },
+          select: { tripId: true, shipment: { select: { status: true } } },
         });
-        for (const { tripId } of executableOffers) {
-          if (tripId) executableByTripId.set(tripId, (executableByTripId.get(tripId) ?? 0) + 1);
+        for (const { tripId, shipment } of countedOffers) {
+          if (!tripId) continue;
+          const counts = shipment.status === ShipmentStatus.DISPUTED ? disputedByTripId : executableByTripId;
+          counts.set(tripId, (counts.get(tripId) ?? 0) + 1);
         }
       }
 
@@ -563,6 +610,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         hasAcceptedPackages: row._count.offers > 0,
         acceptedPackagesCount: row._count.offers,
         executablePackagesCount: executableByTripId.get(row.id) ?? 0,
+        disputedPackagesCount: disputedByTripId.get(row.id) ?? 0,
       }));
 
       return { items, total };
@@ -932,18 +980,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
     },
 
     async completeFinishedActive(limit: number): Promise<string[]> {
-      const where = {
-        status: TripStatus.ACTIVE,
-        offers: {
-          some: ACCEPTED_OFFER_FILTER,
-          none: {
-            status: "accepted" as const,
-            shipment: {
-              status: { notIn: TRIP_FINISHED_SHIPMENT_STATUSES },
-            },
-          },
-        },
-      };
+      const where = ACTIVE_FINISHED_WHERE;
 
       const candidates = await db.trip.findMany({
         where,

@@ -6,8 +6,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AttentionTaskList } from "../home/attention-section";
 import { HomeSendCta } from "../home/home-send-cta";
 import { RoleSection } from "../home/role-section";
+import { TrackingStatusPill, type TrackingPillVariant } from "../location/tracking-active-indicator";
+import { CarrierTripCta } from "../trips/carrier-trip-cta";
+import { mergeActiveShipments } from "../../src/lib/active-shipment-format";
 import {
+  MOCK_ACTIVE_TRIP,
   MOCK_ATTENTION_TASKS,
+  MOCK_DECLARED_TRIP,
   MOCK_RECEIVING_SHIPMENTS,
   MOCK_SENDING_SHIPMENTS,
 } from "../../src/dev/home-operativo-fixtures";
@@ -28,6 +33,8 @@ import {
  * Ruta: `/dev-home-operativo` (sin link desde la app, igual que `/dev-tokens` y
  * `/dev-connection` — se navega escribiendo la URL en el dev client).
  */
+const TRACKING_VARIANTS: TrackingPillVariant[] = ["live", "permission", "background", "offline"];
+
 export default function HomeOperativoGalleryScreen() {
   const [hasData, setHasData] = useState(true);
 
@@ -60,17 +67,47 @@ export default function HomeOperativoGalleryScreen() {
       </SafeAreaView>
 
       <ScrollView contentContainerClassName="px-6 pb-16 pt-6" showsVerticalScrollIndicator={false}>
-        <RoleSection
-          testID="dev-home-sending"
-          title="Estoy enviando"
-          role="sending"
-          shipments={hasData ? MOCK_SENDING_SHIPMENTS : []}
+        {/* Viaje en curso: "Viaje en Córdoba", "Ver mapa" con ícono y el aviso "En vivo" al pie. */}
+        <Text className="mb-3 font-sans-medium text-caption uppercase text-fg-3">Estoy transportando</Text>
+        <View className="mb-3 h-px w-full bg-border" />
+        <CarrierTripCta
+          trip={MOCK_ACTIVE_TRIP}
+          testID="dev-home-active-trip"
+          footer={<TrackingStatusPill testID="dev-home-active-trip-live" variant="live" layout="inline" />}
         />
+        <View className="mt-3">
+          <CarrierTripCta trip={MOCK_DECLARED_TRIP} testID="dev-home-declared-trip" />
+        </View>
+
+        {/* Los cuatro estados del aviso de ubicación, suelto (Inicio sin viaje en curso y Transportar) y como pie. */}
+        <Text className="mb-3 mt-6 font-sans-medium text-caption uppercase text-fg-3">Aviso de ubicación</Text>
+        {TRACKING_VARIANTS.map((variant) => (
+          <TrackingStatusPill
+            key={variant}
+            testID={`dev-home-tracking-${variant}`}
+            variant={variant}
+            className="mb-2"
+            onPress={variant === "permission" || variant === "background" ? () => undefined : undefined}
+          />
+        ))}
+        <View className="mb-6 mt-2 overflow-hidden rounded-[10px] border border-border bg-white dark:bg-bg-sub">
+          {TRACKING_VARIANTS.map((variant) => (
+            <TrackingStatusPill
+              key={variant}
+              testID={`dev-home-tracking-inline-${variant}`}
+              variant={variant}
+              layout="inline"
+              onPress={variant === "permission" || variant === "background" ? () => undefined : undefined}
+            />
+          ))}
+        </View>
+
+        {/* Lo que mandás y lo que recibís en un solo carrusel, por urgencia, con "Enviás"/"Recibís" en cada tarjeta. */}
         <RoleSection
-          testID="dev-home-receiving"
-          title="Voy a recibir"
-          role="receiving"
-          shipments={hasData ? MOCK_RECEIVING_SHIPMENTS : []}
+          testID="dev-home-shipments"
+          title="Envíos en curso"
+          items={hasData ? mergeActiveShipments(MOCK_SENDING_SHIPMENTS, MOCK_RECEIVING_SHIPMENTS) : []}
+          showRole
         />
 
         <HomeSendCta testID="dev-home-send-cta" kycStatus={KycStatus.APPROVED} />

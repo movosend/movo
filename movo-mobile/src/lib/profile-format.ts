@@ -1,7 +1,10 @@
+import { MIN_RATINGS_FOR_ESTABLISHED_PROFILE } from "@movo/shared/dist/config/reputation";
+import { normalizeSearchText } from "./search-text";
 import type {
   ProfileRatingRole,
   RecentRatingComment,
   RecentRatingCommentsByRole,
+  ShipmentPartyRole,
 } from "@movo/shared/dist/types/user-profile";
 
 /**
@@ -81,11 +84,51 @@ export function formatRatingCount(count: number | null | undefined): string {
   return count === 1 ? "1 calificación" : `${count} calificaciones`;
 }
 
+/** Aviso de las calificaciones que faltan para mostrar el puntaje ("Te faltan 2 calificaciones…"). Con las que ya hay
+ * (`ratingCount`) más las que faltan se llega al umbral compartido con el backend. `""` si ya no falta ninguna. */
+export function formatRatingsMissing(ratingCount: number | null | undefined): string {
+  const have = isMissing(ratingCount) ? 0 : (ratingCount as number);
+  const missing = MIN_RATINGS_FOR_ESTABLISHED_PROFILE - have;
+  if (missing <= 0) return "";
+  return `${missing === 1 ? "Te falta 1 calificación" : `Te faltan ${missing} calificaciones`} para mostrar tu puntaje.`;
+}
+
 const RATING_DATE_FORMATTER = new Intl.DateTimeFormat("es-AR", {
   day: "numeric",
   month: "short",
   year: "numeric",
 });
+
+/** Rol de quien calificó, en el envío de esa reseña. `null`/ausente (envío que ya no lo ubica, o un backend anterior): no se muestra. */
+export function formatRaterRole(role: ShipmentPartyRole | null | undefined): string | null {
+  if (role === "sender") return "Emisor";
+  if (role === "carrier") return "Transportista";
+  if (role === "receiver") return "Receptor";
+  return null;
+}
+
+/**
+ * Si la reseña muestra la insignia con el rol de quien calificó: una sola regla para el carrusel y para "Ver todas".
+ * Solo cuando calificó el emisor o el receptor (o sea, el calificado era el transportista, que es donde distinguir
+ * quién fue aporta); las que hace el transportista no la llevan, porque siempre son suyas.
+ */
+export function shouldShowRaterRole(comment: Pick<RecentRatingComment, "raterRole">): boolean {
+  return comment.raterRole === "sender" || comment.raterRole === "receiver";
+}
+
+/** Nombre que pone `svc-users` cuando la cuenta de quien calificó ya no existe (MOVO-39): no es un nombre que se pueda buscar. */
+const DELETED_RATER_NAME = "Usuario de Movo";
+
+/** Reseñas cuyo calificador coincide con `query` (sin tildes ni mayúsculas, en cualquier parte del nombre). Búsqueda vacía: todas. */
+export function filterRatingsByRaterName(comments: RecentRatingComment[], query: string): RecentRatingComment[] {
+  const needle = normalizeSearchText(query.trim());
+  if (!needle) return comments;
+  return comments.filter((c) => {
+    // El texto de respaldo de una cuenta borrada no es lo que la persona recuerda: no matchea.
+    if (!c.raterName || c.raterName === DELETED_RATER_NAME) return false;
+    return normalizeSearchText(c.raterName).includes(needle);
+  });
+}
 
 /** Fecha de un comentario de calificación (MOVO-154, AC6) — mismo patrón de
  * `Intl.DateTimeFormat("es-AR", ...)` que `shipment-format.ts`/`trip-format.ts`. */

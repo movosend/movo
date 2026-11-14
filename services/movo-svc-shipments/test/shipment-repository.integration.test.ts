@@ -1007,6 +1007,8 @@ describe("shipment-repository (Postgres)", () => {
       // Solo sInTransit y sAssigned deben estar en activeShipmentIds (TRACKABLE_SHIPMENT_STATUSES)
       // sUnfunded (assigned_unfunded) y sDelivered (delivered) quedan excluidos del broadcast
       expect(context?.activeShipmentIds.sort()).toEqual([sAssigned.id, sInTransit.id].sort());
+      // MOVO-359: solo sAssigned espera su retiro; sInTransit ya lo hizo.
+      expect(context?.pendingPickupShipmentIds).toEqual([sAssigned.id]);
     });
   });
 });

@@ -120,14 +120,22 @@ class BackgroundTrackingManager {
     // Si el proceso fue relanzado headless por el OS y la memoria está vacía, restaurar desde disco (MOVO-242)
     if (this.activeShipmentIds.size === 0) {
       const persisted = await offlineQueueStorage.loadTrackingContext();
-      if (persisted && persisted.shipmentIds.length > 0) {
-        this.activeTripId = persisted.tripId;
-        this.activeShipmentIds = new Set(persisted.shipmentIds);
+      if (persisted.status === "found" && persisted.context.shipmentIds.length > 0) {
+        this.activeTripId = persisted.context.tripId;
+        this.activeShipmentIds = new Set(persisted.context.shipmentIds);
+      } else if (persisted.status === "unreadable") {
+        // No se sabe si el viaje sigue: se pierde este lote, pero no se frena la tarea, porque en
+        // segundo plano nadie la vuelve a arrancar y el emisor dejaría de ver el vehículo.
+        return;
+      } else {
+        // Se leyó bien y no queda ningún envío: la tarea quedó huérfana. El viaje terminó (o el
+        // backend rechazó el último envío y `removeShipment` lo sacó del contexto) con la app en
+        // segundo plano o cerrada, y el coordinador de primer plano, el otro que la frena, no
+        // corrió. Si no se frena acá, iOS sigue entregando posiciones que nadie usa y mantiene el
+        // indicador de ubicación prendido.
+        await this.stopBackgroundTracking();
+        return;
       }
-    }
-
-    if (this.activeShipmentIds.size === 0) {
-      return;
     }
 
     const newPositions: QueuedPosition[] = [];

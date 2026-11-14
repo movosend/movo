@@ -22,6 +22,9 @@ export interface ChatBubbleProps {
   /** Última burbuja del grupo: lleva el avatar (en las demás queda el hueco, como el prototipo). */
   showAvatar: boolean;
   groupStart: boolean;
+  /** `false` en las burbujas de una racha del mismo minuto salvo la última: la hora va una vez. Un
+   * mensaje enviándose o que falló muestra igual su estado. */
+  showTime?: boolean;
   avatar?: { fullName: string; photoUrl: string | null };
   /** Reemplaza al avatar de iniciales (el isotipo de Movo en el chat de soporte, MOVO-324). */
   avatarNode?: ReactNode;
@@ -134,6 +137,7 @@ function BubbleRow({
   showName,
   showAvatar,
   groupStart,
+  showTime = true,
   avatar,
   avatarNode,
   attachments,
@@ -224,8 +228,8 @@ function BubbleRow({
               <Text className="font-sans text-[11px] text-fg-3">Descartar</Text>
             </Pressable>
           </View>
-        ) : (
-          <View className="flex-row items-center px-1" style={{ gap: 5 }}>
+        ) : !showTime && !sending ? null : (
+          <View testID={`${testID}-meta`} className="flex-row items-center px-1" style={{ gap: 5 }}>
             <Text className="font-sans text-[11px] text-fg-3">{sending ? "Enviando…" : formatChatTime(message.createdAt)}</Text>
             {mine && status ? (
               <Pressable

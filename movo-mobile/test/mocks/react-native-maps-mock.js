@@ -20,8 +20,18 @@ function Marker(props) {
 
 // `coordinates` se conserva para poder verificar qué trazo se dibuja (ruta real,
 // recta de fallback o nada mientras carga).
+// Deja pasar el estilo de la línea para poder verificar color, grosor, capa y punteado (MOVO-355).
 function Polyline(props) {
-  return React.createElement(View, { testID: props.testID, coordinates: props.coordinates });
+  return React.createElement(View, {
+    testID: props.testID,
+    coordinates: props.coordinates,
+    strokeColor: props.strokeColor,
+    strokeWidth: props.strokeWidth,
+    zIndex: props.zIndex,
+    lineDashPattern: props.lineDashPattern,
+    // Para verificar que cada mapa recibe su propio objeto (MOVO-355).
+    animatedProps: props.animatedProps,
+  });
 }
 
 function Circle(props) {

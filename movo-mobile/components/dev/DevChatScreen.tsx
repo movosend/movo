@@ -76,7 +76,7 @@ function card(id: string, role: ChatParticipantRole, texts: { carrier: string; s
 }
 
 function scenarioData(id: ScenarioId, role: ChatParticipantRole, stage: number) {
-  const accepted = card("ev1", role, { carrier: "Aceptaste el envío", sender: "Diego aceptó el envío", receiver: "Diego aceptó el envío" }, at(14, 2));
+  const accepted = card("ev1", role, { carrier: "Paula aceptó tu oferta", sender: "Aceptaste la oferta de Diego", receiver: "Paula aceptó la oferta de Diego" }, at(14, 2));
   const pickup = card("ev2", role, { carrier: "Escaneaste el QR de retiro", sender: "Diego escaneó el QR de retiro", receiver: "Diego retiró el paquete" }, at(14, 30));
   const onTheWay = card("ev5", role, { carrier: "Saliste hacia Belgrano", sender: "Diego salió hacia Belgrano", receiver: "Diego salió hacia tu domicilio" }, at(14, 35), true);
   const arriving = card("ev6", role, { carrier: "Estás llegando al destino", sender: "Diego está llegando al destino", receiver: "Diego está llegando" }, at(15, 13), true);
@@ -190,6 +190,7 @@ export default function DevChatScreen() {
         showName={item.showName}
         showAvatar={item.showAvatar}
         groupStart={item.groupStart}
+        showTime={item.showTime}
         avatar={author ? { fullName: author.fullName, photoUrl: null } : undefined}
         onRetry={() => undefined}
         onDiscard={() => undefined}

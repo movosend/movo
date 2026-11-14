@@ -9,6 +9,7 @@ import {
   activeShipmentStatusLabel,
   activeShipmentStepIndex,
   activeShipmentSubtitle,
+  mergeActiveShipments,
 } from "../src/lib/active-shipment-format";
 
 function makeShipment(overrides: Partial<ActiveShipmentSummary> = {}): ActiveShipmentSummary {
@@ -115,6 +116,18 @@ describe("activeShipmentFooterText", () => {
       `${name} te lo trae`,
     );
   });
+
+  it("con el viaje del transportista en curso, emisor y receptor ven que ya salió a retirar", () => {
+    const name = "Lucía Gómez";
+    const started = makeShipment({ status: "assigned", tripStarted: true });
+    expect(activeShipmentFooterText("sending", started)).toBe(`${name} ya salió a retirar`);
+    expect(activeShipmentFooterText("receiving", started)).toBe(`${name} ya salió a retirar`);
+    expect(activeShipmentInfoText("receiving", started)).toBe("Ya salió a retirar el paquete.");
+    // Una vez retirado manda "en camino", haya o no viaje en curso.
+    expect(activeShipmentFooterText("receiving", makeShipment({ status: "in_transit", tripStarted: true }))).toBe(
+      `${name} te lo trae`,
+    );
+  });
 });
 
 describe("activeShipmentStepIndex", () => {
@@ -145,7 +158,7 @@ describe("activeShipmentDisplayCode", () => {
 
 describe("activeShipmentStatusLabel", () => {
   it("traduce los estados sin hora asociada", () => {
-    expect(activeShipmentStatusLabel(makeShipment({ status: "assigned" }))).toBe("Asignado");
+    expect(activeShipmentStatusLabel(makeShipment({ status: "assigned" }))).toBe("Por retirar");
     expect(activeShipmentStatusLabel(makeShipment({ status: "in_transit" }))).toBe("En camino");
   });
 
@@ -237,5 +250,56 @@ describe("activeShipmentSubtitle", () => {
     expect(
       activeShipmentSubtitle(makeShipment({ status: "in_transit", isToday: true }), now),
     ).toBe("Lucía Gómez");
+  });
+});
+
+describe("mergeActiveShipments (Envíos en curso: los dos lados juntos, por urgencia)", () => {
+  const ship = (id: string, overrides: Partial<ActiveShipmentSummary>): ActiveShipmentSummary =>
+    ({
+      id,
+      status: "assigned",
+      pickupDate: "2026-11-20",
+      pickupTimeWindowStart: "09:00",
+      pickupTimeWindowEnd: "12:00",
+      pickupAddress: "Córdoba 1200, Córdoba",
+      deliveryAddress: "San Martín 450, Córdoba",
+      agreedPriceArs: 4500,
+      counterparty: { name: "Lucía Gómez", initials: "LG" },
+      isToday: false,
+      pickupWindowExpired: false,
+      tripId: null,
+      transitAnomalyFlaggedAt: null,
+      ...overrides,
+    }) as ActiveShipmentSummary;
+
+  it("primero lo que pide acción hoy, después lo que pide acción, en camino, asignado y sin pago", () => {
+    const sending = [
+      ship("send-unfunded", { status: "assigned_unfunded" }),
+      ship("send-in-transit", { status: "in_transit" }), // el emisor solo mira el mapa: no pide acción
+      ship("send-pickup-later", { status: "assigned", pickupDate: "2026-11-25" }),
+      ship("send-pickup-today", { status: "assigned", isToday: true }),
+    ];
+    const receiving = [
+      ship("recv-assigned", { status: "assigned" }), // el receptor no tiene nada que hacer todavía
+      ship("recv-confirm", { status: "in_transit" }), // confirmar la entrega
+    ];
+
+    expect(mergeActiveShipments(sending, receiving).map(({ shipment, role }) => `${role}:${shipment.id}`)).toEqual([
+      "sending:send-pickup-today",
+      "receiving:recv-confirm",
+      "sending:send-pickup-later",
+      "sending:send-in-transit",
+      "receiving:recv-assigned",
+      "sending:send-unfunded",
+    ]);
+  });
+
+  it("una ventana de retiro vencida va al principio aunque no sea de hoy", () => {
+    const merged = mergeActiveShipments(
+      [ship("a", { status: "assigned", isToday: true })],
+      [ship("b", { status: "assigned", pickupWindowExpired: true })],
+    );
+    expect(merged.map(({ shipment }) => shipment.id)).toEqual(["a", "b"]);
+    // a igual urgencia (los dos en 0), manda la fecha de retiro y después el orden de llegada
   });
 });

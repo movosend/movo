@@ -107,7 +107,14 @@ describe("ratings.service — createRating (MOVO-146)", () => {
 
     expect(result.role).toBe(RatingRole.receiver);
     expect(ratingRepository.create).toHaveBeenCalledWith(
-      expect.objectContaining({ shipmentId: SHIPMENT_ID, raterId: SENDER_ID, rateeId: RECEIVER_ID, role: RatingRole.receiver, score: 5 }),
+      expect.objectContaining({
+        shipmentId: SHIPMENT_ID,
+        raterId: SENDER_ID,
+        rateeId: RECEIVER_ID,
+        role: RatingRole.receiver,
+        raterRole: RatingRole.sender,
+        score: 5,
+      }),
     );
     expect(notificationsClient.sendPush).toHaveBeenCalledWith(
       expect.objectContaining({ userId: RECEIVER_ID, data: { type: "rating_received", shipmentId: SHIPMENT_ID } }),
