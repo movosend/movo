@@ -195,4 +195,4 @@ wscat -c "wss://$HOST/api/v1/support/conversations/$ID" -H "authorization: Beare
 
 El lado del usuario (320) está implementado, ver la sección anterior.
 
-Todo lo de la bandeja del agente. El panel funciona hoy contra `MOVO_ADMIN_MOCK=1` (ver `movo-admin/CLAUDE.md`, entrada MOVO-323).
+Todo lo de la bandeja del agente. El panel funciona hoy contra `MOVO_ADMIN_MOCK=1` (ver `movo-admin/HISTORIAL.md`, entrada MOVO-323).

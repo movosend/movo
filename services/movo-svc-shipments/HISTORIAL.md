@@ -1155,7 +1155,7 @@ cuenta de día calendario argentino para su propia franja "de paso" client-side
 (`computeOnTripDetour`, sin backend que cruce el feed completo contra todos los
 viajes activos — ver más abajo) y la había reimplementado a mano. El cálculo puro se
 extrajo a `@movo/shared#toArgentinaCalendarDateString` (`(instant: Date | string) =>
-"YYYY-MM-DD"`, ver `shared/movo-shared/CLAUDE.md`); `toArgentinaCalendarDate` de este
+"YYYY-MM-DD"`, ver `shared/movo-shared/HISTORIAL.md`); `toArgentinaCalendarDate` de este
 servicio ahora es un wrapper de una línea sobre esa función compartida, solo
 reconstruye el `Date` anclado que necesita para comparar contra `@db.Date` en SQL.
 
@@ -2488,7 +2488,7 @@ Sub-issue de backend de MOVO-239/MOVO-240 (catálogo de push, separada de la mob
 MOVO-246). Los ~13 call sites de `sendPush` existentes (envíos/ofertas/viajes/
 calificaciones) pasan a usar el copy/categoría centralizados de `@movo/shared`
 (`renderNotificationTrigger`/`notificationTriggerCategory`, ver
-`shared/movo-shared/CLAUDE.md`) — `category` pasa a un campo obligatorio de
+`shared/movo-shared/HISTORIAL.md`) — `category` pasa a un campo obligatorio de
 `SendPushNotificationInput`, el enforcement real (toggle maestro/categoría/horario de
 silencio) vive del lado de `movo-svc-users`.
 
@@ -4047,4 +4047,8 @@ Mensajes señalados: ventana móvil de 7 días, porque ni un mensaje moderado ni
 
 ### MOVO-35 — Operación: publicados, cancelaciones por causa y oferta/demanda por ciudad (DD-059)
 
-`GET /internal/admin/reports/operations` (`admin-reports.routes.ts`, `operationsFacts` en `admin-reports-repository.ts`, cálculo en `domain/operations-report.ts`) con `city` opcional (ciudad del retiro). La causa de cada cancelación sale del evento `-> cancelled` (`domain/cancellation-cause.ts`, adonde se mudó `SANCTION_WITHDRAWAL_REASON`), sin leer el texto del motivo salvo en la sanción. La oferta/demanda usa la foto del pricing al publicar y no recalcula `countAvailableCarriersNear`, que mide el momento de la consulta. Para eso `quoteShipment` devuelve el `DemandContext` que contó, que viaja en la cotización congelada y se guarda en `demand_published_shipments`/`demand_available_carriers` (migración `20261111120000`, sin backfill: los envíos anteriores solo tienen el `demandRatio` del desglose). `cities` ignora el filtro: es la lista del selector del panel.
+`GET /internal/admin/reports/operations` (`admin-reports.routes.ts`, `operationsFacts` en `admin-reports-repository.ts`, cálculo en `domain/operations-report.ts`) con `city` opcional (ciudad del retiro). La causa de cada cancelación sale del evento `-> cancelled` (`domain/cancellation-cause.ts`), sin leer el texto del motivo. La oferta/demanda usa la foto del pricing al publicar y no recalcula `countAvailableCarriersNear`, que mide el momento de la consulta. Para eso `quoteShipment` devuelve el `DemandContext` que contó, que viaja en la cotización congelada y se guarda en `demand_published_shipments`/`demand_available_carriers` (migración `20261114120000`, sin backfill: los envíos anteriores solo tienen el `demandRatio` del desglose). `cities` ignora el filtro: es la lista del selector del panel.
+
+### Review de PR #342 — Operación: sanción estructurada, demanda y ciudades que cayeron a cero
+
+`ShipmentEvent.sanctionWithdrawal` (columna `sanction_withdrawal`, en la misma migración `20261114120000`, con backfill por el motivo exacto del propio emisor): la marca `cancelShipment` solo cuando lo llama `sanction-effects` (`admin-internal.routes.ts`), y `cancellationCauseOf` ya no compara el texto del motivo, que el emisor escribe libre. Un envío cotizado sin conteo de demanda tiene `highDemand = null` en el reporte (pricing manda `false`, que no es una medición), así los tres indicadores de demanda miden la misma población; se lee `demand_published_shipments` para distinguirlo. El desglose por ciudad conserva las que solo publicaron en el período anterior. `boundsOf`/`round2` del repositorio pasaron a `reportRangeBounds`/`reportRound` de `@movo/shared`.

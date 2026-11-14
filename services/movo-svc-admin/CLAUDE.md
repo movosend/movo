@@ -282,6 +282,7 @@ Misma PR que MOVO-344. `modules/reports/` registra `GET /admin/reports/:report` 
 - **El puente y la cascada cierran exacto**: se calculan en centavos; el redondeo del puente lo absorbe `other`.
 - `report-csv.ts` reemplaza a `disputes-report-csv.ts`, con las columnas de `movo-admin/lib/reports/csv.ts`.
 - **`operations` y `finance`** (resto de MOVO-35): `operations` lo calcula `svc-shipments` (`getOperationsReport`) y es el único reporte con `city`, la ciudad del retiro; `finance` lo calcula `svc-payments` (`getFinanceReport`), sin cruzar con envíos. Ninguno se filtra por distancia (`reportAppliesBand`). La sección `settlements` del export pide las filas aparte (`listFinanceReportRows`, con el tope de `CSV_MAX_ROWS` y aviso) y su CSV es de ids y montos. Fastify descarta un `city` en otro reporte en vez de responder 400, igual que el resto de los parámetros que el schema no declara.
+- Review de PR #342: `finance` suma `refundsToLedger` al schema de respuesta y `refunded_to_ledger_ars` al CSV de liquidaciones (`report-csv.ts`).
 - Pendiente: probarlo contra el panel en dev.
 
 ### Cola de revisión manual de KYC — `/admin/kyc/reviews` (DD-064)
