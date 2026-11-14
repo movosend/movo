@@ -16,10 +16,10 @@ tests, chequea si falta un ADR, y actualiza el historial del paquete que tocaste
 
 - Al terminar una US/PR que agregue una decisión de diseño, un servicio nuevo, o cambie
   una convención: sumá una entrada al historial del paquete/servicio que tocaste —
-  `HISTORIAL.md` en `movo-mobile` y en `services/movo-svc-{users,shipments,payments}`
-  (no se cargan solos, el `CLAUDE.md` de cada uno apunta ahí), y la sección **"Estado
-  actual de la implementación"** del `CLAUDE.md` en el resto (`gateway`,
-  `shared/movo-shared`, `services/movo-svc-{pricing-logistics,admin}`) — con una entrada corta (qué se hizo, en qué archivos,
+  `HISTORIAL.md` en `movo-mobile`, `movo-admin`, `shared/movo-shared` y en
+  `services/movo-svc-{users,shipments,payments}` (no se cargan solos, el `CLAUDE.md` de
+  cada uno apunta ahí), y la sección **"Estado actual de la implementación"** del
+  `CLAUDE.md` en el resto (`gateway`, `services/movo-svc-{pricing-logistics,admin}`) — con una entrada corta (qué se hizo, en qué archivos,
   qué queda pendiente/fuera de alcance). Si la US es transversal a varios servicios o es
   una decisión de infraestructura/proceso, va en la sección homónima de este archivo
   raíz en su lugar. No dupliques el detalle que ya está en el commit o en la descripción
@@ -282,8 +282,9 @@ un área concreta va en el `CLAUDE.md` de esa carpeta (`infra/` para nginx y Web
 - `services/movo-svc-pricing-logistics/CLAUDE.md`
 - `services/movo-svc-payments/HISTORIAL.md`
 - `services/movo-svc-admin/CLAUDE.md`
-- `shared/movo-shared/CLAUDE.md`
+- `shared/movo-shared/HISTORIAL.md`
 - `movo-mobile/HISTORIAL.md`
+- `movo-admin/HISTORIAL.md`
 
 ### Pendientes transversales
 
@@ -378,4 +379,4 @@ persistir el `mercadopago_fee` real del hold/captura para mostrar el monto exact
   comisión de Movo) sí está confirmado. Candidato a ADR corto (primera config de
   negocio compartida vía `@movo/shared` en vez de por `envSchema` de un servicio) —
   todavía no escrito, ver `services/movo-svc-shipments/HISTORIAL.md` (MOVO-143) y
-  `shared/movo-shared/CLAUDE.md` para el detalle de la decisión.
+  `shared/movo-shared/HISTORIAL.md` para el detalle de la decisión.

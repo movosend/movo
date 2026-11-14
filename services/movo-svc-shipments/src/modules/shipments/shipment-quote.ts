@@ -36,8 +36,9 @@ export async function quoteShipment(deps: ShipmentQuoteDeps, input: ShipmentQuot
     return NO_QUOTE;
   }
   const demandContext = await countDemand(deps, input);
-  // MOVO-35: el desglose se guarda con el envío, para abrir el precio por componente en las métricas.
-  return deps.pricingClient.getQuote({ ...input, includeBreakdown: true, ...(demandContext ? { demandContext } : {}) });
+  // MOVO-35: el desglose y los conteos de demanda se guardan con el envío, para las métricas del panel.
+  const quote = await deps.pricingClient.getQuote({ ...input, includeBreakdown: true, ...(demandContext ? { demandContext } : {}) });
+  return demandContext ? { ...quote, demandContext } : quote;
 }
 
 async function countDemand(deps: ShipmentQuoteDeps, input: ShipmentQuoteInput): Promise<DemandContext | undefined> {

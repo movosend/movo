@@ -897,3 +897,11 @@ un hold se pasa de plazo cuando le quedan menos de 6 h, no por antigüedad. Una 
 ### Feedback de TestFlight build 18 — lo que le quedó al transportista en Cobros
 
 `TransactionListItem.receivedArs`/`receivedIsEstimate`, solo con `role=carrier` (`receivedAmount` en `transactions.service.ts`): neto real si está acreditado, estimado (precio menos `hold_commission_ars` menos `estimateReceivedArs`) si no, precio menos comisión en efectivo, y `null` si se liberó, se reembolsó o está en disputa, aunque se haya acreditado antes. El estimado no usa `holds.mp_fee_ars` porque ese fee es sobre el total con el recargo del emisor (MOVO-311).
+
+### MOVO-35 — Reporte financiero para el panel (DD-059)
+
+`GET /internal/payments/admin/reports/finance` y `/rows` (`modules/settlements/admin-finance-report.routes.ts`), solo con lo de este servicio. Lo cobrado, la comisión, el fee de MP y el neto van por `captured_at` y solo con la liquidación `credited`, que es cuando esos campos se completan juntos. `processing` y `escalated` se cuentan aparte. Los reembolsos terminados se suman por `completed_at` (`succeeded` y `fallback_to_ledger`). La deuda abierta se calcula al cierre de cada período con el criterio de `readLedgerBalance`. Las filas del CSV llevan ids y montos, sin el transportista. Todo se calcula en SQL por intervalo, así el total y sus buckets no pueden medir distinto.
+
+### Review de PR #342 — Finanzas: reembolsos, deuda cobrada, pendientes y una sola pasada por el ledger
+
+`admin-finance-report.routes.ts`. `refunded` cuenta solo `succeeded`; un `fallback_to_ledger` va en `refundsToLedger` (el emisor no cobró nada y el monto ya entra en `debtGenerated` como deuda del transportista), y se fue el desglose `refundStatus`. `debtCollected` filtra por los tipos que pagan deuda (`DEBT_PAYMENT_TYPES`): una `cancellation_compensation` o un ajuste a favor bajan el saldo pero no son cobro. `pendingConfirmation`/`escalated` ya no se acotan al rango: lo que sigue abierto desde antes también falta en los totales. La foto de la cuenta corriente (deuda abierta, deudores, saldo a favor) sale de una window function con el saldo acumulado por usuario y los aportes de cada movimiento a cada agregado, en vez de un `GROUP BY` del ledger entero por intervalo (eran ~65 por carga en un rango de 31 días). El CSV suma `refunded_to_ledger_ars`.

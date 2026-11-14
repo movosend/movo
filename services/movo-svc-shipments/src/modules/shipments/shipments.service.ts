@@ -1428,8 +1428,8 @@ export function createShipmentsService(
         "Los datos del envío cambiaron después de cotizar. Volvé a cotizar el envío."
       );
     }
-    const { suggestedPriceArs, calculationMethod, highDemand, breakdown } = result.quote;
-    return { suggestedPriceArs, calculationMethod, highDemand, ...(breakdown ? { breakdown } : {}) };
+    const { suggestedPriceArs, calculationMethod, highDemand, breakdown, demandContext } = result.quote;
+    return { suggestedPriceArs, calculationMethod, highDemand, ...(breakdown ? { breakdown } : {}), ...(demandContext ? { demandContext } : {}) };
   }
 
   return {
@@ -1461,6 +1461,7 @@ export function createShipmentsService(
         highDemand: quote.highDemand,
         calculationMethod: quote.calculationMethod,
         ...(quote.breakdown ? { breakdown: quote.breakdown } : {}),
+        ...(quote.demandContext ? { demandContext: quote.demandContext } : {}),
         fingerprint: quoteFingerprint(input),
       });
       return {
@@ -1594,6 +1595,8 @@ export function createShipmentsService(
           quote.breakdown?.distanceKm ??
           roadDistanceEstimateKm(input.pickupLat, input.pickupLng, input.deliveryLat, input.deliveryLng),
         quoteBreakdown: quote.breakdown ?? null,
+        demandPublishedShipments: quote.demandContext?.publishedShipments ?? null,
+        demandAvailableCarriers: quote.demandContext?.availableCarriers ?? null,
         receiverConfirmationDeadline,
         paymentMethod,
       });
@@ -2385,7 +2388,7 @@ export function createShipmentsService(
       callerId: string,
       reason?: string,
       expectedPenaltyArs?: number,
-      options: { onlyFrom?: readonly ShipmentStatus[]; admin?: AdminStatusActor } = {}
+      options: { onlyFrom?: readonly ShipmentStatus[]; admin?: AdminStatusActor; sanctionWithdrawal?: boolean } = {}
     ): Promise<Shipment> {
       const shipment = await repository.findById(shipmentId);
       if (!shipment) {
@@ -2479,6 +2482,7 @@ export function createShipmentsService(
         expectedFrom: previousStatus,
         ...(penaltyArs > 0 ? { cancellationPenaltyArs: penaltyArs } : {}),
         ...(options.admin ? { adminActor: { kind: options.admin.kind, name: options.admin.adminName } } : {}),
+        ...(options.sanctionWithdrawal ? { sanctionWithdrawal: true } : {}),
       });
 
       // MOVO-210 (AC12): mientras la asignación espera el pago puede haber un hold ya creado (el

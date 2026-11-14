@@ -52,6 +52,8 @@ describe("quoteShipment (MOVO-138)", () => {
       demandContext: { publishedShipments: 9, availableCarriers: 2 },
     });
     expect(result.suggestedPriceArs).toBe(2256);
+    // MOVO-35: lo que contó viaja con el resultado, para guardarlo con el envío.
+    expect(result.demandContext).toEqual({ publishedShipments: 9, availableCarriers: 2 });
   });
 
   it("si el conteo falla, cotiza igual sin demandContext (sin recargo) y lo loguea", async () => {
@@ -65,6 +67,7 @@ describe("quoteShipment (MOVO-138)", () => {
       expect.any(String)
     );
     expect(result.suggestedPriceArs).toBe(2256);
+    expect(result.demandContext).toBeUndefined();
   });
 
   it("sin tripRepository no puede contar oferta: cotiza sin demandContext", async () => {

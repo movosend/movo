@@ -604,7 +604,7 @@ export default async function adminInternalRoutes(app: FastifyInstance, opts: Ad
     offerRepository,
     tripRepository: createTripRepository(app.db),
     cancelShipment: (shipmentId, senderId, reason, onlyFrom) =>
-      shipmentsService.cancelShipment(shipmentId, senderId, reason, undefined, { onlyFrom }),
+      shipmentsService.cancelShipment(shipmentId, senderId, reason, undefined, { onlyFrom, sanctionWithdrawal: true }),
     notificationsClient,
     logger: app.log,
   });

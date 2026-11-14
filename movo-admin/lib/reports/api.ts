@@ -64,6 +64,7 @@ function fileFrom(
 const reportQuery = (query: AdminReportQuery, section?: string) => {
   const q = new URLSearchParams({ from: query.from, to: query.to })
   if (query.band) q.set("band", query.band)
+  if (query.city) q.set("city", query.city)
   if (section) q.set("section", section)
   return q.toString()
 }

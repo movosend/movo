@@ -122,6 +122,10 @@ describe("POST /shipments/quote + POST /shipments con quoteId (Postgres + Redis)
       calculationMethod: "demand_fuel_routes_v1",
     });
     expect(pricingClient.getQuote).not.toHaveBeenCalled();
+    // MOVO-35: los conteos de demanda vienen de la cotización congelada, no de un conteo nuevo.
+    const row = await app.db.shipment.findUniqueOrThrow({ where: { id: response.json().id } });
+    expect(row.demandPublishedShipments).toEqual(expect.any(Number));
+    expect(row.demandAvailableCarriers).toEqual(expect.any(Number));
   });
 
   it("AC3: un quoteId no se puede usar dos veces", async () => {

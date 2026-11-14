@@ -9,6 +9,8 @@ const BAND_SLOTS = [1, 3, 4]
 
 function slotOf(dimension: string, key: string): number | null {
   if (key === "other") return null
+  // Las ciudades no son un catálogo fijo: un solo tono, salvo "Sin ciudad" y "Otras", que van en el borde.
+  if (dimension === "city") return key.startsWith("__") ? null : 1
   if (dimension === "band") {
     const i = (DISTANCE_BANDS as readonly string[]).indexOf(key)
     return i >= 0 ? BAND_SLOTS[i] : null

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type Redis from "ioredis";
-import { PriceCalculationMethod, ShipmentQuoteRequest, QuoteBreakdown } from "@movo/shared";
+import { DemandContext, PriceCalculationMethod, ShipmentQuoteRequest, QuoteBreakdown } from "@movo/shared";
 
 /**
  * Vida de una cotización congelada (MOVO-255, DD-028). El resumen es el último paso
@@ -19,6 +19,8 @@ export interface FrozenQuote {
   calculationMethod: PriceCalculationMethod;
   /** Opcional: una cotización congelada antes de MOVO-35 sigue en Redis hasta que vence. */
   breakdown?: QuoteBreakdown;
+  /** MOVO-35: opcional por lo mismo que `breakdown`, y porque sin conteo se cotiza igual. */
+  demandContext?: DemandContext;
   fingerprint: string;
 }
 

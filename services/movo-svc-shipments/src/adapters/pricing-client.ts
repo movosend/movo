@@ -33,6 +33,8 @@ export interface QuoteResult {
   highDemand: boolean | null;
   /** Solo si se pidió `includeBreakdown` y pricing lo devolvió. */
   breakdown?: QuoteBreakdown;
+  /** MOVO-35: lo que contó `quoteShipment` antes de llamar a pricing; el cliente HTTP nunca lo completa. */
+  demandContext?: DemandContext;
 }
 
 export interface PricingClient {

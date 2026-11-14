@@ -1,6 +1,8 @@
 import {
   ADMIN_REPORT_IDS,
   DISTANCE_BANDS,
+  OPERATIONS_CITY_MAX_LENGTH,
+  reportAppliesCity,
   type AdminReportId,
   type DistanceBand,
   type ReportRange,
@@ -20,7 +22,7 @@ const one = (v: string | string[] | undefined) =>
   (Array.isArray(v) ? v[0] : v) ?? null
 
 // ---------------------------------------------------------------------------------------------
-// Métricas: `/metrics?tab=&r=&d=&desde=&hasta=&from=&datos=`
+// Métricas: `/metrics?tab=&r=&d=&c=&desde=&hasta=&from=&datos=`
 // ---------------------------------------------------------------------------------------------
 
 export interface MetricsState {
@@ -30,6 +32,8 @@ export interface MetricsState {
   from: string | null
   to: string | null
   band: DistanceBand | null
+  /** Ciudad del punto de retiro (`c=`): solo la usa Operación. */
+  city: string | null
   /** Disputa desde la que se llegó (resalta su motivo en el desglose). */
   dispute: string | null
   /**
@@ -45,6 +49,7 @@ export const EMPTY_METRICS_STATE: MetricsState = {
   from: null,
   to: null,
   band: null,
+  city: null,
   dispute: null,
   demo: false,
 }
@@ -58,11 +63,13 @@ export function parseMetricsState(raw: Raw): MetricsState {
   const from = one(raw.desde)
   const to = one(raw.hasta)
   const dispute = one(raw.from)
+  const city = (one(raw.c) ?? "").trim()
   const custom = preset === "custom" && isDay(from) && isDay(to)
+  const resolvedTab = ADMIN_REPORT_IDS.includes(tab as AdminReportId)
+    ? (tab as AdminReportId)
+    : DEFAULT_TAB
   return {
-    tab: ADMIN_REPORT_IDS.includes(tab as AdminReportId)
-      ? (tab as AdminReportId)
-      : DEFAULT_TAB,
+    tab: resolvedTab,
     preset: custom
       ? "custom"
       : RANGE_PRESETS.includes(preset as RangePreset) && preset !== "custom"
@@ -73,6 +80,12 @@ export function parseMetricsState(raw: Raw): MetricsState {
     band: DISTANCE_BANDS.includes(band as DistanceBand)
       ? (band as DistanceBand)
       : null,
+    city:
+      reportAppliesCity(resolvedTab) &&
+      city &&
+      city.length <= OPERATIONS_CITY_MAX_LENGTH
+        ? city
+        : null,
     dispute: dispute && UUID.test(dispute) ? dispute : null,
     demo: one(raw.datos) === "demo",
   }
@@ -87,6 +100,7 @@ export function metricsQuery(state: MetricsState): string {
     q.set("hasta", state.to)
   }
   if (state.band) q.set("d", state.band)
+  if (state.city && reportAppliesCity(state.tab)) q.set("c", state.city)
   if (state.dispute && state.tab === "disputes") q.set("from", state.dispute)
   if (state.demo) q.set("datos", "demo")
   return q.toString()

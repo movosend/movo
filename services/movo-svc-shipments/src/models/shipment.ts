@@ -182,6 +182,9 @@ export interface CreateShipmentInput {
   /** MOVO-35: para las métricas del panel. */
   distanceKm?: number | null;
   quoteBreakdown?: QuoteBreakdown | null;
+  /** MOVO-35: el `DemandContext` de la cotización. */
+  demandPublishedShipments?: number | null;
+  demandAvailableCarriers?: number | null;
   receiverConfirmationDeadline?: Date | null;
   /** MOVO-325: ciudad del retiro/entrega (reverse geocoding), `null`/ausente si no se pudo resolver. */
   pickupCity?: string | null;

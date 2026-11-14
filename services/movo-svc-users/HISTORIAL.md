@@ -738,7 +738,7 @@ dato de solo lectura, y una insignia de verificado junto al teléfono):
 `toPrivateProfile()` (`src/models/user-profile.ts`) ahora mapea `user.dni` y
 `user.phoneVerified`, y `privateProfileResponse` (`src/modules/users/users.schema.ts`) los
 declara como `["string", "null"]` y `boolean`, ambos requeridos. El tipo compartido cambió en el mismo commit
-(ver `shared/movo-shared/CLAUDE.md`).
+(ver `shared/movo-shared/HISTORIAL.md`).
 
 No se tocó ningún endpoint de escritura: `patchProfileBody` sigue aceptando solo
 `firstName`/`lastName`, así que mandar `dni` en el `PATCH /users/me` es 400
@@ -1023,7 +1023,7 @@ este entorno.
 ### MOVO-245 — Preferencias de notificación push: modelo, endpoints y enforcement
 
 Sub-issue de backend de MOVO-239/MOVO-240 (catálogo de push, ver
-`shared/movo-shared/CLAUDE.md`). Módulo nuevo `notification-preferences/`:
+`shared/movo-shared/HISTORIAL.md`). Módulo nuevo `notification-preferences/`:
 
 - **Dos tablas nuevas de Prisma**: `NotificationPreference` (toggle maestro
   `pushEnabled` + horario de silencio, una fila por usuario con defaults explícitos —
@@ -1176,7 +1176,7 @@ sampleFirstNames: [] }`.
 Cuatro avisos push nuevos, sobre el modelo de preferencias de MOVO-245: resultado de la verificación
 de identidad/licencia (aprobada, rechazada, en revisión) y cambio confirmado de contraseña, email y
 teléfono. Las categorías `kyc` y `account_security` pasan a `implemented: true` (ver
-`shared/movo-shared/CLAUDE.md`), así que aparecen con toggle real en la pantalla de MOVO-246 sin
+`shared/movo-shared/HISTORIAL.md`), así que aparecen con toggle real en la pantalla de MOVO-246 sin
 tocar mobile. Todo sale por `notifications/send-trigger-push.ts#sendTriggerPush` (renderiza el trigger de
 `@movo/shared`, llama a `sendPushToUser` y se traga cualquier error con un `warn`: el equivalente de
 `sendCustodyPush` de `svc-shipments`).

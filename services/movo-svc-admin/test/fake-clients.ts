@@ -155,7 +155,7 @@ export function createFakeShipmentsClient(data: {
   disputesReportSeen?: Array<{ from: string; to: string; limit?: number; band?: string }>;
   /** MOVO-35: lo que devuelve `getOwnedReport` por reporte, y los envíos para Cashflow y Precio. */
   ownedReports?: Record<string, unknown>;
-  ownedReportsSeen?: Array<{ id: string; band?: string }>;
+  ownedReportsSeen?: Array<{ id: string; band?: string; city?: string }>;
   reportFacts?: ShipmentReportFact[];
   auditTargets?: AuditTargetsResponse;
   auditTargetsSeen?: AuditTargetsRequest[];
@@ -174,6 +174,13 @@ export function createFakeShipmentsClient(data: {
     async getShipmentReportFacts() {
       if (data.down) throw shipmentsDown();
       return { items: data.reportFacts ?? [] };
+    },
+    async getOperationsReport(_range, _ctx, city) {
+      if (data.down) throw shipmentsDown();
+      data.ownedReportsSeen?.push({ id: "operations", ...(city ? { city } : {}) });
+      const report = data.ownedReports?.operations;
+      if (!report) throw new Error("fake: falta el reporte operations");
+      return report as Awaited<ReturnType<ShipmentsClient["getOperationsReport"]>>;
     },
     async getDisputesReport(range, _ctx, band) {
       if (data.down) throw shipmentsDown();
@@ -634,7 +641,13 @@ export function createFakeUsersClient(
 
 /** MOVO-294: cuenta corriente y Mercado Pago. El ajuste es idempotente por key, como el real. */
 export function createFakePaymentsClient(
-  data: { reportFacts?: PaymentReportFact[]; overview?: OverviewInboxSource<OverviewPaymentsExtra>; holds?: Record<string, HoldDetailResponse>; ledgers?: Record<string, AdminUserLedgerRowPage>; mercadoPago?: Record<string, AdminUserMercadoPago>; down?: boolean } = {},
+  data: {
+    reportFacts?: PaymentReportFact[];
+    /** MOVO-35: el reporte de Finanzas y sus filas; `financeRowsSeen` guarda el tope con que se pidieron. */
+    financeReport?: Awaited<ReturnType<PaymentsClient["getFinanceReport"]>>;
+    financeRows?: Awaited<ReturnType<PaymentsClient["listFinanceReportRows"]>>;
+    financeRowsSeen?: number[];
+    overview?: OverviewInboxSource<OverviewPaymentsExtra>; holds?: Record<string, HoldDetailResponse>; ledgers?: Record<string, AdminUserLedgerRowPage>; mercadoPago?: Record<string, AdminUserMercadoPago>; down?: boolean } = {},
 ) {
   const adjustments = new Map<string, { body: LedgerAdjustmentRequest; id: string; createdAt: string }>();
   const client: PaymentsClient = {
@@ -642,6 +655,16 @@ export function createFakePaymentsClient(
     async getReportFacts() {
       if (data.down) throw paymentsDown();
       return { items: data.reportFacts ?? [] };
+    },
+    async getFinanceReport() {
+      if (data.down) throw paymentsDown();
+      if (!data.financeReport) throw new Error("fake: falta financeReport");
+      return data.financeReport;
+    },
+    async listFinanceReportRows(_range, limit) {
+      if (data.down) throw paymentsDown();
+      data.financeRowsSeen?.push(limit);
+      return data.financeRows ?? { items: [], truncated: false };
     },
     async getOverview() {
       if (data.down) throw paymentsDown();

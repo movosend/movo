@@ -1,4 +1,4 @@
-import { PAYMENT_REPORT_FACTS_MAX_IDS, PaymentReportFactsResponse, AdminUserLedgerRow, AdminUserLedgerRowPage, AdminUserMercadoPago, HoldDetailResponse, OverviewInboxSource, OverviewPaymentsExtra } from "@movo/shared";
+import { FinanceReport, FinanceReportRowsResponse, ReportRange, ReportSource, PAYMENT_REPORT_FACTS_MAX_IDS, PaymentReportFactsResponse, AdminUserLedgerRow, AdminUserLedgerRowPage, AdminUserMercadoPago, HoldDetailResponse, OverviewInboxSource, OverviewPaymentsExtra } from "@movo/shared";
 import { createInternalClient, InternalClient, isNullableString, isOverviewInboxSource, isRecord, isString, RequestContext } from "./internal-client";
 
 /** Lo que manda `svc-admin` al alta de un ajuste manual (DD-044). */
@@ -19,6 +19,10 @@ export interface LedgerAdjustmentResponse {
 export interface PaymentsClient extends InternalClient {
   /** MOVO-35: el cobro de cada envío, para Cashflow y Precio y volumen. */
   getReportFacts(shipmentIds: string[], ctx: RequestContext): Promise<PaymentReportFactsResponse>;
+  /** MOVO-35 B7-B8: `GET /internal/payments/admin/reports/finance`. */
+  getFinanceReport(range: ReportRange, ctx: RequestContext): Promise<ReportSource<FinanceReport>>;
+  /** MOVO-35 B9: una fila por liquidación del rango, para el CSV. Corta en `limit`, con aviso. */
+  listFinanceReportRows(range: ReportRange, limit: number, ctx: RequestContext): Promise<FinanceReportRowsResponse>;
   /** MOVO-294: `GET /internal/payments/mp-connect/:userId/admin-summary`. */
   getUserMercadoPago(userId: string, ctx: RequestContext): Promise<AdminUserMercadoPago>;
   /** MOVO-294: `GET /internal/payments/users/:userId/admin-ledger`. */
@@ -90,6 +94,23 @@ export function createPaymentsClient(config: { PAYMENTS_SERVICE_URL: string }): 
       };
       await Promise.all(Array.from({ length: Math.min(REPORT_FACTS_CONCURRENCY, batches.length) }, worker));
       return { items: results.flat() };
+    },
+    async getFinanceReport(range, ctx) {
+      const report = await client.request(`/internal/payments/admin/reports/finance?${new URLSearchParams({ ...range })}`, ctx, {
+        isValid: (body: unknown): body is ReportSource<FinanceReport> =>
+          isRecord(body) && isRecord(body.meta) && isRecord(body.kpis) && isRecord(body.series) && Array.isArray(body.breakdowns) && isRecord(body.debt),
+        notFoundCodes: [],
+      });
+      if (!report) throw new Error("getFinanceReport: respuesta vacía");
+      return report;
+    },
+    async listFinanceReportRows(range, limit, ctx) {
+      const rows = await client.request(`/internal/payments/admin/reports/finance/rows?${new URLSearchParams({ ...range, limit: String(limit) })}`, ctx, {
+        isValid: (body: unknown): body is FinanceReportRowsResponse => isRecord(body) && Array.isArray(body.items) && typeof body.truncated === "boolean",
+        notFoundCodes: [],
+      });
+      if (!rows) throw new Error("listFinanceReportRows: respuesta vacía");
+      return rows;
     },
     async getOverview(ctx) {
       const inbox = await client.request("/internal/payments/admin/overview", ctx, { isValid: isOverviewInboxSource<OverviewPaymentsExtra>, notFoundCodes: [] });

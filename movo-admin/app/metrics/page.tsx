@@ -2,7 +2,11 @@ import { cache, Suspense } from "react"
 import type { Metadata } from "next"
 import Link from "next/link"
 import { Scale, TriangleAlert, X } from "lucide-react"
-import type { AdminReportId } from "@movo/shared/src/types/admin-reports"
+import {
+  reportAppliesBand,
+  reportAppliesCity,
+  type AdminReportId,
+} from "@movo/shared/src/types/admin-reports"
 import { publicError } from "@/lib/auth/api"
 import { requireAdmin } from "@/lib/auth/session"
 import { sidebarDefaultOpen } from "@/lib/sidebar"
@@ -54,7 +58,7 @@ export default async function Page({
             state={state}
             range={range}
             today={today}
-            bandApplied={state.tab !== "support"}
+            bandApplied={reportAppliesBand(state.tab)}
           />
           {state.tab === "disputes" && state.dispute && (
             <Suspense fallback={null}>
@@ -94,7 +98,8 @@ async function ReportBody({
     id,
     {
       ...range,
-      ...(state.band && id !== "support" ? { band: state.band } : {}),
+      ...(state.band && reportAppliesBand(id) ? { band: state.band } : {}),
+      ...(state.city && reportAppliesCity(id) ? { city: state.city } : {}),
     },
     { demo: state.demo }
   ).then(
@@ -110,6 +115,7 @@ async function ReportBody({
         report={result.report}
         highlight={highlight}
         demo={state.demo}
+        state={state}
       />
     )
   return (

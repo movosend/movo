@@ -3,7 +3,9 @@ import { useTransition } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
+  Activity,
   Headset,
+  Landmark,
   LinkIcon,
   PackageCheck,
   Route,
@@ -32,6 +34,8 @@ const TAB_ICON: Record<ReportTab["icon"], LucideIcon> = {
   Route,
   Headset,
   Scale,
+  Activity,
+  Landmark,
 }
 
 function Segmented<T extends string | null>({

@@ -130,7 +130,7 @@ código) — el ticket arrancó recién cuando el PR de MOVO-83 se mergeó a `de
 
 Decisiones clave:
 - **`Address`/`CreateAddressInput`/`UpdateAddressInput` migrados a `@movo/shared`**
-  (`src/types/address.ts`, ver `shared/movo-shared/CLAUDE.md`) — antes duplicados a
+  (`src/types/address.ts`, ver `shared/movo-shared/HISTORIAL.md`) — antes duplicados a
   mano en `addresses-client.ts` contra un contrato "propuesto" (MOVO-83, escrito
   antes de que MOVO-119 backend existiera) que ya no coincidía del todo con el real
   (`label`/`isDefault` opcionales en el alta, `isDefault` solo acepta `true` en el
@@ -499,7 +499,7 @@ Ajustes pedidos durante la implementación (feedback del usuario, ya aplicados):
   `ProfilePrivateSection` — tenerlo en las dos pantallas duplicaba la misma información y
   dos puntos de entrada para la misma acción.
 - **DNI visible y de solo lectura** en el formulario, junto al nombre. Requirió agregarlo a
-  `PrivateProfile` (ver `shared/movo-shared/CLAUDE.md` y el de `svc-users`): estaba excluido
+  `PrivateProfile` (ver `shared/movo-shared/HISTORIAL.md` y el de `svc-users`): estaba excluido
   a propósito desde MOVO-77 "hasta confirmar con quien implemente MOVO-31 si hace falta", y
   esta US es esa confirmación. Nunca editable, con candado y copy explicando por qué.
 - **Se eliminó el botón Guardar** a pedido del usuario, con razón: gobernaba solo dos campos
@@ -531,7 +531,7 @@ siempre eso.
 
 **Cierre del email (MOVO-139, backend ya en `develop`): insignia y CTA de verificar
 email.** Con `EmailProvider`/`emailVerified` ya reales (ver `services/
-movo-svc-users/CLAUDE.md` y `shared/movo-shared/CLAUDE.md`), la fila de email en
+movo-svc-users/CLAUDE.md` y `shared/movo-shared/HISTORIAL.md`), la fila de email en
 `edit.tsx` deja de estar coja: muestra el mismo chip lime `Verificado` que el teléfono
 cuando `profile.emailVerified` es `true`, y un chip outline `Verificar` cuando no —
 para las cuentas creadas antes de este ticket, que quedaron todas en `false` por
@@ -3636,7 +3636,7 @@ en settings" (`Notificaciones.dc.html`).
   `custody`/`offers`/`ratings`/`shipments` (sección "sending") y `trips` (sección
   "carrying"); "Pronto" → `proximity`/`payments` (sending), `kyc`/`account_security`
   (account), `chat`/`disputes` (conversations). MOVO-274 pasó después `kyc` y
-  `account_security` a implementadas (ver `shared/movo-shared/CLAUDE.md`): hoy los
+  `account_security` a implementadas (ver `shared/movo-shared/HISTORIAL.md`): hoy los
   "Pronto" son `proximity`/`payments`/`chat`/`disputes`, y los tests que necesitan un
   ejemplo de "Pronto" usan `chat`. Sin canal "app" (in-app, no existe todavía) y sin el punto "live"/
   banners `critical`/`warnText` por fila del prototipo — ese campo no existe en

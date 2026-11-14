@@ -5,7 +5,16 @@ import type {
 } from "@movo/shared/src/types/admin-reports"
 
 /** Unidad de una métrica: define el formato, el redondeo y cómo se lee la variación. */
-export type MetricUnit = "n" | "ars" | "pct" | "min" | "h" | "km" | "idx"
+export type MetricUnit =
+  | "n"
+  | "ars"
+  | "pct"
+  | "min"
+  | "h"
+  | "km"
+  | "idx"
+  /** Envíos por transportista (la relación oferta/demanda del pricing). */
+  | "ratio"
 
 /** Las que varían en puntos (pp, pts) y no en % relativo. */
 export const isPointUnit = (unit: MetricUnit) =>
@@ -19,6 +28,7 @@ export const UNIT_SHORT: Record<MetricUnit, string> = {
   h: "h",
   km: "km",
   idx: "índice",
+  ratio: "×",
 }
 
 const nf = (v: number, digits: number) =>
@@ -49,6 +59,8 @@ export function formatMetric(
       return `${nf(v, 0)} km`
     case "idx":
       return nf(v, 1)
+    case "ratio":
+      return `${nf(v, 2)}×`
     default:
       if (compact && Math.abs(v) >= 1e4) return `${nf(v / 1e3, 1)} mil`
       return nf(v, Number.isInteger(v) ? 0 : 1)

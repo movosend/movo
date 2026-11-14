@@ -1,7 +1,7 @@
 /**
  * Sincroniza los documentos legales fuente (`docs/legal/*.md`) hacia las dos
  * copias que hoy se mantenían a mano (MOVO-224/228, ver `movo-mobile/CLAUDE.md`
- * y `shared/movo-shared/CLAUDE.md`):
+ * y `shared/movo-shared/HISTORIAL.md`):
  *
  *   1. `movo-mobile/src/content/legal/*.ts` — el `.md` empaquetado como
  *      template literal (Metro no soporta importar `.md` como texto sin un

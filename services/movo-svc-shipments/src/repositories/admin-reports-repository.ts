@@ -1,5 +1,4 @@
 import {
-  argentinaDayBounds,
   DISPUTES_REPORT_KPIS,
   DisputeOutcome,
   DISPUTE_OUTCOMES,
@@ -21,8 +20,12 @@ import {
   ReportPoint,
   ReportRange,
   ReportValue,
+  reportRangeBounds,
+  reportRound,
 } from "@movo/shared";
 import { CarrierActivityDay, ShipmentMetricFact, SupportMetricFact } from "../domain/admin-report-metrics";
+import { cancellationCauseOf } from "../domain/cancellation-cause";
+import { OperationsFact } from "../domain/operations-report";
 import { ROAD_DETOUR_FACTOR } from "../domain/geo";
 import { Prisma, PrismaClient } from "../generated/prisma/client";
 
@@ -45,13 +48,8 @@ function bandCondition(band: DistanceBand, distanceKm: Prisma.Sql = SHIPMENT_DIS
   return Prisma.sql`${distanceKm} >= 500`;
 }
 
-const round2 = (value: number): number => Math.round(value * 100) / 100;
-const round2OrNull = (value: number | null): number | null => (value === null ? null : round2(value));
+const round2OrNull = (value: number | null): number | null => (value === null ? null : reportRound(value));
 
-/** Instantes de un rango de días de Argentina: `>= start` y `< end`. */
-function boundsOf(range: ReportRange): { start: Date; end: Date } {
-  return { start: argentinaDayBounds(range.from).start, end: argentinaDayBounds(range.to).end };
-}
 
 interface FunnelCohortRow {
   is_current: boolean;
@@ -76,9 +74,9 @@ function kpisOf(row: IntervalMetricsRow): Record<DisputesKpi, number | null> {
     opened: row.opened,
     resolved: row.resolved,
     resolutionHours: round2OrNull(row.resolution_hours),
-    disputeRate: row.completed === 0 ? null : round2((row.opened / row.completed) * 100),
-    senderAmountArs: round2(row.sender_amount),
-    carrierAmountArs: round2(row.carrier_amount),
+    disputeRate: row.completed === 0 ? null : reportRound((row.opened / row.completed) * 100),
+    senderAmountArs: reportRound(row.sender_amount),
+    carrierAmountArs: reportRound(row.carrier_amount),
   };
 }
 
@@ -92,7 +90,7 @@ function breakdownOf<D extends string>(
   const byKey = new Map(counts.map((row) => [row.key, row]));
   const rows = keys.map((key) => {
     const value = byKey.get(key)?.current ?? 0;
-    return { key, value, previous: byKey.get(key)?.previous ?? 0, share: total.value ? round2((value / total.value) * 100) : null };
+    return { key, value, previous: byKey.get(key)?.previous ?? 0, share: total.value ? reportRound((value / total.value) * 100) : null };
   });
   // De mayor a menor; los que no tuvieron casos también van, así el desglose siempre tiene las mismas filas.
   rows.sort((a, b) => b.value - a.value || a.key.localeCompare(b.key));
@@ -114,6 +112,25 @@ export interface AdminReportsRepository {
   /** MOVO-35: transportistas activos por día. Con `band`, las ofertas a envíos de ese tramo y los viajes cuya ruta cae en él. */
   carrierActivity(range: ReportRange, band?: DistanceBand): Promise<CarrierActivityDay[]>;
   supportMetricFacts(range: ReportRange): Promise<SupportMetricFact[]>;
+  /** MOVO-35 B1-B3: los envíos publicados, completados o cancelados en el rango o en el período anterior. */
+  operationsFacts(range: ReportRange): Promise<OperationsFact[]>;
+}
+
+interface OperationsFactRow {
+  sender_id: string;
+  pickup_city: string | null;
+  high_demand: boolean | null;
+  demand_ratio: number | null;
+  available_carriers: number | null;
+  demand_published_shipments: number | null;
+  published_at: Date | null;
+  first_completed_at: Date | null;
+  cancelled_at: Date | null;
+  cancel_from_status: string | null;
+  cancel_actor_id: string | null;
+  cancel_kind: string | null;
+  cancel_attribution: string | null;
+  cancel_sanction_withdrawal: boolean | null;
 }
 
 interface FactRow {
@@ -148,7 +165,7 @@ const iso = (value: Date | null): string | null => value?.toISOString() ?? null;
 export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepository {
   /** Las franjas se guardan como reloj de pared de Argentina. La entrega sin franja vence al terminar el día estimado. */
   function factRows(range: ReportRange): Promise<FactRow[]> {
-    const { start, end } = boundsOf({ from: previousReportRange(range).from, to: range.to });
+    const { start, end } = reportRangeBounds({ from: previousReportRange(range).from, to: range.to });
     return db.$queryRaw<FactRow[]>`
       WITH candidates AS MATERIALIZED (
         SELECT e.shipment_id
@@ -201,7 +218,7 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
     const completedInBand = band
       ? Prisma.sql`AND EXISTS (SELECT 1 FROM shipments.shipments s WHERE s.id = f.shipment_id AND ${bandCondition(band)})`
       : Prisma.empty;
-    const bounds = ranges.map(boundsOf);
+    const bounds = ranges.map(reportRangeBounds);
     const starts = bounds.map(({ start }) => start.toISOString());
     const ends = bounds.map(({ end }) => end.toISOString());
     return db.$queryRaw<IntervalMetricsRow[]>`
@@ -251,8 +268,8 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
         : Prisma.empty;
       const previous = previousReportRange(range);
       const buckets = reportBuckets(range);
-      const current = boundsOf(range);
-      const before = boundsOf(previous);
+      const current = reportRangeBounds(range);
+      const before = reportRangeBounds(previous);
 
       const [metrics, reasons, outcomes, backlog, cohorts] = await Promise.all([
         intervalMetrics([range, previous, ...buckets, ...buckets.map((bucket) => bucket.previous)], band),
@@ -345,7 +362,7 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
       const inBand = band
         ? Prisma.sql`AND EXISTS (SELECT 1 FROM shipments.shipments s WHERE s.id = d.shipment_id AND ${bandCondition(band)})`
         : Prisma.empty;
-      const { start, end } = boundsOf(range);
+      const { start, end } = reportRangeBounds(range);
       const rows = await db.$queryRaw<
         Array<{
           id: string;
@@ -437,7 +454,7 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
     },
 
     async carrierActivity(range, band) {
-      const { start, end } = boundsOf({ from: previousReportRange(range).from, to: range.to });
+      const { start, end } = reportRangeBounds({ from: previousReportRange(range).from, to: range.to });
       const offers = Prisma.sql`
         SELECT o.carrier_id, (o.created_at AT TIME ZONE ${AR_TIME_ZONE})::date AS day
         FROM shipments.offers o
@@ -457,7 +474,7 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
     },
 
     async supportMetricFacts(range) {
-      const { start, end } = boundsOf({ from: previousReportRange(range).from, to: range.to });
+      const { start, end } = reportRangeBounds({ from: previousReportRange(range).from, to: range.to });
       const rows = await db.$queryRaw<
         Array<{ topic: string; created_at: Date; first_agent_at: Date | null; resolved_at: Date | null; user_wrote_after_agent: boolean }>
       >`
@@ -480,6 +497,65 @@ export function createAdminReportsRepository(db: PrismaClient): AdminReportsRepo
         resolvedAt: iso(row.resolved_at),
         userWroteAfterAgent: row.user_wrote_after_agent,
       }));
+    },
+
+    async operationsFacts(range) {
+      const { start, end } = reportRangeBounds({ from: previousReportRange(range).from, to: range.to });
+      // Un envío se cancela una sola vez (es terminal): el evento más reciente a `cancelled` es esa cancelación.
+      const rows = await db.$queryRaw<OperationsFactRow[]>`
+        WITH candidates AS MATERIALIZED (
+          SELECT DISTINCT e.shipment_id
+          FROM shipments.shipment_events e
+          WHERE e.to_status::text IN ('published', 'completed', 'cancelled') AND e.created_at >= ${start} AND e.created_at < ${end}
+        ),
+        events AS MATERIALIZED (
+          SELECT e.shipment_id,
+                 MIN(e.created_at) FILTER (WHERE e.to_status::text = 'published') AS published_at,
+                 MIN(e.created_at) FILTER (WHERE e.to_status::text = 'completed') AS first_completed_at
+          FROM shipments.shipment_events e
+          JOIN candidates c ON c.shipment_id = e.shipment_id
+          GROUP BY e.shipment_id
+        )
+        SELECT s.sender_id, s.pickup_city, s.high_demand,
+               CASE WHEN jsonb_typeof(s.quote_breakdown -> 'demandRatio') = 'number' THEN (s.quote_breakdown ->> 'demandRatio')::float8 END AS demand_ratio,
+               s.demand_available_carriers AS available_carriers, s.demand_published_shipments,
+               ev.published_at, ev.first_completed_at,
+               x.created_at AS cancelled_at, x.from_status::text AS cancel_from_status, x.actor_id AS cancel_actor_id,
+               x.kind::text AS cancel_kind, x.attribution::text AS cancel_attribution, x.sanction_withdrawal AS cancel_sanction_withdrawal
+        FROM shipments.shipments s
+        JOIN events ev ON ev.shipment_id = s.id
+        LEFT JOIN LATERAL (
+          SELECT c.created_at, c.from_status, c.actor_id, c.kind, c.attribution, c.sanction_withdrawal
+          FROM shipments.shipment_events c
+          WHERE c.shipment_id = s.id AND c.to_status::text = 'cancelled'
+          ORDER BY c.created_at DESC
+          LIMIT 1
+        ) x ON TRUE`;
+      return rows.map((row): OperationsFact => {
+        // La demanda se contó si quedaron los conteos, o si el ratio es positivo (pricing manda 0 sin `demandContext`;
+        // contado, el ratio nunca es 0). Un `highDemand = true` también implica que se contó, aunque falte el desglose.
+        const ratio = row.demand_ratio !== null && row.demand_ratio > 0 ? row.demand_ratio : null;
+        const counted = row.demand_published_shipments !== null || ratio !== null || row.high_demand === true;
+        return {
+          pickupCity: row.pickup_city,
+          publishedAt: iso(row.published_at),
+          firstCompletedAt: iso(row.first_completed_at),
+          cancelledAt: iso(row.cancelled_at),
+          cancelCause: row.cancelled_at
+            ? cancellationCauseOf({
+                fromStatus: row.cancel_from_status,
+                actorId: row.cancel_actor_id,
+                senderId: row.sender_id,
+                kind: row.cancel_kind ?? "normal",
+                attribution: row.cancel_attribution,
+                sanctionWithdrawal: row.cancel_sanction_withdrawal ?? false,
+              })
+            : null,
+          demandRatio: counted ? ratio : null,
+          highDemand: counted ? row.high_demand === true : null,
+          availableCarriers: row.available_carriers,
+        };
+      });
     },
   };
 }

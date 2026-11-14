@@ -41,7 +41,7 @@ Condiciones`/`Política de Privacidad`) por el equipo. Decisiones no obvias:
   repo separado).
 - Registro/checkbox de aceptación, versionado (`LEGAL_DOCUMENT_VERSIONS`),
   persistencia de aceptación en `svc-users` y gate de re-aceptación: ver
-  entradas de MOVO-224 en `shared/movo-shared/CLAUDE.md`,
+  entradas de MOVO-224 en `shared/movo-shared/HISTORIAL.md`,
   `services/movo-svc-users/HISTORIAL.md` y `movo-mobile/HISTORIAL.md`.
 - Pendiente fuera de esta issue: footer con links legales en `movo-admin`
   (no existe todavía) y moderación de calificaciones (TyC sección 12) sin UI
