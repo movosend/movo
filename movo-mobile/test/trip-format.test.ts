@@ -17,6 +17,8 @@ import {
   tripHistoryDate,
   tripHistorySubtext,
   tripCarriedChipLabel,
+  tripCarriedCount,
+  tripDisputedChipLabel,
   tripMonthLabel,
 } from "../src/lib/trip-format";
 
@@ -95,6 +97,10 @@ describe("trip-format (MOVO-252)", () => {
     expect(tripHistorySubtext({ status: TripStatus.COMPLETED, acceptedPackagesCount: 1, cancelledAt: null })).toBeNull();
     expect(tripCarriedChipLabel(1)).toBe("Llevaste 1 paquete");
     expect(tripCarriedChipLabel(3)).toBe("Llevaste 3 paquetes");
+    expect(tripCarriedCount({ acceptedPackagesCount: 3, disputedPackagesCount: 1 })).toBe(2);
+    expect(tripCarriedCount({ acceptedPackagesCount: 3 })).toBe(3);
+    expect(tripDisputedChipLabel(1)).toBe("1 paquete en disputa");
+    expect(tripDisputedChipLabel(2)).toBe("2 paquetes en disputa");
     expect(tripHistorySubtext({ status: TripStatus.EXPIRED, acceptedPackagesCount: 0, cancelledAt: null })).toBe("Sin paquetes aceptados");
     expect(tripHistorySubtext({ status: TripStatus.CANCELLED, acceptedPackagesCount: 0, cancelledAt: "2026-09-12T15:00:00.000Z" })).toBe("Lo cancelaste el 12 sep");
     expect(tripHistorySubtext({ status: TripStatus.ACTIVE, acceptedPackagesCount: 0, cancelledAt: null })).toBeNull();
@@ -150,6 +156,15 @@ describe("trip-format — Inicio (jerarquía de viajes)", () => {
     );
     expect(tripPlaceLabel("Av. Colón 100, Córdoba")).toBe("Córdoba");
     expect(tripPlaceLabel("Av. Colón 100")).toBe("Av. Colón 100");
+  });
+
+  it("tripRouteLabel dentro de una misma localidad dice 'Viaje en' en vez de repetirla", () => {
+    expect(
+      tripRouteLabel({
+        originAddress: "Juan del Campillo 367, X5000 Córdoba, Argentina",
+        destinationAddress: "Av. Colón 1200, X5000 Córdoba, Argentina",
+      }),
+    ).toBe("Viaje en Córdoba");
   });
 
   it("tripRouteLabel arma origen → destino", () => {

@@ -35,7 +35,7 @@ describe("shipmentStatusLabel", () => {
     expect(shipmentStatusLabel(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe("Esperando receptor");
     expect(shipmentStatusLabel(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("Rechazado");
     expect(shipmentStatusLabel(ShipmentStatus.ASSIGNMENT_PENDING)).toBe("Asignado");
-    expect(shipmentStatusLabel(ShipmentStatus.ASSIGNED)).toBe("Asignado");
+    expect(shipmentStatusLabel(ShipmentStatus.ASSIGNED)).toBe("Por retirar");
   });
 
   it("MOVO-208: traduce los estados nuevos (assigned_unfunded/completed)", () => {
@@ -597,6 +597,13 @@ describe("aceptación de una oferta en la línea de tiempo", () => {
     expect(shipmentEventDetail(ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.PUBLISHED)).toBe(
       "El pago se reserva más cerca del retiro",
     );
+  });
+
+  it("en efectivo, published -> assigned es la aceptación de la oferta, no un pago reservado (MOVO-37)", () => {
+    expect(shipmentEventTitle(ShipmentStatus.ASSIGNED, ShipmentStatus.PUBLISHED, { isCarrier: true })).toBe(
+      "El emisor aceptó tu oferta",
+    );
+    expect(shipmentEventDetail(ShipmentStatus.ASSIGNED, ShipmentStatus.PUBLISHED)).toBe("Se paga en efectivo al retirar");
   });
 
   it("pasar a assigned es la reserva del pago, no la asignación", () => {

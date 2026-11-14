@@ -139,7 +139,7 @@ describe("MyOffersSummaryScreen (MOVO-151)", () => {
     const { getByTestId } = await render(<MyOffersSummaryScreen />);
     await fireEvent.press(getByTestId("my-offers-attention-accepted-1"));
 
-    expect(mockRouterPush).toHaveBeenCalledWith("/transport/shipment-9");
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-9");
   });
 
   it("una oferta pending navega al detalle de la oferta, donde vive retirar (AC6)", async () => {
@@ -189,6 +189,35 @@ describe("MyOffersSummaryScreen (MOVO-151)", () => {
     expect(queryByTestId("my-offers-closed-l1")).toBeNull();
   });
 
+  it("una aceptada muestra en qué va su envío: por retirar y en camino requieren algo tuyo", async () => {
+    const accepted = (id: string, status: string) =>
+      offer({ id, status: "accepted" as MyOfferSummary["status"], shipment: { ...offer().shipment, id, status } as MyOfferSummary["shipment"] });
+    mockOffers([accepted("p1", "assigned"), accepted("t1", "in_transit")]);
+
+    const { getByTestId } = await render(<MyOffersSummaryScreen />);
+
+    expect(getByTestId("my-offers-attention-p1")).toHaveTextContent(/Por retirar/);
+    expect(getByTestId("my-offers-attention-p1")).toHaveTextContent(/Retirá el paquete: código y dirección en el detalle del envío\./);
+    expect(getByTestId("my-offers-attention-t1")).toHaveTextContent(/En camino/);
+    expect(getByTestId("my-offers-attention-t1")).toHaveTextContent(/Ya lo retiraste\. Falta entregarlo\./);
+  });
+
+  it("una aceptada esperando el pago del emisor no requiere nada tuyo: va a 'El resto', con su aviso", async () => {
+    mockOffers([
+      offer({
+        id: "u1",
+        status: "accepted" as MyOfferSummary["status"],
+        shipment: { ...offer().shipment, status: "assigned_unfunded" } as MyOfferSummary["shipment"],
+      }),
+    ]);
+
+    const { getByTestId, queryByTestId } = await render(<MyOffersSummaryScreen />);
+
+    expect(queryByTestId("my-offers-attention-u1")).toBeNull();
+    expect(getByTestId("my-offers-active-u1")).toHaveTextContent(/Aceptada/);
+    expect(getByTestId("my-offers-active-u1")).toHaveTextContent(/Falta que el emisor reserve el pago\./);
+  });
+
   it("una aceptada con el envío cancelado pasa a Cerradas como 'Cancelada'", async () => {
     mockOffers([offer({ id: "a1", status: "accepted" as MyOfferSummary["status"], shipment: { ...offer().shipment, status: "cancelled" } })]);
 
@@ -197,6 +226,26 @@ describe("MyOffersSummaryScreen (MOVO-151)", () => {
 
     expect(getByTestId("my-offers-closed-a1")).toHaveTextContent(/Cancelada/);
     expect(getByTestId("my-offers-closed-a1")).toHaveTextContent(/habrías recibido aprox\./);
+  });
+
+  it("una aceptada con el envío en disputa pasa a Cerradas como 'En disputa' y no suma a Confirmado", async () => {
+    mockOffers([
+      offer({
+        id: "d1",
+        status: "accepted" as MyOfferSummary["status"],
+        shipment: { ...offer().shipment, status: "disputed", dispute: { id: "d1", reason: "damaged" as never, openedByRole: "sender" as const, openedAt: "2026-11-11T22:00:00.000Z" } },
+      }),
+    ]);
+
+    const { getByTestId, getByText, queryByTestId } = await render(<MyOffersSummaryScreen />);
+
+    expect(queryByTestId("my-offers-attention-d1")).toBeNull();
+    expect(getByText(/0 aceptadas/)).toBeTruthy();
+    expect(getByTestId("my-offers-accepted-total")).toHaveTextContent("$0");
+    await fireEvent.press(getByTestId("my-offers-tab-closed"));
+    expect(getByTestId("my-offers-closed-d1")).toHaveTextContent(/En disputa/);
+    expect(getByTestId("my-offers-closed-d1")).toHaveTextContent(/monto en disputa/);
+    expect(getByTestId("my-offers-closed-d1")).toHaveTextContent(/La abrió el emisor porque el paquete llegó dañado\./);
   });
 
   it("estado vacío sin ninguna oferta ofrece ir a Disponibles (AC7)", async () => {

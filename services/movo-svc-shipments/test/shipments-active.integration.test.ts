@@ -314,6 +314,49 @@ describe("GET /shipments/sending|transporting|receiving (Postgres)", () => {
     expect(byId[futureAssigned]!.pickupWindowExpired).toBe(false);
   });
 
+  it("tripStarted: true si el viaje del transportista ya está en curso, false si está declarado o no hay viaje", async () => {
+    async function withTrip(status: "declared" | "active"): Promise<string> {
+      const shipmentId = await createActiveShipment({ status: ShipmentStatus.ASSIGNED, carrierId });
+      const trip = await app.db.trip.create({
+        data: {
+          carrierId,
+          originAddress: "Av. Colón 1234, Córdoba",
+          originLat: -31.4201,
+          originLng: -64.1888,
+          destinationAddress: "Bv. San Juan 500, Córdoba",
+          destinationLat: -31.4135,
+          destinationLng: -64.1811,
+          departureAt: new Date(),
+          vehicleType: "Auto",
+          status,
+        },
+      });
+      await app.db.offer.create({
+        data: {
+          shipmentId,
+          carrierId,
+          priceOffered: 4500,
+          offeredDate: new Date("2030-01-01T00:00:00.000Z"),
+          tripId: trip.id,
+          status: "accepted",
+        },
+      });
+      return shipmentId;
+    }
+    const started = await withTrip("active");
+    const declared = await withTrip("declared");
+    const noTrip = await createActiveShipment({ status: ShipmentStatus.ASSIGNED, carrierId });
+
+    for (const [path, userId] of [["/shipments/receiving", receiverId], ["/shipments/sending", senderId]] as const) {
+      const res = await request(path, userId);
+      expect(res.statusCode).toBe(200);
+      const byId = new Map(res.json().map((item: { id: string; tripStarted: boolean }) => [item.id, item.tripStarted]));
+      expect(byId.get(started)).toBe(true);
+      expect(byId.get(declared)).toBe(false);
+      expect(byId.get(noTrip)).toBe(false);
+    }
+  });
+
   it("AC5: el DTO de resumen no expone senderId/receiverId/carrierId crudos", async () => {
     await createActiveShipment({ status: ShipmentStatus.ASSIGNED, carrierId, inputOverrides: { senderId: userX } });
 

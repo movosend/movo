@@ -52,6 +52,7 @@ import { GridPattern } from "../../../components/ui/grid-pattern";
 import { DebtDiscount } from "../../../components/payments/debt-discount";
 import { SuccessBanner } from "../../../components/ui/success-banner";
 import { useAuthStore } from "../../../src/store/auth-store";
+import { disputeExplanation } from "../../../src/lib/dispute-format";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useDeadlineExpired } from "../../../src/hooks/use-deadline-expired";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
@@ -147,7 +148,7 @@ const CANCELLATION_PENALTY_POLL_MS = 15_000;
 export default function ShipmentDetailScreen() {
   // `map=live`: se llega desde "Seguir en vivo" del inicio o desde el `/tracking` viejo (MOVO-361), y
   // el mapa se abre a pantalla completa.
-  const { id, map: mapParam } = useLocalSearchParams<{ id: string; map?: string }>();
+  const { id, map: mapParam, tab: tabParam } = useLocalSearchParams<{ id: string; map?: string; tab?: string }>();
   const clearMapParam = useCallback(() => router.setParams({ map: undefined }), []);
   const colors = useThemeColors();
   const currentUser = useAuthStore((state) => state.user);
@@ -167,7 +168,8 @@ export default function ShipmentDetailScreen() {
       return fundingProcessingPollInterval(data) || liveTrackingPendingPollInterval(data, currentUser?.userId);
     },
   });
-  const [tab, setTab] = useState<DetailTab>("detalle");
+  // `tab=timeline`: se llega desde la hoja de un cambio de estado del chat.
+  const [tab, setTab] = useState<DetailTab>(tabParam === "timeline" ? "timeline" : "detalle");
   const [isHighDemandHelpOpen, setIsHighDemandHelpOpen] = useState(false);
   const [isAcceptSuccessVisible, setIsAcceptSuccessVisible] = useState(false);
 
@@ -779,6 +781,22 @@ export default function ShipmentDetailScreen() {
                 <RejectedReceiverBanner shipment={shipment} testID="shipment-detail-rejected-banner" />
               ) : null}
 
+              {/* Por qué está en disputa y quién la abrió: el estado solo no lo decía. */}
+              {shipment.status === ShipmentStatus.DISPUTED ? (
+                <View
+                  testID="shipment-detail-dispute-banner"
+                  className="gap-1 rounded-xl border border-warning-200 bg-warning-100 px-3.5 py-3"
+                >
+                  <Text className="font-sans-semibold text-small text-warning-700">Este envío está en disputa</Text>
+                  <Text className="font-sans text-small text-warning-700">
+                    {shipment.dispute
+                      ? `${disputeExplanation(shipment.dispute, isSender ? "sender" : isReceiver ? "receiver" : isCarrier ? "carrier" : null)} `
+                      : ""}
+                    Movo lo está revisando y te va a avisar cuando se resuelva.
+                  </Text>
+                </View>
+              ) : null}
+
               {isTransitDelayed(shipment) ? (
                 // MOVO-278 (DD-045): mismo estilo que el banner de plazo vencido.
                 <View
@@ -836,7 +854,11 @@ export default function ShipmentDetailScreen() {
                       <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
                         <GridPattern />
                         <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
-                          {carrierReceivedArs !== null
+                          {/* En disputa el monto depende de la resolución: no es "Recibís". Neutro, porque desde `completed`
+                              el cobro ya se acreditó (DD-054) y no se puede decir que está pendiente. */}
+                          {carrierReceivedArs !== null && shipment.status === ShipmentStatus.DISPUTED
+                            ? "Monto en disputa"
+                            : carrierReceivedArs !== null
                             ? carrierCashInHand ? (FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? "Cobraste en mano" : "Cobrás en mano") : carrierReceivedIsExact ? "Recibís" : "Recibís aprox."
                             : hasAgreedPrice
                               ? "Precio pactado"

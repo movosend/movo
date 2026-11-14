@@ -881,6 +881,7 @@ export type {
   DisputePhoto,
   DisputeStatement,
   DisputeDetail,
+  DisputeSummary,
   DisputePhotoUploadUrl,
   DisputeOutcome,
   DisputePaymentAction,

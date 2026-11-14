@@ -2,6 +2,8 @@ import type { ChatMessage } from "@movo/shared/dist/types/chat";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { ShipmentEvent } from "../src/api/shipments-client";
 import {
+  chatEventExplanation,
+  chatEventGroupPositions,
   chatAuthorLabel,
   buildChatTimeline,
   chatAvailability,
@@ -109,15 +111,55 @@ describe("eventos de la asignación vigente", () => {
   });
 });
 
+describe("chatEventExplanation", () => {
+  it("explica cada estado; la disputa suma quién y por qué, la cancelación su motivo", () => {
+    expect(chatEventExplanation({ status: ShipmentStatus.IN_TRANSIT })[0]).toMatch(/está en camino/);
+    expect(chatEventExplanation({ status: ShipmentStatus.DISPUTED, detail: "La abrió el emisor por otro motivo." })).toEqual([
+      "La abrió el emisor por otro motivo.",
+      expect.stringMatching(/les va a avisar cuando se resuelva/),
+    ]);
+    expect(chatEventExplanation({ status: ShipmentStatus.CANCELLED, reason: "El receptor no confirmó dentro del plazo" })).toEqual([
+      "El envío se canceló y ya no se va a realizar.",
+      "Motivo: El receptor no confirmó dentro del plazo",
+    ]);
+    expect(chatEventExplanation({ status: undefined })[0]).toMatch(/La recepción pasó a otra persona/);
+  });
+});
+
+describe("chatEventGroupPositions", () => {
+  it("une las tarjetas seguidas; un mensaje o un cambio de día corta la seguidilla", () => {
+    // Del más nuevo al más viejo, como `buildTimeline`.
+    const items = [
+      { kind: "event", key: "e4" },
+      { kind: "message", key: "m1" },
+      { kind: "event", key: "e3" },
+      { kind: "event", key: "e2" },
+      { kind: "event", key: "e1" },
+      { kind: "day", key: "d1" },
+      { kind: "event", key: "e0" },
+    ];
+    const positions = chatEventGroupPositions(items);
+    expect(positions.get("e1")).toBe("first");
+    expect(positions.get("e2")).toBe("middle");
+    expect(positions.get("e3")).toBe("last");
+    expect(positions.get("e4")).toBe("single");
+    expect(positions.get("e0")).toBe("single");
+    expect(positions.has("m1")).toBe(false);
+  });
+});
+
 describe("chatEventCard", () => {
   const at = new Date(2026, 9, 14, 10, 0);
   const viewer = (role: "sender" | "carrier" | "receiver") => ({ role, carrierFirstName: "Diego", receiverFirstName: "Luis" });
 
   it("usa los textos del prototipo según quién mira", () => {
     const accepted = event(ShipmentStatus.ASSIGNMENT_PENDING, at);
-    expect(chatEventCard(accepted, viewer("carrier"))?.text).toBe("Aceptaste el envío");
-    expect(chatEventCard(accepted, viewer("sender"))?.text).toBe("Diego aceptó el envío");
-    expect(chatEventCard(event(ShipmentStatus.ASSIGNED_UNFUNDED, at), viewer("receiver"))?.text).toBe("Diego aceptó el envío");
+    // Quien acepta es el emisor: la oferta del transportista.
+    expect(chatEventCard(accepted, { ...viewer("carrier"), senderFirstName: "Juan" })?.text).toBe("Juan aceptó tu oferta");
+    expect(chatEventCard(accepted, viewer("sender"))?.text).toBe("Aceptaste la oferta de Diego");
+    expect(chatEventCard(event(ShipmentStatus.ASSIGNED_UNFUNDED, at), { ...viewer("receiver"), senderFirstName: "Juan" })?.text).toBe(
+      "Juan aceptó la oferta de Diego",
+    );
 
     const pickup = event(ShipmentStatus.IN_TRANSIT, at);
     expect(chatEventCard(pickup, viewer("carrier"))).toMatchObject({ text: "Escaneaste el QR de retiro", live: true });
@@ -129,9 +171,36 @@ describe("chatEventCard", () => {
     expect(chatEventCard(delivered, viewer("carrier"))?.text).toBe("Luis confirmó la entrega con QR");
   });
 
+  it("en efectivo (published -> assigned) también es la aceptación: tarjeta y corte de la asignación", () => {
+    const cash = event(ShipmentStatus.ASSIGNED, at, "cash-accept", ShipmentStatus.PUBLISHED);
+    expect(chatEventCard(cash, { ...viewer("carrier"), senderFirstName: "Juan" })).toMatchObject({
+      text: "Juan aceptó tu oferta",
+      offerAccepted: true,
+    });
+    expect(chatEventExplanation({ status: ShipmentStatus.ASSIGNED, offerAccepted: true })[0]).toMatch(/efectivo/);
+    const events = [
+      event(ShipmentStatus.ASSIGNMENT_PENDING, new Date(2026, 9, 13), "old-accept"),
+      event(ShipmentStatus.PUBLISHED, new Date(2026, 9, 13, 12), "republished", ShipmentStatus.ASSIGNMENT_PENDING),
+      cash,
+    ];
+    expect(eventsSinceCurrentAssignment(events).map((e) => e.id)).toEqual(["cash-accept"]);
+  });
+
+  it("lleva el estado (ícono y color de la línea de tiempo) y la disputa dice quién la abrió y por qué", () => {
+    const disputed = event(ShipmentStatus.DISPUTED, at);
+    const withDispute = { ...viewer("carrier"), dispute: { reason: "damaged" as never, openedByRole: "sender" as const } };
+    expect(chatEventCard(disputed, withDispute)).toMatchObject({
+      status: ShipmentStatus.DISPUTED,
+      text: "Disputa abierta",
+      detail: "La abrió el emisor porque el paquete llegó dañado.",
+    });
+    expect(chatEventCard(disputed, viewer("carrier"))?.detail).toBeNull();
+  });
+
   it("sin nombres usa un texto neutro y cubre disputa y cancelación", () => {
     const neutral = { role: "sender" as const, carrierFirstName: null, receiverFirstName: null };
-    expect(chatEventCard(event(ShipmentStatus.ASSIGNMENT_PENDING, at), neutral)?.text).toBe("El transportista aceptó el envío");
+    expect(chatEventCard(event(ShipmentStatus.ASSIGNMENT_PENDING, at), neutral)?.text).toBe("Aceptaste la oferta del transportista");
+    expect(chatEventCard(event(ShipmentStatus.ASSIGNMENT_PENDING, at), { ...neutral, role: "carrier" })?.text).toBe("El emisor aceptó tu oferta");
     expect(chatEventCard(event(ShipmentStatus.DISPUTED, at), neutral)?.text).toBe("Disputa abierta");
     expect(chatEventCard(event(ShipmentStatus.CANCELLED, at), neutral)?.text).toBe("Envío cancelado");
   });
