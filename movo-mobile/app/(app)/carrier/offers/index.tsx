@@ -16,6 +16,7 @@ import {
   acceptedOfferPhase,
   competitiveRankNotice,
   isOpenAcceptedOffer,
+  offerNeedsAttention,
   offerReceivedArs,
 } from "../../../../src/lib/offer-format";
 import { formatPriceArs } from "../../../../src/lib/shipment-format";
@@ -119,6 +120,8 @@ export default function MyOffersSummaryScreen() {
   // cierre propio y seguía como "Ya te aceptaron" (feedback de TestFlight, build 17).
   const accepted = items.filter(isOpenAcceptedOffer);
   const closed = useMemo(() => {
+    // Cualquier aceptada, no solo las abiertas (`isOpenAcceptedOffer`) a propósito: una aceptación posterior que ya
+    // terminó también deja sin sentido la que caducó en ese envío.
     const acceptedShipmentIds = new Set(
       items.filter((o) => o.status === OfferStatus.ACCEPTED).map((o) => o.shipmentId),
     );
@@ -135,14 +138,10 @@ export default function MyOffersSummaryScreen() {
   const pendingTotal = pending.reduce((sum, o) => sum + offerReceivedArs(o), 0);
   const acceptedTotal = accepted.reduce((sum, o) => sum + offerReceivedArs(o), 0);
 
-  // Mismo criterio que el aviso de cada card: "requiere algo tuyo" = tiene aviso.
-  // Una aceptada que espera el pago del emisor no depende del transportista: va a "El resto", con su aviso.
+  // "Requiere algo tuyo" (`offerNeedsAttention`): el mismo criterio que el punto del acceso en Transportar. Una aceptada
+  // que espera el pago del emisor no depende del transportista: va a "El resto", con su aviso.
   const attention = useMemo(
-    () =>
-      [
-        ...accepted.filter((o) => acceptedOfferPhase(o) !== "awaiting_payment"),
-        ...pending.filter((o) => noticeFor(o) !== null),
-      ].sort(byRecent),
+    () => [...accepted, ...pending].filter(offerNeedsAttention).sort(byRecent),
     [accepted, pending],
   );
   const attentionIds = useMemo(() => new Set(attention.map((o) => o.id)), [attention]);
@@ -152,6 +151,7 @@ export default function MyOffersSummaryScreen() {
   );
 
   function goToOffer(offer: MyOfferSummary) {
+    // Cualquier aceptada, abierta o cerrada: el detalle del envío es donde se sigue (o se ve cómo terminó).
     if (offer.status === OfferStatus.ACCEPTED) {
       // Directo al detalle del envío: `/transport/:id` es la pantalla para evaluar y ofertar, y con la oferta aceptada
       // solo llevaba a este mismo detalle con un paso de más (feedback de TestFlight).

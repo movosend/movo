@@ -48,9 +48,10 @@ export function acceptedOfferOutcome(offer: Pick<MyOfferSummary, "status" | "shi
 }
 
 /**
- * Aceptada con el envío todavía en curso: la que cuenta como "aceptada" en los contadores y en el aviso de
- * atención. Una aceptada cuyo envío ya terminó va a "Cerradas" (`acceptedOfferOutcome`) -- el acceso de
- * "Mis ofertas" en Transportar y el header de esa pantalla usan este mismo criterio para no divergir.
+ * Aceptada con el envío todavía en curso: la que cuenta como "aceptada" en los contadores, en el feed de Transportar
+ * y en `offerNeedsAttention`. Una aceptada cuyo envío ya terminó (o está en disputa) va a "Cerradas"
+ * (`acceptedOfferOutcome`) -- el acceso de "Mis ofertas" en Transportar y el header de esa pantalla usan este mismo
+ * criterio para no divergir.
  */
 export function isOpenAcceptedOffer(offer: Pick<MyOfferSummary, "status" | "shipment">): boolean {
   return offer.status === OfferStatus.ACCEPTED && acceptedOfferOutcome(offer) === null;
@@ -76,6 +77,25 @@ export function acceptedOfferPhase(offer: Pick<MyOfferSummary, "status" | "shipm
     default:
       return null;
   }
+}
+
+/**
+ * Si la oferta "requiere algo tuyo": la sección de atención de "Mis ofertas" y el punto del acceso en Transportar usan
+ * este criterio, así el punto no se prende sin nada que atender adentro. Una aceptada abierta, salvo la que espera el
+ * pago del emisor (no depende del transportista); una pendiente cuyo envío se canceló o que quedó superada. Una
+ * aceptada en disputa no: está cerrada y no tiene acción del transportista en la app (`acceptedOfferOutcome`).
+ */
+export function offerNeedsAttention(
+  offer: Pick<MyOfferSummary, "status" | "shipment" | "competitiveRank">
+): boolean {
+  if (offer.status === OfferStatus.ACCEPTED) {
+    return isOpenAcceptedOffer(offer) && acceptedOfferPhase(offer) !== "awaiting_payment";
+  }
+  if (offer.status === OfferStatus.PENDING) {
+    if (offer.shipment.status === ShipmentStatus.CANCELLED) return true;
+    return offer.competitiveRank ? competitiveRankNotice(offer.competitiveRank) !== null : false;
+  }
+  return false;
 }
 
 const ACCEPTED_PHASE_LABEL: Record<AcceptedOfferPhase, string> = {

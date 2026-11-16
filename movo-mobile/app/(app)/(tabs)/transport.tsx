@@ -48,7 +48,7 @@ import { TripStatus } from "../../../src/api/trips-client";
 import { useMyTrips, useTrip, useTripMatches } from "../../../src/hooks/use-trips";
 import { IDENTITY_GATE_COPY } from "../../../src/lib/carrier-requirements";
 import { friendlyErrorMessage } from "../../../src/lib/error-messages";
-import { isOpenAcceptedOffer } from "../../../src/lib/offer-format";
+import { isOpenAcceptedOffer, offerNeedsAttention } from "../../../src/lib/offer-format";
 import {
   computeOnTripDetour,
   isPickupWindowExpired,
@@ -409,13 +409,14 @@ export default function TransportScreen() {
   const offers = myOffersData?.items ?? [];
   // `GET /offers/mine` trae TODO el historial (incluidas retiradas/rechazadas/
   // vencidas/superadas, ver "Todas tus ofertas" en carrier/offers/index.tsx) -- acá
-  // solo interesan las activas. Un envío puede tener más de una oferta propia en el
-  // historial (ej. retiró una y ofertó de nuevo); entre las activas se prioriza la
-  // aceptada sobre la pendiente.
+  // solo interesan las activas: una aceptada cuyo envío ya terminó está en "Cerradas" de
+  // "Mis ofertas" (`isOpenAcceptedOffer`) y no se marca como aceptada en el feed. Un envío
+  // puede tener más de una oferta propia en el historial (ej. retiró una y ofertó de
+  // nuevo); entre las activas se prioriza la aceptada sobre la pendiente.
   const offersByShipmentId = useMemo(() => {
     const map = new Map<string, MyOfferSummary>();
     for (const offer of offers) {
-      if (offer.status !== OfferStatus.PENDING && offer.status !== OfferStatus.ACCEPTED) continue;
+      if (offer.status !== OfferStatus.PENDING && !isOpenAcceptedOffer(offer)) continue;
       const existing = map.get(offer.shipmentId);
       if (!existing || existing.status !== OfferStatus.ACCEPTED) {
         map.set(offer.shipmentId, offer);
@@ -555,7 +556,7 @@ export default function TransportScreen() {
           <TransportAccessCards
             tripsMeta={tripsMeta}
             offersMeta={offersMeta}
-            offersNeedAttention={acceptedOffersCount > 0}
+            offersNeedAttention={offers.some(offerNeedsAttention)}
             onPressTrips={() => router.push("/carrier/trips" as any)}
             onPressOffers={() => router.push("/carrier/offers" as any)}
           />
