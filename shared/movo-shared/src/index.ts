@@ -46,7 +46,7 @@ export type {
   AdminCandidate,
   AdminSummary,
 } from "./types/user";
-export { ShipmentStatus, PaymentMethod } from "./types/shipment";
+export { ShipmentStatus, PaymentMethod, RATING_BLOCK_REASONS } from "./types/shipment";
 export type {
   SharedHistory,
   ActiveShipmentStatus,
@@ -55,6 +55,7 @@ export type {
   RatingRole,
   RatingBlockReason,
   RatingEligibility,
+  ShipmentRatingEligibility,
   PendingRatingShipment,
 } from "./types/shipment";
 export { ACCOUNT_SANCTION_REASON_MAX_LENGTH, ACCOUNT_SANCTION_NOTE_MAX_LENGTH, accountRestrictionKey } from "./types/account-sanctions";

@@ -14,6 +14,7 @@ import {
   type ApiErrorCode,
   type RatingBlockReason,
   type RatingEligibility,
+  type ShipmentRatingEligibility,
 } from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
@@ -21,7 +22,7 @@ import { RatingRepository } from "../../repositories/rating-repository";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { Shipment, ShipmentEvent } from "../../models/shipment";
 import { Rating, RatingCategoryScoresInput, RatingRole, RatingWithRaterRole } from "../../models/rating";
-import { isRatingWindowOpen, RATING_WINDOW_HOURS } from "../../domain/rating-window";
+import { computeRatingWindowDeadline, RATING_WINDOW_HOURS } from "../../domain/rating-window";
 import { computeCategoryScores, computeReputationScore, ReputationResult } from "../../domain/reputation";
 import { FULFILLED_SHIPMENT_STATUSES } from "../../domain/shipment-state-machine";
 import type { DisputeRecord, DisputeRepository } from "../../repositories/dispute-repository";
@@ -98,6 +99,20 @@ function resolveShipmentRole(shipment: Shipment, userId: string): RatingRole | n
   return null;
 }
 
+/** A quién califica cada parte: emisor y receptor al transportista; el transportista a los dos. */
+function ratingCounterparties(
+  shipment: Shipment,
+  raterRole: RatingRole,
+): Array<{ rateeId: string; rateeRole: RatingRole }> {
+  if (raterRole === RatingRole.carrier) {
+    return [
+      { rateeId: shipment.senderId, rateeRole: RatingRole.sender },
+      { rateeId: shipment.receiverId, rateeRole: RatingRole.receiver },
+    ];
+  }
+  return shipment.carrierId ? [{ rateeId: shipment.carrierId, rateeRole: RatingRole.carrier }] : [];
+}
+
 /**
  * MOVO-173: qué sub-scores admite calificar a alguien según su rol EN ESTE ENVÍO. El
  * emisor y el receptor comparten set (puntualidad/comunicación). Mandar una categoría
@@ -169,8 +184,8 @@ interface RatingParties {
   rateeRole: RatingRole;
 }
 
-function isWindowOpenFrom(anchor: Date, now: Date): boolean {
-  return now.getTime() <= anchor.getTime() + RATING_WINDOW_HOURS * 60 * 60 * 1000;
+function windowEndFrom(anchor: Date): Date {
+  return new Date(anchor.getTime() + RATING_WINDOW_HOURS * 60 * 60 * 1000);
 }
 
 interface RatingWriteBlock {
@@ -194,9 +209,21 @@ const NOT_DELIVERED_BLOCK: RatingWriteBlock = {
   reason: "not_delivered",
 };
 
+/** Se puede escribir hasta `windowEndsAt`, o el bloqueo que corresponde. */
+type RatingWriteCheck = { block: null; windowEndsAt: Date } | { block: RatingWriteBlock; windowEndsAt: null };
+
+function blocked(block: RatingWriteBlock): RatingWriteCheck {
+  return { block, windowEndsAt: null };
+}
+
+/** Abierta si `now` no pasó del cierre de la ventana. */
+function openUntil(windowEndsAt: Date, now: Date): RatingWriteCheck {
+  return now.getTime() <= windowEndsAt.getTime() ? { block: null, windowEndsAt } : blocked(WINDOW_EXPIRED_BLOCK);
+}
+
 /**
- * AC3/AC8/AC9: precondiciones de estado compartidas por alta y edición. `null` si se
- * puede escribir; si no, el error que corresponde (AC3: nunca un 500) y el motivo para el cliente.
+ * AC3/AC8/AC9: precondiciones de estado compartidas por alta y edición. Si se puede escribir, hasta cuándo (lo
+ * muestra el mobile); si no, el error que corresponde (AC3: nunca un 500) y el motivo para el cliente.
  *
  * MOVO-337 (AC12): esta es la ÚNICA regla de quién puede calificar un envío no entregado. Además de los entregados:
  * - **Disputa resuelta** (DD-056): califica el ganador (en `partial`, las dos partes), dentro de las 72 h desde que
@@ -205,66 +232,60 @@ const NOT_DELIVERED_BLOCK: RatingWriteBlock = {
  *   califica al transportista, dentro de las 72 h desde la cancelación.
  * Ningún otro envío cancelado se califica, y no hay penalización automática de reputación en ningún caso.
  */
-function ratingWriteBlock(
+function checkRatingWrite(
   shipment: Shipment,
   events: ShipmentEvent[],
   now: Date,
   parties: RatingParties,
   latestDispute: DisputeRecord | null,
-): RatingWriteBlock | null {
+): RatingWriteCheck {
   if (shipment.status === ShipmentStatus.DISPUTED) {
-    return {
+    return blocked({
       statusCode: 409,
       code: "SHIPMENT_RATING_DISPUTE_ACTIVE",
       message: "El envío tiene una disputa activa -- no se puede calificar hasta que se resuelva.",
       reason: "dispute_active",
-    };
+    });
   }
   if (latestDispute?.status === DisputeStatus.RESOLVED && latestDispute.resolution) {
     const { outcome, resolvedAt } = latestDispute.resolution;
     const winners = disputeRatingWinners(outcome);
     if (!winners.includes(parties.raterRole)) {
-      return {
+      return blocked({
         statusCode: 403,
         code: "AUTH_FORBIDDEN",
         message: "Este envío tuvo una disputa: solo califica quien la ganó.",
         reason: "dispute_lost",
-      };
+      });
     }
-    if (!resolvedAt || !isWindowOpenFrom(resolvedAt, now)) {
-      return WINDOW_EXPIRED_BLOCK;
-    }
-    return null;
+    return resolvedAt ? openUntil(windowEndFrom(resolvedAt), now) : blocked(WINDOW_EXPIRED_BLOCK);
   }
   if (shipment.status === ShipmentStatus.CANCELLED) {
     const cancellation = [...events].reverse().find((event) => event.toStatus === ShipmentStatus.CANCELLED);
     if (cancellation?.attribution === "carrier") {
       if (parties.raterRole !== RatingRole.sender || parties.rateeRole !== RatingRole.carrier) {
-        return {
+        return blocked({
           statusCode: 403,
           code: "AUTH_FORBIDDEN",
           message: "El transportista no se presentó al retiro: solo el emisor puede calificarlo.",
           reason: "not_delivered",
-        };
+        });
       }
-      return isWindowOpenFrom(cancellation.createdAt, now) ? null : WINDOW_EXPIRED_BLOCK;
+      return openUntil(windowEndFrom(cancellation.createdAt), now);
     }
-    return NOT_DELIVERED_BLOCK;
+    return blocked(NOT_DELIVERED_BLOCK);
   }
   // MOVO-208: `completed` (entregado Y pago liberado) también puede calificarse -- es
   // una consecuencia posterior de `delivered`, no un estado que deba cerrar la ventana
   // de calificación. `deliveredAt` sigue siendo la referencia real de la ventana de
   // 72h en los dos casos: no se toca al pasar a `completed` (MOVO-212).
   if (!FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) || !shipment.deliveredAt) {
-    return NOT_DELIVERED_BLOCK;
+    return blocked(NOT_DELIVERED_BLOCK);
   }
-  if (!isRatingWindowOpen(shipment.deliveredAt, events, now)) {
-    return WINDOW_EXPIRED_BLOCK;
-  }
-  return null;
+  return openUntil(computeRatingWindowDeadline(shipment.deliveredAt, events), now);
 }
 
-/** Ver `ratingWriteBlock`: el alta y la edición lo convierten en el `ApiError` que corresponde. */
+/** Ver `checkRatingWrite`: el alta y la edición convierten el bloqueo en el `ApiError` que corresponde. */
 function assertRatingWindowAllowsWrite(
   shipment: Shipment,
   events: ShipmentEvent[],
@@ -272,7 +293,7 @@ function assertRatingWindowAllowsWrite(
   parties: RatingParties,
   latestDispute: DisputeRecord | null,
 ): void {
-  const block = ratingWriteBlock(shipment, events, now, parties, latestDispute);
+  const { block } = checkRatingWrite(shipment, events, now, parties, latestDispute);
   if (block) {
     throw new ApiError(block.statusCode, block.code, block.message);
   }
@@ -397,12 +418,11 @@ export function createRatingsService(
     },
 
     /**
-     * Si el caller puede calificar este envío y, si no, por qué: la misma regla que el alta y la edición, para que el
-     * mobile no ofrezca calificar cuando el backend lo va a rechazar (ej. el receptor tras una disputa resuelta).
-     * Solo partes del envío. La contraparte a evaluar es el transportista, o el emisor si el caller es el
-     * transportista: la regla solo distingue al calificado en el no-retiro, donde el emisor tiene una sola.
+     * A quién puede calificar el caller en este envío y, si no, por qué: la misma regla que el alta y la edición,
+     * evaluada para cada contraparte, para que el mobile no ofrezca calificar cuando el backend lo va a rechazar
+     * (ej. el receptor tras una disputa resuelta). Solo partes del envío.
      */
-    async getRatingEligibility(shipmentId: string, callerId: string): Promise<RatingEligibility> {
+    async getRatingEligibility(shipmentId: string, callerId: string): Promise<ShipmentRatingEligibility> {
       const shipment = await shipmentRepository.findById(shipmentId);
       if (!shipment) {
         throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
@@ -411,13 +431,28 @@ export function createRatingsService(
       if (raterRole === null) {
         throw new ApiError(403, "AUTH_FORBIDDEN", "No participaste de este envío.");
       }
-      const rateeRole = raterRole === RatingRole.carrier ? RatingRole.sender : RatingRole.carrier;
       const [events, latestDispute] = await Promise.all([
         shipmentRepository.listEvents(shipmentId),
         disputeRepository?.findLatestByShipment(shipmentId),
       ]);
-      const block = ratingWriteBlock(shipment, events, new Date(), { raterRole, rateeRole }, latestDispute ?? null);
-      return { canRate: block === null, reason: block?.reason ?? null };
+      const now = new Date();
+      const counterparties = ratingCounterparties(shipment, raterRole).map(({ rateeId, rateeRole }): RatingEligibility => {
+        const { block, windowEndsAt } = checkRatingWrite(
+          shipment,
+          events,
+          now,
+          { raterRole, rateeRole },
+          latestDispute ?? null,
+        );
+        return {
+          rateeId,
+          rateeRole,
+          canRate: block === null,
+          reason: block?.reason ?? null,
+          windowEndsAt: windowEndsAt?.toISOString() ?? null,
+        };
+      });
+      return { counterparties };
     },
 
     /**

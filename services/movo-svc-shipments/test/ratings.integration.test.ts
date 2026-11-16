@@ -274,8 +274,19 @@ describe("Calificaciones post-entrega — /shipments/:id/ratings (Postgres) — 
 
     const receiver = await eligibility(receiverId);
     expect(receiver.statusCode).toBe(200);
-    expect(receiver.json()).toEqual({ canRate: false, reason: "dispute_lost" });
-    expect((await eligibility(carrierId)).json()).toEqual({ canRate: true, reason: null });
+    expect(receiver.json()).toEqual({
+      counterparties: [
+        { rateeId: carrierId, rateeRole: "carrier", canRate: false, reason: "dispute_lost", windowEndsAt: null },
+      ],
+    });
+    const carrier = (await eligibility(carrierId)).json() as {
+      counterparties: Array<{ rateeId: string; canRate: boolean; windowEndsAt: string | null }>;
+    };
+    expect(carrier.counterparties.map((c) => [c.rateeId, c.canRate])).toEqual([
+      [senderId, true],
+      [receiverId, true],
+    ]);
+    expect(carrier.counterparties.every((c) => c.windowEndsAt !== null)).toBe(true);
     expect((await eligibility(randomUUID())).statusCode).toBe(403);
   });
 

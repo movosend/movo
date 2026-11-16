@@ -1,7 +1,7 @@
 // Autocontenido a propósito (no importa de otros *.schema.ts) -- mismo criterio que el
 // resto del repo (ver shipments.schema.ts). Sí importa de @movo/shared (no es un
 // *.schema.ts), fuente única de qué campos de categoría existen (MOVO-173).
-import { CARRIER_RATING_CATEGORIES } from "@movo/shared";
+import { CARRIER_RATING_CATEGORIES, RATING_BLOCK_REASONS } from "@movo/shared";
 
 const RATING_ROLE_VALUES = ["sender", "carrier", "receiver"];
 
@@ -189,15 +189,24 @@ export const ratingsSchemas = {
     items: ratingResponse,
   },
 
-  // `RatingEligibility` de @movo/shared.
+  // `ShipmentRatingEligibility` de @movo/shared: una entrada por contraparte.
   ratingEligibilityResponse: {
     type: "object",
-    required: ["canRate", "reason"],
+    required: ["counterparties"],
     properties: {
-      canRate: { type: "boolean" },
-      reason: {
-        type: ["string", "null"],
-        enum: ["dispute_active", "dispute_lost", "window_expired", "not_delivered", null],
+      counterparties: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["rateeId", "rateeRole", "canRate", "reason", "windowEndsAt"],
+          properties: {
+            rateeId: { type: "string", format: "uuid" },
+            rateeRole: { type: "string", enum: RATING_ROLE_VALUES },
+            canRate: { type: "boolean" },
+            reason: { type: ["string", "null"], enum: [...RATING_BLOCK_REASONS, null] },
+            windowEndsAt: { type: ["string", "null"], format: "date-time" },
+          },
+        },
       },
     },
   },

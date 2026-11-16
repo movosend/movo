@@ -126,19 +126,35 @@ export interface ActiveShipmentSummary {
 export type RatingRole = "sender" | "carrier" | "receiver";
 
 /**
- * Por qué el usuario no puede calificar un envío (`GET /shipments/:id/ratings/eligibility`). Mismas reglas que el
- * alta y la edición: el cliente no las recalcula, así no ofrece una acción que el backend va a rechazar.
+ * Por qué el usuario no puede calificar a una contraparte (`GET /shipments/:id/ratings/eligibility`). Mismas reglas
+ * que el alta y la edición: el cliente no las recalcula, así no ofrece una acción que el backend va a rechazar.
  * - `dispute_active`: el envío está en disputa.
  * - `dispute_lost`: hubo una disputa resuelta y quien pregunta no la ganó (el receptor nunca la gana).
  * - `window_expired`: venció el plazo de 72 h.
  * - `not_delivered`: el envío no se entregó (y no es un caso que habilite calificar).
+ *
+ * Const y no solo tipo: el schema de la respuesta deriva su `enum` de acá.
  */
-export type RatingBlockReason = "dispute_active" | "dispute_lost" | "window_expired" | "not_delivered";
+export const RATING_BLOCK_REASONS = ["dispute_active", "dispute_lost", "window_expired", "not_delivered"] as const;
+export type RatingBlockReason = (typeof RATING_BLOCK_REASONS)[number];
 
+/** Elegibilidad para calificar a UNA contraparte: la regla puede distinguir al calificado (no-retiro, DD-063). */
 export interface RatingEligibility {
+  rateeId: string;
+  rateeRole: RatingRole;
   canRate: boolean;
   /** `null` cuando `canRate` es `true`. */
   reason: RatingBlockReason | null;
+  /**
+   * ISO del cierre de la ventana de 72 h si `canRate` (desde la entrega, la resolución de la disputa o la
+   * cancelación, según el caso); `null` si no se puede calificar. El cliente lo muestra y vuelve a consultar ahí.
+   */
+  windowEndsAt: string | null;
+}
+
+/** Respuesta de `GET /shipments/:id/ratings/eligibility`: una entrada por contraparte que el caller califica. */
+export interface ShipmentRatingEligibility {
+  counterparties: RatingEligibility[];
 }
 
 /**

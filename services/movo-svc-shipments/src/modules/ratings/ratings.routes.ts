@@ -148,8 +148,9 @@ export default async function ratingsRoutes(app: FastifyInstance, opts: RatingsR
         summary: "Si el caller puede calificar este envío",
         description:
           "Misma regla que el alta y la edición (estado, disputa activa o resuelta, ventana de 72 h), evaluada para " +
-          "el caller: el mobile la usa para no ofrecer calificar cuando el POST lo rechazaría. `reason` dice por " +
-          "qué no (null si puede). Solo para las partes del envío (403 para el resto).",
+          "el caller y cada contraparte que califica (el transportista, dos): el mobile la usa para no ofrecer " +
+          "calificar cuando el POST lo rechazaría. `reason` dice por qué no (null si puede) y `windowEndsAt`, hasta " +
+          "cuándo sí. Solo para las partes del envío (403 para el resto).",
         tags: ["ratings"],
         params: ratingsSchemas.shipmentIdParam,
         response: {
