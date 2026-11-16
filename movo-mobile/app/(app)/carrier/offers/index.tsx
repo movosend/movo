@@ -15,6 +15,7 @@ import {
   acceptedOfferOutcome,
   acceptedOfferPhase,
   competitiveRankNotice,
+  isOpenAcceptedOffer,
   offerReceivedArs,
 } from "../../../../src/lib/offer-format";
 import { formatPriceArs } from "../../../../src/lib/shipment-format";
@@ -116,7 +117,7 @@ export default function MyOffersSummaryScreen() {
   const pending = items.filter((o) => o.status === OfferStatus.PENDING);
   // Una aceptada cuyo envío ya terminó (entregado, cancelado o en disputa) va a "Cerradas": la oferta no tiene un estado de
   // cierre propio y seguía como "Ya te aceptaron" (feedback de TestFlight, build 17).
-  const accepted = items.filter((o) => o.status === OfferStatus.ACCEPTED && acceptedOfferOutcome(o) === null);
+  const accepted = items.filter(isOpenAcceptedOffer);
   const closed = useMemo(() => {
     const acceptedShipmentIds = new Set(
       items.filter((o) => o.status === OfferStatus.ACCEPTED).map((o) => o.shipmentId),

@@ -48,6 +48,15 @@ export function acceptedOfferOutcome(offer: Pick<MyOfferSummary, "status" | "shi
 }
 
 /**
+ * Aceptada con el envío todavía en curso: la que cuenta como "aceptada" en los contadores y en el aviso de
+ * atención. Una aceptada cuyo envío ya terminó va a "Cerradas" (`acceptedOfferOutcome`) -- el acceso de
+ * "Mis ofertas" en Transportar y el header de esa pantalla usan este mismo criterio para no divergir.
+ */
+export function isOpenAcceptedOffer(offer: Pick<MyOfferSummary, "status" | "shipment">): boolean {
+  return offer.status === OfferStatus.ACCEPTED && acceptedOfferOutcome(offer) === null;
+}
+
+/**
  * En qué va el envío de una oferta aceptada que todavía no terminó: la oferta se queda en `accepted`, pero con el viaje
  * en curso "Aceptada · Ya te aceptaron" no decía nada (feedback de TestFlight). `null` si la oferta no es `accepted`,
  * si el envío ya terminó (`acceptedOfferOutcome`) o si está en un estado que no corresponde a una fase.

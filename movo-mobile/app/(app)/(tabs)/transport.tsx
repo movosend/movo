@@ -48,6 +48,7 @@ import { TripStatus } from "../../../src/api/trips-client";
 import { useMyTrips, useTrip, useTripMatches } from "../../../src/hooks/use-trips";
 import { IDENTITY_GATE_COPY } from "../../../src/lib/carrier-requirements";
 import { friendlyErrorMessage } from "../../../src/lib/error-messages";
+import { isOpenAcceptedOffer } from "../../../src/lib/offer-format";
 import {
   computeOnTripDetour,
   isPickupWindowExpired,
@@ -475,7 +476,8 @@ export default function TransportScreen() {
   // `offers` ya se declara más arriba (MOVO-182, split de useMyOffers por status).
   const tripsMeta = `${declaredTrips.length} ${declaredTrips.length === 1 ? "declarado" : "declarados"}`;
   const pendingOffersCount = offers.filter((o) => o.status === OfferStatus.PENDING).length;
-  const acceptedOffersCount = offers.filter((o) => o.status === OfferStatus.ACCEPTED).length;
+  // Mismo criterio que el header de "Mis ofertas": una aceptada cuyo envío ya terminó está en "Cerradas".
+  const acceptedOffersCount = offers.filter(isOpenAcceptedOffer).length;
   const offersMeta = `${pendingOffersCount} ${pendingOffersCount === 1 ? "pendiente" : "pendientes"} · ${acceptedOffersCount} ${acceptedOffersCount === 1 ? "aceptada" : "aceptadas"}`;
 
   // Con un requisito pendiente solo queda el título (y, fuera del modo `?tripId=`, el

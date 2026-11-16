@@ -654,6 +654,29 @@ describe("TransportScreen", () => {
       expect(getByTestId("transport-my-offers-attention-dot")).toBeTruthy();
     });
 
+    it("no cuenta como aceptada (ni prende el punto) una oferta cuyo envío ya terminó, igual que 'Mis ofertas'", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([]) }));
+      mockUseMyTrips.mockReturnValue({ data: { items: [], page: 1, limit: 50, total: 0 } });
+      const finished = (id: string, status: string) => {
+        const offer = myOfferSummary({ id, status: "accepted" });
+        return { ...offer, shipment: { ...offer.shipment, status } };
+      };
+      mockUseMyOffers.mockReturnValue({
+        data: {
+          items: [finished("o1", "delivered"), finished("o2", "completed"), finished("o3", "cancelled")],
+          page: 1,
+          limit: 50,
+          total: 3,
+        },
+      });
+
+      const { getByText, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByText("0 pendientes · 0 aceptadas")).toBeTruthy();
+      expect(queryByTestId("transport-my-offers-attention-dot")).toBeNull();
+    });
+
     it("MOVO-221: un viaje active tampoco cuenta en tripsMeta -- solo declared", async () => {
       mockUseTransportOrigin.mockReturnValue(baseOriginResult());
       mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([]) }));
