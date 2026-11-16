@@ -56,7 +56,7 @@ import { disputeExplanation } from "../../../src/lib/dispute-format";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useDeadlineExpired } from "../../../src/hooks/use-deadline-expired";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
-import { useShipmentRatings } from "../../../src/hooks/use-ratings";
+import { useRatingEligibility, useShipmentRatings } from "../../../src/hooks/use-ratings";
 import { useShipment, useShipmentPhotos } from "../../../src/hooks/use-shipments";
 import { useShipmentSettlement } from "../../../src/hooks/use-shipment-settlement";
 import { carrierCompensationView } from "../../../src/lib/cancellation-format";
@@ -178,6 +178,11 @@ export default function ShipmentDetailScreen() {
   const ratingsShipmentId =
     shipment && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? shipment.id : undefined;
   const { data: ratings, refetch: refetchRatings } = useShipmentRatings(ratingsShipmentId);
+  const {
+    data: ratingEligibility,
+    isError: isRatingEligibilityError,
+    refetch: refetchRatingEligibility,
+  } = useRatingEligibility(ratingsShipmentId);
   const [ratingTarget, setRatingTarget] = useState<RatingTarget | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -221,12 +226,16 @@ export default function ShipmentDetailScreen() {
   useFocusEffect(
     useCallback(() => {
       void refetch();
-      if (ratingsShipmentId) void refetchRatings();
+      if (ratingsShipmentId) {
+        void refetchRatings();
+        void refetchRatingEligibility();
+      }
       if (showPayment || showCancellationCompensation) void refetchSettlement();
       if (shouldFetchSenderHold) void refetchHold();
     }, [
       refetch,
       refetchRatings,
+      refetchRatingEligibility,
       refetchSettlement,
       refetchHold,
       showPayment,
@@ -254,7 +263,7 @@ export default function ShipmentDetailScreen() {
     setRefreshing(true);
     await Promise.allSettled([
       refetch(),
-      ...(ratingsShipmentId ? [refetchRatings()] : []),
+      ...(ratingsShipmentId ? [refetchRatings(), refetchRatingEligibility()] : []),
       photosQueryRef.current.refetch(),
       ...(showPayment || showCancellationCompensation ? [refetchSettlement()] : []),
       ...(shouldFetchSenderHold ? [refetchHold()] : []),
@@ -995,6 +1004,8 @@ export default function ShipmentDetailScreen() {
                     shipment={shipment}
                     currentUserId={activeUserId}
                     ratings={ratings}
+                    eligibility={ratingEligibility}
+                    isEligibilityError={isRatingEligibilityError}
                     onRate={(target) => setRatingTarget(target)}
                     onViewProfile={openProfile}
                     testID="shipment-detail-ratings"

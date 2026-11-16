@@ -21,6 +21,18 @@ export function useShipmentRatings(
   });
 }
 
+/** Bajo la clave de las calificaciones: calificar o editar invalida las dos juntas. */
+export function useRatingEligibility(
+  shipmentId: string | undefined,
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: [...shipmentRatingsQueryKey(shipmentId), "eligibility"] as const,
+    queryFn: () => ratingsClient.getRatingEligibility(shipmentId!),
+    enabled: (options?.enabled ?? true) && !!shipmentId,
+  });
+}
+
 export function useCreateRating(
   shipmentId: string,
   options?: {

@@ -5180,3 +5180,7 @@ El historial ya no dice "Llevaste N paquetes" con los que están en disputa: van
 ### Review de PR #343 — textos de la disputa sin afirmar retención
 
 Ningún texto de la disputa dice que el cobro "queda retenido": por DD-054 casi siempre se abre desde `completed`, con el cobro ya acreditado, y por DD-056 también desde `assigned` sin reserva; solo en `in_transit`/`delivered` queda plata retenida. Los avisos dicen "te va a avisar cuando se resuelva" y el rótulo del monto del transportista es "Monto en disputa". El contador del carrusel de envíos en curso se acota si la lista se achica con el carrusel montado (`role-section.tsx`).
+
+### PR #345 — Calificar solo cuando el backend lo permite
+
+`ShipmentRatingsCard` muestra "Calificar"/"Editar" según `GET /shipments/:id/ratings/eligibility` (`useRatingEligibility`, bajo la clave de las calificaciones), no según `deliveredAt` y el estado: ese cálculo no sabía de disputas resueltas y le ofrecía calificar al receptor, que el backend rechaza con 403. Con `dispute_lost` muestra "solo califica quien la ganó". Mientras la consulta carga no se ofrece calificar; si falla, se vuelve al cálculo local (`resolveRatingAvailability`).

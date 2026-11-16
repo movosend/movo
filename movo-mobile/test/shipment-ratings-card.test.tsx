@@ -23,6 +23,8 @@ jest.mock("../src/hooks/use-profile", () => ({
   }),
 }));
 
+const CAN_RATE = { canRate: true, reason: null } as const;
+
 describe("ShipmentRatingsCard", () => {
   const baseShipment: ShipmentSummary = {
     id: "shipment-1",
@@ -120,6 +122,7 @@ describe("ShipmentRatingsCard", () => {
         shipment={baseShipment}
         currentUserId="carrier-1"
         ratings={carrierRatings}
+        eligibility={CAN_RATE}
         onRate={handleRate}
       />
     );
@@ -162,6 +165,7 @@ describe("ShipmentRatingsCard", () => {
         shipment={baseShipment}
         currentUserId="carrier-1"
         ratings={[]}
+        eligibility={CAN_RATE}
         onRate={handleRate}
         onViewProfile={handleViewProfile}
       />
@@ -181,6 +185,7 @@ describe("ShipmentRatingsCard", () => {
         shipment={baseShipment}
         currentUserId="carrier-1"
         ratings={[]}
+        eligibility={CAN_RATE}
         onRate={handleRate}
       />
     );
@@ -188,7 +193,7 @@ describe("ShipmentRatingsCard", () => {
     expect(getByTestId("rating-row-profile-sender-1").props.accessibilityRole).toBeUndefined();
   });
 
-  it("muestra advertencia cuando el envío está en disputa", async () => {
+  it("muestra advertencia cuando el backend dice que el envío está en disputa", async () => {
     const disputedShipment: ShipmentSummary = {
       ...baseShipment,
       status: ShipmentStatus.DISPUTED,
@@ -199,6 +204,7 @@ describe("ShipmentRatingsCard", () => {
         shipment={disputedShipment}
         currentUserId="sender-1"
         ratings={[]}
+        eligibility={{ canRate: false, reason: "dispute_active" }}
         onRate={jest.fn()}
       />
     );
@@ -220,6 +226,7 @@ describe("ShipmentRatingsCard", () => {
         shipment={expiredShipment}
         currentUserId="sender-1"
         ratings={[]}
+        eligibility={{ canRate: false, reason: "window_expired" }}
         onRate={jest.fn()}
       />
     );
@@ -228,5 +235,64 @@ describe("ShipmentRatingsCard", () => {
       getByText("El plazo de 72 horas para calificar terminó")
     ).toBeTruthy();
     expect(queryByTestId("rate-btn-carrier-1")).toBeNull();
+  });
+  // TestFlight build 19: el receptor veía "Calificar" tras una disputa resuelta y el backend respondía 403.
+  it("tras una disputa resuelta que no ganó, no ofrece calificar y dice por qué", async () => {
+    const { getByText, queryByTestId } = await render(
+      <ShipmentRatingsCard
+        shipment={{ ...baseShipment, status: ShipmentStatus.COMPLETED }}
+        currentUserId="receiver-1"
+        ratings={[]}
+        eligibility={{ canRate: false, reason: "dispute_lost" }}
+        onRate={jest.fn()}
+      />
+    );
+
+    expect(getByText("Este envío tuvo una disputa: solo califica quien la ganó")).toBeTruthy();
+    expect(queryByTestId("rate-btn-carrier-1")).toBeNull();
+  });
+
+  it("tampoco deja editar una calificación ya hecha si el backend no lo permite", async () => {
+    const { getByTestId, queryByTestId } = await render(
+      <ShipmentRatingsCard
+        shipment={baseShipment}
+        currentUserId="sender-1"
+        ratings={mockRatings}
+        eligibility={{ canRate: false, reason: "dispute_lost" }}
+        onRate={jest.fn()}
+      />
+    );
+
+    expect(getByTestId("rating-row-carrier-1")).toBeTruthy();
+    expect(queryByTestId("edit-btn-carrier-1")).toBeNull();
+  });
+
+  it("mientras no llega la elegibilidad no ofrece calificar", async () => {
+    const { queryByTestId } = await render(
+      <ShipmentRatingsCard
+        shipment={baseShipment}
+        currentUserId="receiver-1"
+        ratings={[]}
+        eligibility={undefined}
+        onRate={jest.fn()}
+      />
+    );
+
+    expect(queryByTestId("rate-btn-carrier-1")).toBeNull();
+  });
+
+  it("si la consulta de elegibilidad falla, vuelve al cálculo local", async () => {
+    const { getByTestId } = await render(
+      <ShipmentRatingsCard
+        shipment={baseShipment}
+        currentUserId="receiver-1"
+        ratings={[]}
+        eligibility={undefined}
+        isEligibilityError
+        onRate={jest.fn()}
+      />
+    );
+
+    expect(getByTestId("rate-btn-carrier-1")).toBeTruthy();
   });
 });

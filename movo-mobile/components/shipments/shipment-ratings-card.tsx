@@ -4,7 +4,7 @@ import { ShipmentStatus, type RatingRole } from "@movo/shared/dist/types/shipmen
 import { AvatarImage } from "../ui/avatar-image";
 import { SkeletonBlock } from "../ui/skeleton-block";
 import { StarRatingInput } from "../ui/star-rating-input";
-import type { Rating } from "../../src/api/ratings-client";
+import type { Rating, RatingEligibility } from "../../src/api/ratings-client";
 import type { ShipmentSummary } from "../../src/api/shipments-client";
 import { usePublicProfile } from "../../src/hooks/use-profile";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
@@ -15,6 +15,11 @@ export interface ShipmentRatingsCardProps {
   currentUserId: string;
   ratings: Rating[] | undefined;
   isLoadingRatings?: boolean;
+  /** Si el usuario puede calificar, según el backend (`useRatingEligibility`). Mientras carga no se ofrece
+   * calificar: tocar antes de saberlo llevaba al error del backend (ej. el receptor tras una disputa resuelta). */
+  eligibility: RatingEligibility | undefined;
+  /** Falló la consulta (ej. un backend anterior al endpoint): se usa el cálculo local de antes. */
+  isEligibilityError?: boolean;
   onRate: (target: RatingTarget) => void;
   /** Abre el perfil público de la contraparte (MOVO-154) al tocar avatar/nombre —
    * acción distinta de calificar, por eso no comparte `Pressable` con el botón
@@ -29,6 +34,31 @@ export function isRatingWindowExpired(deliveredAt: string | null | undefined): b
   if (isNaN(deliveredTime)) return false;
   const WINDOW_MS = 72 * 60 * 60 * 1000;
   return Date.now() - deliveredTime > WINDOW_MS;
+}
+
+/**
+ * Si se ofrece calificar y, si no, qué motivo mostrar. Manda el backend (`eligibility`); el cálculo local (ventana
+ * desde `deliveredAt`, disputa activa) queda solo como respaldo si la consulta falla, porque no conoce las disputas
+ * ya resueltas. Sin respuesta todavía, no se ofrece.
+ */
+export function resolveRatingAvailability(
+  shipment: ShipmentSummary,
+  eligibility: RatingEligibility | undefined,
+  isEligibilityError: boolean
+): { canRate: boolean; blockReason: RatingEligibility["reason"] } {
+  if (eligibility) {
+    return { canRate: eligibility.canRate, blockReason: eligibility.reason };
+  }
+  if (!isEligibilityError) {
+    return { canRate: false, blockReason: null };
+  }
+  if (shipment.status === ShipmentStatus.DISPUTED) {
+    return { canRate: false, blockReason: "dispute_active" };
+  }
+  if (isRatingWindowExpired(shipment.deliveredAt)) {
+    return { canRate: false, blockReason: "window_expired" };
+  }
+  return { canRate: true, blockReason: null };
 }
 
 export interface CounterpartyInfo {
@@ -70,16 +100,16 @@ export function resolveCounterparties(
 function CounterpartyRatingRow({
   counterparty,
   myRating,
-  isExpired,
-  isInDispute,
+  canRate,
+  blockReason,
   onRate,
   onViewProfile,
   testID,
 }: {
   counterparty: CounterpartyInfo;
   myRating?: Rating;
-  isExpired: boolean;
-  isInDispute: boolean;
+  canRate: boolean;
+  blockReason: RatingEligibility["reason"];
   onRate: (target: RatingTarget) => void;
   onViewProfile?: (userId: string) => void;
   testID?: string;
@@ -150,7 +180,7 @@ function CounterpartyRatingRow({
         </Pressable>
 
         {/* Action button */}
-        {!hasRated && !isExpired && !isInDispute ? (
+        {!hasRated && canRate ? (
           <Pressable
             testID={testID ? `${testID}-rate-btn-${counterparty.userId}` : `rate-btn-${counterparty.userId}`}
             onPress={handlePress}
@@ -164,7 +194,7 @@ function CounterpartyRatingRow({
           </Pressable>
         ) : null}
 
-        {hasRated && !isExpired && !isInDispute ? (
+        {hasRated && canRate ? (
           <Pressable
             testID={testID ? `${testID}-edit-btn-${counterparty.userId}` : `edit-btn-${counterparty.userId}`}
             onPress={handlePress}
@@ -205,21 +235,28 @@ function CounterpartyRatingRow({
             </Text>
           ) : null}
         </View>
-      ) : isExpired ? (
+      ) : blockReason === "window_expired" ? (
         <View className="flex-row items-center gap-1.5 pt-0.5">
           <Clock size={13} color={colors.fg3} />
           <Text className="font-sans text-[12px] text-fg-3">
             El plazo de 72 horas para calificar terminó
           </Text>
         </View>
-      ) : isInDispute ? (
+      ) : blockReason === "dispute_active" ? (
         <View className="flex-row items-center gap-1.5 pt-0.5">
           <AlertCircle size={13} color="#D97706" />
           <Text className="font-sans text-[12px] text-amber-700 dark:text-amber-400">
             Vas a poder calificar cuando se resuelva la disputa
           </Text>
         </View>
-      ) : (
+      ) : blockReason === "dispute_lost" ? (
+        <View className="flex-row items-center gap-1.5 pt-0.5">
+          <AlertCircle size={13} color={colors.fg3} />
+          <Text className="font-sans text-[12px] text-fg-3">
+            Este envío tuvo una disputa: solo califica quien la ganó
+          </Text>
+        </View>
+      ) : !canRate ? null : (
         <View className="flex-row items-center gap-1.5 pt-0.5">
           <Clock size={13} color={colors.fg3} />
           <Text className="font-sans text-[12px] text-fg-3">
@@ -240,13 +277,14 @@ export function ShipmentRatingsCard({
   shipment,
   currentUserId,
   ratings,
+  eligibility,
+  isEligibilityError = false,
   onRate,
   onViewProfile,
   testID,
 }: ShipmentRatingsCardProps) {
   const counterparties = resolveCounterparties(shipment, currentUserId);
-  const isExpired = isRatingWindowExpired(shipment.deliveredAt);
-  const isInDispute = shipment.status === ShipmentStatus.DISPUTED;
+  const { canRate, blockReason } = resolveRatingAvailability(shipment, eligibility, isEligibilityError);
 
   if (counterparties.length === 0) return null;
 
@@ -261,8 +299,8 @@ export function ShipmentRatingsCard({
             key={counterparty.userId}
             counterparty={counterparty}
             myRating={myRating}
-            isExpired={isExpired}
-            isInDispute={isInDispute}
+            canRate={canRate}
+            blockReason={blockReason}
             onRate={onRate}
             onViewProfile={onViewProfile}
             testID={testID}
