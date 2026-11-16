@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
-import { DisputeReason, ShipmentStatus } from "@movo/shared";
+import { DisputeReason, DisputeStatus, ShipmentStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
@@ -245,6 +245,38 @@ describe("Calificaciones post-entrega — /shipments/:id/ratings (Postgres) — 
 
     expect(response.statusCode).toBe(409);
     expect(response.json().error.code).toBe("SHIPMENT_RATING_DISPUTE_ACTIVE");
+  });
+
+  it("GET /ratings/eligibility: el receptor no puede calificar tras una disputa resuelta", async () => {
+    const shipmentId = await createDeliveredShipment();
+    await assignCarrier(shipmentId);
+    await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.DISPUTED, null, undefined, {
+      dispute: { openedBy: senderId, openedByRole: "sender", reason: DisputeReason.OTHER, description: "test" },
+    });
+    await app.db.dispute.updateMany({
+      where: { shipmentId },
+      data: {
+        status: DisputeStatus.RESOLVED,
+        outcome: "carrier",
+        carrierAmountArs: 4500,
+        senderAmountArs: 0,
+        paymentAction: "capture",
+        reasoning: "test",
+        resolvedBy: randomUUID(),
+        resolvedAt: new Date(),
+      },
+    });
+    // Fixture: la resolución real (MOVO-337) mueve el pago; acá solo importa el estado final.
+    await app.db.shipment.update({ where: { id: shipmentId }, data: { status: ShipmentStatus.COMPLETED } });
+
+    const eligibility = (userId: string) =>
+      app.inject({ method: "GET", url: `/shipments/${shipmentId}/ratings/eligibility`, headers: { "x-user-id": userId } });
+
+    const receiver = await eligibility(receiverId);
+    expect(receiver.statusCode).toBe(200);
+    expect(receiver.json()).toEqual({ canRate: false, reason: "dispute_lost" });
+    expect((await eligibility(carrierId)).json()).toEqual({ canRate: true, reason: null });
+    expect((await eligibility(randomUUID())).statusCode).toBe(403);
   });
 
   it("AC5: PATCH edita la fila existente en vez de crear una segunda", async () => {

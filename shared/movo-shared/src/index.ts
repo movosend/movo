@@ -53,6 +53,8 @@ export type {
   ActiveShipmentCounterparty,
   ActiveShipmentSummary,
   RatingRole,
+  RatingBlockReason,
+  RatingEligibility,
   PendingRatingShipment,
 } from "./types/shipment";
 export { ACCOUNT_SANCTION_REASON_MAX_LENGTH, ACCOUNT_SANCTION_NOTE_MAX_LENGTH, accountRestrictionKey } from "./types/account-sanctions";

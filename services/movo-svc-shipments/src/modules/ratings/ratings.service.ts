@@ -11,6 +11,9 @@ import {
   RECEIVER_RATING_CATEGORIES,
   RatingCategoryScoreField,
   ReputationCategoryScore,
+  type ApiErrorCode,
+  type RatingBlockReason,
+  type RatingEligibility,
 } from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
@@ -170,9 +173,30 @@ function isWindowOpenFrom(anchor: Date, now: Date): boolean {
   return now.getTime() <= anchor.getTime() + RATING_WINDOW_HOURS * 60 * 60 * 1000;
 }
 
+interface RatingWriteBlock {
+  statusCode: 403 | 409;
+  code: ApiErrorCode;
+  message: string;
+  reason: RatingBlockReason;
+}
+
+const WINDOW_EXPIRED_BLOCK: RatingWriteBlock = {
+  statusCode: 409,
+  code: "SHIPMENT_RATING_WINDOW_EXPIRED",
+  message: "El plazo de 72 horas para calificar este envío ya venció.",
+  reason: "window_expired",
+};
+
+const NOT_DELIVERED_BLOCK: RatingWriteBlock = {
+  statusCode: 409,
+  code: "SHIPMENT_NOT_DELIVERED",
+  message: "El envío todavía no fue entregado.",
+  reason: "not_delivered",
+};
+
 /**
- * AC3/AC8/AC9: precondiciones de estado compartidas por alta y edición. Nunca deja
- * pasar un 500 -- todo incumplimiento resuelve a un `ApiError` explícito (AC3).
+ * AC3/AC8/AC9: precondiciones de estado compartidas por alta y edición. `null` si se
+ * puede escribir; si no, el error que corresponde (AC3: nunca un 500) y el motivo para el cliente.
  *
  * MOVO-337 (AC12): esta es la ÚNICA regla de quién puede calificar un envío no entregado. Además de los entregados:
  * - **Disputa resuelta** (DD-056): califica el ganador (en `partial`, las dos partes), dentro de las 72 h desde que
@@ -181,6 +205,66 @@ function isWindowOpenFrom(anchor: Date, now: Date): boolean {
  *   califica al transportista, dentro de las 72 h desde la cancelación.
  * Ningún otro envío cancelado se califica, y no hay penalización automática de reputación en ningún caso.
  */
+function ratingWriteBlock(
+  shipment: Shipment,
+  events: ShipmentEvent[],
+  now: Date,
+  parties: RatingParties,
+  latestDispute: DisputeRecord | null,
+): RatingWriteBlock | null {
+  if (shipment.status === ShipmentStatus.DISPUTED) {
+    return {
+      statusCode: 409,
+      code: "SHIPMENT_RATING_DISPUTE_ACTIVE",
+      message: "El envío tiene una disputa activa -- no se puede calificar hasta que se resuelva.",
+      reason: "dispute_active",
+    };
+  }
+  if (latestDispute?.status === DisputeStatus.RESOLVED && latestDispute.resolution) {
+    const { outcome, resolvedAt } = latestDispute.resolution;
+    const winners = disputeRatingWinners(outcome);
+    if (!winners.includes(parties.raterRole)) {
+      return {
+        statusCode: 403,
+        code: "AUTH_FORBIDDEN",
+        message: "Este envío tuvo una disputa: solo califica quien la ganó.",
+        reason: "dispute_lost",
+      };
+    }
+    if (!resolvedAt || !isWindowOpenFrom(resolvedAt, now)) {
+      return WINDOW_EXPIRED_BLOCK;
+    }
+    return null;
+  }
+  if (shipment.status === ShipmentStatus.CANCELLED) {
+    const cancellation = [...events].reverse().find((event) => event.toStatus === ShipmentStatus.CANCELLED);
+    if (cancellation?.attribution === "carrier") {
+      if (parties.raterRole !== RatingRole.sender || parties.rateeRole !== RatingRole.carrier) {
+        return {
+          statusCode: 403,
+          code: "AUTH_FORBIDDEN",
+          message: "El transportista no se presentó al retiro: solo el emisor puede calificarlo.",
+          reason: "not_delivered",
+        };
+      }
+      return isWindowOpenFrom(cancellation.createdAt, now) ? null : WINDOW_EXPIRED_BLOCK;
+    }
+    return NOT_DELIVERED_BLOCK;
+  }
+  // MOVO-208: `completed` (entregado Y pago liberado) también puede calificarse -- es
+  // una consecuencia posterior de `delivered`, no un estado que deba cerrar la ventana
+  // de calificación. `deliveredAt` sigue siendo la referencia real de la ventana de
+  // 72h en los dos casos: no se toca al pasar a `completed` (MOVO-212).
+  if (!FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) || !shipment.deliveredAt) {
+    return NOT_DELIVERED_BLOCK;
+  }
+  if (!isRatingWindowOpen(shipment.deliveredAt, events, now)) {
+    return WINDOW_EXPIRED_BLOCK;
+  }
+  return null;
+}
+
+/** Ver `ratingWriteBlock`: el alta y la edición lo convierten en el `ApiError` que corresponde. */
 function assertRatingWindowAllowsWrite(
   shipment: Shipment,
   events: ShipmentEvent[],
@@ -188,66 +272,9 @@ function assertRatingWindowAllowsWrite(
   parties: RatingParties,
   latestDispute: DisputeRecord | null,
 ): void {
-  if (shipment.status === ShipmentStatus.DISPUTED) {
-    throw new ApiError(
-      409,
-      "SHIPMENT_RATING_DISPUTE_ACTIVE",
-      "El envío tiene una disputa activa -- no se puede calificar hasta que se resuelva.",
-    );
-  }
-  if (latestDispute?.status === DisputeStatus.RESOLVED && latestDispute.resolution) {
-    const { outcome, resolvedAt } = latestDispute.resolution;
-    const winners = disputeRatingWinners(outcome);
-    if (!winners.includes(parties.raterRole)) {
-      throw new ApiError(
-        403,
-        "AUTH_FORBIDDEN",
-        "Este envío tuvo una disputa: solo califica quien la ganó.",
-      );
-    }
-    if (!resolvedAt || !isWindowOpenFrom(resolvedAt, now)) {
-      throw new ApiError(
-        409,
-        "SHIPMENT_RATING_WINDOW_EXPIRED",
-        "El plazo de 72 horas para calificar este envío ya venció.",
-      );
-    }
-    return;
-  }
-  if (shipment.status === ShipmentStatus.CANCELLED) {
-    const cancellation = [...events].reverse().find((event) => event.toStatus === ShipmentStatus.CANCELLED);
-    if (cancellation?.attribution === "carrier") {
-      if (parties.raterRole !== RatingRole.sender || parties.rateeRole !== RatingRole.carrier) {
-        throw new ApiError(
-          403,
-          "AUTH_FORBIDDEN",
-          "El transportista no se presentó al retiro: solo el emisor puede calificarlo.",
-        );
-      }
-      if (!isWindowOpenFrom(cancellation.createdAt, now)) {
-        throw new ApiError(
-          409,
-          "SHIPMENT_RATING_WINDOW_EXPIRED",
-          "El plazo de 72 horas para calificar este envío ya venció.",
-        );
-      }
-      return;
-    }
-    throw new ApiError(409, "SHIPMENT_NOT_DELIVERED", "El envío todavía no fue entregado.");
-  }
-  // MOVO-208: `completed` (entregado Y pago liberado) también puede calificarse -- es
-  // una consecuencia posterior de `delivered`, no un estado que deba cerrar la ventana
-  // de calificación. `deliveredAt` sigue siendo la referencia real de la ventana de
-  // 72h en los dos casos: no se toca al pasar a `completed` (MOVO-212).
-  if (!FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) || !shipment.deliveredAt) {
-    throw new ApiError(409, "SHIPMENT_NOT_DELIVERED", "El envío todavía no fue entregado.");
-  }
-  if (!isRatingWindowOpen(shipment.deliveredAt, events, now)) {
-    throw new ApiError(
-      409,
-      "SHIPMENT_RATING_WINDOW_EXPIRED",
-      "El plazo de 72 horas para calificar este envío ya venció.",
-    );
+  const block = ratingWriteBlock(shipment, events, now, parties, latestDispute);
+  if (block) {
+    throw new ApiError(block.statusCode, block.code, block.message);
   }
 }
 
@@ -367,6 +394,30 @@ export function createRatingsService(
       }
       assertCanViewRatings(shipment, callerId, callerRoles);
       return ratingRepository.listByShipment(shipmentId);
+    },
+
+    /**
+     * Si el caller puede calificar este envío y, si no, por qué: la misma regla que el alta y la edición, para que el
+     * mobile no ofrezca calificar cuando el backend lo va a rechazar (ej. el receptor tras una disputa resuelta).
+     * Solo partes del envío. La contraparte a evaluar es el transportista, o el emisor si el caller es el
+     * transportista: la regla solo distingue al calificado en el no-retiro, donde el emisor tiene una sola.
+     */
+    async getRatingEligibility(shipmentId: string, callerId: string): Promise<RatingEligibility> {
+      const shipment = await shipmentRepository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+      const raterRole = resolveShipmentRole(shipment, callerId);
+      if (raterRole === null) {
+        throw new ApiError(403, "AUTH_FORBIDDEN", "No participaste de este envío.");
+      }
+      const rateeRole = raterRole === RatingRole.carrier ? RatingRole.sender : RatingRole.carrier;
+      const [events, latestDispute] = await Promise.all([
+        shipmentRepository.listEvents(shipmentId),
+        disputeRepository?.findLatestByShipment(shipmentId),
+      ]);
+      const block = ratingWriteBlock(shipment, events, new Date(), { raterRole, rateeRole }, latestDispute ?? null);
+      return { canRate: block === null, reason: block?.reason ?? null };
     },
 
     /**

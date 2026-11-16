@@ -126,6 +126,22 @@ export interface ActiveShipmentSummary {
 export type RatingRole = "sender" | "carrier" | "receiver";
 
 /**
+ * Por qué el usuario no puede calificar un envío (`GET /shipments/:id/ratings/eligibility`). Mismas reglas que el
+ * alta y la edición: el cliente no las recalcula, así no ofrece una acción que el backend va a rechazar.
+ * - `dispute_active`: el envío está en disputa.
+ * - `dispute_lost`: hubo una disputa resuelta y quien pregunta no la ganó (el receptor nunca la gana).
+ * - `window_expired`: venció el plazo de 72 h.
+ * - `not_delivered`: el envío no se entregó (y no es un caso que habilite calificar).
+ */
+export type RatingBlockReason = "dispute_active" | "dispute_lost" | "window_expired" | "not_delivered";
+
+export interface RatingEligibility {
+  canRate: boolean;
+  /** `null` cuando `canRate` es `true`. */
+  reason: RatingBlockReason | null;
+}
+
+/**
  * Wire contract de `GET /shipments/pending-ratings` (`movo-svc-shipments`, MOVO-222):
  * envíos `delivered`/`completed` donde el usuario autenticado todavía tiene, dentro de
  * la ventana de 72hs (MOVO-146), alguna contraparte sin calificar — según la regla de

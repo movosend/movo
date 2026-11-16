@@ -189,6 +189,19 @@ export const ratingsSchemas = {
     items: ratingResponse,
   },
 
+  // `RatingEligibility` de @movo/shared.
+  ratingEligibilityResponse: {
+    type: "object",
+    required: ["canRate", "reason"],
+    properties: {
+      canRate: { type: "boolean" },
+      reason: {
+        type: ["string", "null"],
+        enum: ["dispute_active", "dispute_lost", "window_expired", "not_delivered", null],
+      },
+    },
+  },
+
   // Perfil público: las últimas de cada pestaña en una sola llamada (review de la PR #332).
   recentRatingsByRoleQuery: {
     type: "object",

@@ -140,6 +140,32 @@ export default async function ratingsRoutes(app: FastifyInstance, opts: RatingsR
       return ratings.map(toRatingDto);
     },
   );
+
+  app.get(
+    "/:id/ratings/eligibility",
+    {
+      schema: {
+        summary: "Si el caller puede calificar este envío",
+        description:
+          "Misma regla que el alta y la edición (estado, disputa activa o resuelta, ventana de 72 h), evaluada para " +
+          "el caller: el mobile la usa para no ofrecer calificar cuando el POST lo rechazaría. `reason` dice por " +
+          "qué no (null si puede). Solo para las partes del envío (403 para el resto).",
+        tags: ["ratings"],
+        params: ratingsSchemas.shipmentIdParam,
+        response: {
+          200: ratingsSchemas.ratingEligibilityResponse,
+          401: ratingsSchemas.errorResponse,
+          403: ratingsSchemas.errorResponse,
+          404: ratingsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      return service.getRatingEligibility(id, callerId);
+    },
+  );
 }
 
 /**
