@@ -2,10 +2,14 @@ import { httpClient } from "./http-client";
 /** MOVO-222: reexportado desde `@movo/shared` en vez de mantener un literal propio --
  * antes vivía duplicado acá y como enum Prisma en `movo-svc-shipments`, sin unificar
  * hasta que `RatingRole` cruzó el barrel compartido. */
-import type { RatingEligibility, RatingRole } from "@movo/shared/dist/types/shipment";
+import type {
+  RatingEligibility,
+  RatingRole,
+  ShipmentRatingEligibility,
+} from "@movo/shared/dist/types/shipment";
 import type { RatingCategoryScoreField } from "@movo/shared/dist/config/rating-categories";
 
-export type { RatingEligibility, RatingRole };
+export type { RatingEligibility, RatingRole, ShipmentRatingEligibility };
 
 /**
  * MOVO-173: sub-scores opcionales (1..5) de una calificación. Cuáles aplican depende del
@@ -66,10 +70,11 @@ export const ratingsClient = {
   },
 
   /**
-   * `GET /shipments/:id/ratings/eligibility`: si el usuario puede calificar este envío y, si no, por qué. Es la
-   * misma regla que el alta (disputa resuelta, ventana de 72 h): el cliente no la recalcula.
+   * `GET /shipments/:id/ratings/eligibility`: a qué contraparte puede calificar el usuario en este envío, hasta
+   * cuándo y, si no, por qué. Es la misma regla que el alta (disputa resuelta, ventana de 72 h): el cliente no la
+   * recalcula.
    */
-  getRatingEligibility(shipmentId: string): Promise<RatingEligibility> {
-    return httpClient.get<RatingEligibility>(`/shipments/${shipmentId}/ratings/eligibility`);
+  getRatingEligibility(shipmentId: string): Promise<ShipmentRatingEligibility> {
+    return httpClient.get<ShipmentRatingEligibility>(`/shipments/${shipmentId}/ratings/eligibility`);
   },
 };

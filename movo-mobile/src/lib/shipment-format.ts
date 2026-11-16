@@ -43,6 +43,15 @@ export const FULFILLED_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
   ShipmentStatus.COMPLETED,
 ];
 
+/** Estados en que el detalle muestra la sección de calificaciones y le pregunta al backend a quién se puede calificar:
+ * además de los entregados, un cancelado (el emisor califica al transportista que no se presentó) y uno en disputa
+ * (lo resuelto a favor del emisor termina `cancelled`, DD-056). Quién califica lo decide el backend, no este gate. */
+export const RATING_SECTION_STATUSES: readonly ShipmentStatus[] = [
+  ...FULFILLED_SHIPMENT_STATUSES,
+  ShipmentStatus.CANCELLED,
+  ShipmentStatus.DISPUTED,
+];
+
 export function shipmentStatusLabel(
   status: ShipmentStatus,
   options?: { isReceiver?: boolean },
