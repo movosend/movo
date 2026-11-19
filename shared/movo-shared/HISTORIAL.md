@@ -852,3 +852,7 @@ Los contratos de MOVO-345 (`AdminReportById` y los de cada pestaña), más `dist
 ### Review de PR #342 — `reportRangeBounds` y `FinanceReport.refundsToLedger`
 
 `reportRangeBounds(range)` en `types/admin-reports.ts`: la única copia de los límites de un rango de días de Argentina (`isInReportRange` la usa; `svc-shipments` y `svc-payments` la importan en vez de copiar `boundsOf`). `FinanceReport.refundsToLedger` y `FinanceReportRow.refundedToLedgerArs` (un reembolso que cayó a la cuenta corriente del transportista ya no es `refunded`); el desglose `refundStatus` de Finanzas se fue. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### PR #345 — Elegibilidad para calificar por contraparte
+
+`RATING_BLOCK_REASONS` (const, de donde sale `RatingBlockReason` y el `enum` del schema de `svc-shipments`), `RatingEligibility` por contraparte (`rateeId`, `rateeRole`, `canRate`, `reason`, `windowEndsAt`) y `ShipmentRatingEligibility` (`{ counterparties }`), la respuesta de `GET /shipments/:id/ratings/eligibility`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

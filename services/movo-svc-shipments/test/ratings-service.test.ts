@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { PaymentMethod, ShipmentStatus, UserRole } from "@movo/shared";
+import { DisputeStatus, PaymentMethod, ShipmentStatus, UserRole } from "@movo/shared";
 import { createRatingsService } from "../src/modules/ratings/ratings.service";
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
 import { DuplicateRatingError } from "../src/repositories/rating-repository";
@@ -311,6 +311,155 @@ describe("ratings.service — listShipmentRatings (MOVO-146 AC6)", () => {
       statusCode: 403,
       code: "AUTH_FORBIDDEN",
     });
+  });
+});
+
+describe("ratings.service — getRatingEligibility", () => {
+  function resolvedDispute(outcome: "sender" | "carrier" | "partial", resolvedAt: Date) {
+    return {
+      findLatestByShipment: vi.fn().mockResolvedValue({
+        id: "dispute-id",
+        shipmentId: SHIPMENT_ID,
+        openedBy: SENDER_ID,
+        openedByRole: "sender",
+        reason: "other",
+        description: "test",
+        status: DisputeStatus.RESOLVED,
+        openedAt: new Date("2030-01-04T00:00:00.000Z"),
+        resolution: {
+          outcome,
+          percentage: null,
+          carrierAmountArs: 0,
+          senderAmountArs: 0,
+          paymentAction: "capture",
+          reasoning: "test",
+          resolvedBy: "admin-id",
+          resolvedAt,
+        },
+      }),
+    };
+  }
+
+  function serviceWith(
+    shipment: Shipment,
+    disputeRepository?: ReturnType<typeof resolvedDispute>,
+    events: ShipmentEvent[] = [],
+  ) {
+    return createRatingsService(
+      fakeShipmentRepository({
+        findById: vi.fn().mockResolvedValue(shipment),
+        listEvents: vi.fn().mockResolvedValue(events),
+      }),
+      createFakeRatingRepository(),
+      undefined,
+      undefined,
+      undefined,
+      disputeRepository,
+    );
+  }
+
+  const DELIVERY_WINDOW_END = "2030-01-08T00:00:00.000Z";
+
+  function only(canRate: boolean, reason: string | null, windowEndsAt: string | null = null) {
+    return {
+      counterparties: [{ rateeId: CARRIER_ID, rateeRole: "carrier", canRate, reason, windowEndsAt }],
+    };
+  }
+
+  it("una parte de un envío entregado dentro de la ventana puede calificar, hasta 72 h desde la entrega", async () => {
+    freezeTime(NOW);
+    await expect(serviceWith(fakeShipment()).getRatingEligibility(SHIPMENT_ID, RECEIVER_ID)).resolves.toEqual(
+      only(true, null, DELIVERY_WINDOW_END),
+    );
+  });
+
+  it("el transportista recibe una entrada por contraparte (emisor y receptor)", async () => {
+    freezeTime(NOW);
+    await expect(serviceWith(fakeShipment()).getRatingEligibility(SHIPMENT_ID, CARRIER_ID)).resolves.toEqual({
+      counterparties: [
+        { rateeId: SENDER_ID, rateeRole: "sender", canRate: true, reason: null, windowEndsAt: DELIVERY_WINDOW_END },
+        { rateeId: RECEIVER_ID, rateeRole: "receiver", canRate: true, reason: null, windowEndsAt: DELIVERY_WINDOW_END },
+      ],
+    });
+  });
+
+  it("el receptor no califica tras una disputa resuelta; el ganador tiene 72 h desde la resolución", async () => {
+    freezeTime(NOW);
+    const service = serviceWith(
+      fakeShipment({ status: ShipmentStatus.COMPLETED }),
+      resolvedDispute("sender", new Date("2030-01-05T00:30:00.000Z")),
+    );
+
+    await expect(service.getRatingEligibility(SHIPMENT_ID, RECEIVER_ID)).resolves.toEqual(only(false, "dispute_lost"));
+    await expect(service.getRatingEligibility(SHIPMENT_ID, SENDER_ID)).resolves.toEqual(
+      only(true, null, "2030-01-08T00:30:00.000Z"),
+    );
+    const carrier = await service.getRatingEligibility(SHIPMENT_ID, CARRIER_ID);
+    expect(carrier.counterparties.map((c) => c.reason)).toEqual(["dispute_lost", "dispute_lost"]);
+  });
+
+  it("no-retiro atribuido al transportista: el emisor lo califica, el transportista a nadie", async () => {
+    freezeTime(NOW);
+    const cancelledAt = new Date("2030-01-05T00:00:00.000Z");
+    const service = serviceWith(fakeShipment({ status: ShipmentStatus.CANCELLED, deliveredAt: null }), undefined, [
+      {
+        id: "event-id",
+        shipmentId: SHIPMENT_ID,
+        fromStatus: ShipmentStatus.ASSIGNED,
+        toStatus: ShipmentStatus.CANCELLED,
+        actorId: null,
+        reason: null,
+        attribution: "carrier",
+        kind: "normal",
+        actorName: null,
+        createdAt: cancelledAt,
+      },
+    ]);
+
+    await expect(service.getRatingEligibility(SHIPMENT_ID, SENDER_ID)).resolves.toEqual(
+      only(true, null, DELIVERY_WINDOW_END),
+    );
+    const carrier = await service.getRatingEligibility(SHIPMENT_ID, CARRIER_ID);
+    expect(carrier.counterparties.map((c) => [c.rateeRole, c.canRate])).toEqual([
+      ["sender", false],
+      ["receiver", false],
+    ]);
+  });
+
+  it("coincide con el alta: el POST del receptor tras la disputa es el 403 que la elegibilidad anticipa", async () => {
+    freezeTime(NOW);
+    const service = serviceWith(
+      fakeShipment({ status: ShipmentStatus.COMPLETED }),
+      resolvedDispute("carrier", new Date("2030-01-05T00:30:00.000Z")),
+    );
+
+    await expect(
+      service.createRating({ shipmentId: SHIPMENT_ID, raterId: RECEIVER_ID, rateeId: CARRIER_ID, score: 1 }),
+    ).rejects.toMatchObject({ statusCode: 403, code: "AUTH_FORBIDDEN" });
+  });
+
+  it("disputa activa y ventana vencida devuelven su motivo", async () => {
+    freezeTime(NOW);
+    await expect(
+      serviceWith(fakeShipment({ status: ShipmentStatus.DISPUTED })).getRatingEligibility(SHIPMENT_ID, SENDER_ID),
+    ).resolves.toEqual(only(false, "dispute_active"));
+
+    freezeTime(AFTER_WINDOW);
+    await expect(serviceWith(fakeShipment()).getRatingEligibility(SHIPMENT_ID, SENDER_ID)).resolves.toEqual(
+      only(false, "window_expired"),
+    );
+  });
+
+  it("403 para quien no es parte del envío, 404 si no existe", async () => {
+    await expect(serviceWith(fakeShipment()).getRatingEligibility(SHIPMENT_ID, "ajeno-id")).rejects.toMatchObject({
+      statusCode: 403,
+      code: "AUTH_FORBIDDEN",
+    });
+    const missing = createRatingsService(
+      fakeShipmentRepository({ findById: vi.fn().mockResolvedValue(null) }),
+      createFakeRatingRepository(),
+    );
+    await expect(missing.getRatingEligibility(SHIPMENT_ID, SENDER_ID)).rejects.toMatchObject({ statusCode: 404 });
   });
 });
 

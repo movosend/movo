@@ -56,7 +56,7 @@ import { disputeExplanation } from "../../../src/lib/dispute-format";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useDeadlineExpired } from "../../../src/hooks/use-deadline-expired";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
-import { useShipmentRatings } from "../../../src/hooks/use-ratings";
+import { useRatingEligibility, useShipmentRatings } from "../../../src/hooks/use-ratings";
 import { useShipment, useShipmentPhotos } from "../../../src/hooks/use-shipments";
 import { useShipmentSettlement } from "../../../src/hooks/use-shipment-settlement";
 import { carrierCompensationView } from "../../../src/lib/cancellation-format";
@@ -74,6 +74,7 @@ import { chatAvailability } from "../../../src/lib/chat-format";
 import { pushOnce } from "../../../src/lib/navigation-guard";
 import {
   FULFILLED_SHIPMENT_STATUSES,
+  RATING_SECTION_STATUSES,
   canCancelShipment,
   canCarrierWithdraw,
   formatPickupDateLabel,
@@ -173,11 +174,22 @@ export default function ShipmentDetailScreen() {
   const [isHighDemandHelpOpen, setIsHighDemandHelpOpen] = useState(false);
   const [isAcceptSuccessVisible, setIsAcceptSuccessVisible] = useState(false);
 
-  // MOVO-346 (punto 9): las calificaciones solo existen con el envío terminado. `refetch()` ignora el
-  // `enabled` del hook, así que cada llamada se condiciona a este id (si no, sale `/undefined/ratings`).
+  // MOVO-346 (punto 9): las calificaciones solo existen con el envío terminado (o en disputa). `refetch()` ignora el
+  // `enabled` del hook, así que cada llamada se condiciona a este id (si no, sale `/undefined/ratings`). El receptor que
+  // transfirió no califica (MOVO-275) y el backend ya no lo ubica como parte: pedirlas le daba un 403.
   const ratingsShipmentId =
-    shipment && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? shipment.id : undefined;
-  const { data: ratings, refetch: refetchRatings } = useShipmentRatings(ratingsShipmentId);
+    shipment &&
+    RATING_SECTION_STATUSES.includes(shipment.status) &&
+    shipment.receiverTransfer?.viewerIsFormerReceiver !== true
+      ? shipment.id
+      : undefined;
+  const ratingsQuery = useShipmentRatings(ratingsShipmentId);
+  const ratings = ratingsQuery.data;
+  const refetchRatings = ratingsQuery.refetch;
+  const ratingEligibilityQuery = useRatingEligibility(ratingsShipmentId);
+  const refetchRatingEligibility = ratingEligibilityQuery.refetch;
+  const ratingQueriesRef = useRef({ ratingsQuery, ratingEligibilityQuery, ratingsShipmentId });
+  ratingQueriesRef.current = { ratingsQuery, ratingEligibilityQuery, ratingsShipmentId };
   const [ratingTarget, setRatingTarget] = useState<RatingTarget | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -221,19 +233,29 @@ export default function ShipmentDetailScreen() {
   useFocusEffect(
     useCallback(() => {
       void refetch();
-      if (ratingsShipmentId) void refetchRatings();
       if (showPayment || showCancellationCompensation) void refetchSettlement();
       if (shouldFetchSenderHold) void refetchHold();
     }, [
       refetch,
-      refetchRatings,
       refetchSettlement,
       refetchHold,
       showPayment,
       showCancellationCompensation,
       shouldFetchSenderHold,
-      ratingsShipmentId,
     ])
+  );
+
+  // Calificaciones al volver a la pantalla: efecto aparte con lo leído de un ref, como las fotos de abajo. Al montar,
+  // `useQuery` ya las pide; refetchear ahí (o cuando el id aparece al cargar el envío) duplicaba el GET.
+  useFocusEffect(
+    useCallback(() => {
+      const { ratingsQuery: list, ratingEligibilityQuery: eligibility, ratingsShipmentId: shipmentId } =
+        ratingQueriesRef.current;
+      if (!shipmentId) return;
+      for (const query of [list, eligibility]) {
+        if (query.dataUpdatedAt > 0 && query.fetchStatus !== "fetching") void query.refetch();
+      }
+    }, [])
   );
 
   // Las URLs de las fotos son presigned y vencen: al volver a la pantalla pasado el
@@ -254,7 +276,7 @@ export default function ShipmentDetailScreen() {
     setRefreshing(true);
     await Promise.allSettled([
       refetch(),
-      ...(ratingsShipmentId ? [refetchRatings()] : []),
+      ...(ratingsShipmentId ? [refetchRatings(), refetchRatingEligibility()] : []),
       photosQueryRef.current.refetch(),
       ...(showPayment || showCancellationCompensation ? [refetchSettlement()] : []),
       ...(shouldFetchSenderHold ? [refetchHold()] : []),
@@ -986,20 +1008,20 @@ export default function ShipmentDetailScreen() {
                 />
               ) : null}
 
-              {/* Sección de calificaciones post-entrega (MOVO-153). El receptor que
-                  transfirió no califica (MOVO-275): no participó de la entrega. */}
-              {FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) && !isFormerReceiver ? (
-                <View>
-                  <Eyebrow>Calificaciones</Eyebrow>
-                  <ShipmentRatingsCard
-                    shipment={shipment}
-                    currentUserId={activeUserId}
-                    ratings={ratings}
-                    onRate={(target) => setRatingTarget(target)}
-                    onViewProfile={openProfile}
-                    testID="shipment-detail-ratings"
-                  />
-                </View>
+              {/* Sección de calificaciones (MOVO-153). El receptor que transfirió no califica (MOVO-275): no
+                  participó de la entrega. En un cancelado o en disputa, el card muestra solo a quién corresponde. */}
+              {ratingsShipmentId ? (
+                <ShipmentRatingsCard
+                  shipment={shipment}
+                  currentUserId={activeUserId}
+                  ratings={ratings}
+                  eligibility={ratingEligibilityQuery.data}
+                  eligibilityError={ratingEligibilityQuery.error}
+                  onRate={(target) => setRatingTarget(target)}
+                  onViewProfile={openProfile}
+                  header={<Eyebrow>Calificaciones</Eyebrow>}
+                  testID="shipment-detail-ratings"
+                />
               ) : null}
 
               {/* MOVO-324: entrada a soporte con este envío ya vinculado. */}
