@@ -11,6 +11,8 @@ import { TrackingActiveIndicator } from "../location/tracking-active-indicator";
 import { TripStatus } from "../../src/api/trips-client";
 import { HomeSectionSkeleton, TRIP_CARD_SKELETON_HEIGHT } from "./home-section-states";
 import { requireCarrierLocation } from "../../src/store/carrier-location-gate-store";
+import { useTripStartConfirm } from "../../src/hooks/use-trip-start-confirm";
+import { TripStartSheet } from "../trips/trip-start-sheet";
 
 interface CarrierTransportingSectionProps {
   testID?: string;
@@ -25,7 +27,8 @@ interface CarrierTransportingSectionProps {
  * con paquetes se lista en "Actividad reciente" (`RecentShipmentsSection`), no acá —
  * antes cada viaje era una card con su propio botón lima y rompía la jerarquía del Inicio.
  *
- * Si no hay viaje en curso ni uno de hoy, no se renderiza.
+ * Si no hay viaje en curso ni uno de hoy, no se renderiza. Cuando se renderiza, es la acción principal de
+ * Inicio (variante `hero`) y `home.tsx` saca "Enviar un paquete": un solo lima por pantalla.
  */
 export function CarrierTransportingSection({
   testID = "app-home-transporting",
@@ -33,6 +36,7 @@ export function CarrierTransportingSection({
   const { data: myTripsData, isLoading } = useMyTrips();
   const startTripMutation = useStartTrip();
   const requirements = useCarrierRequirementsSheet("start");
+  const tripStart = useTripStartConfirm();
 
   const [startingTripId, setStartingTripId] = useState<string | null>(null);
   const [startTripError, setStartTripError] = useState<{ id: string; message: string } | null>(null);
@@ -49,8 +53,9 @@ export function CarrierTransportingSection({
   }
 
   // Iniciar el viaje arranca el tracking: primero pasa por el gate de ubicación.
+  // Primero confirma (iniciar no se deshace) y después pasa por el gate de ubicación.
   const handleStartTrip = (targetTrip: TripWithAcceptedPackages) =>
-    requireCarrierLocation(() => startTripNow(targetTrip));
+    tripStart.requestStart(targetTrip, () => requireCarrierLocation(() => startTripNow(targetTrip)));
 
   const startTripNow = async (targetTrip: TripWithAcceptedPackages) => {
     try {
@@ -80,6 +85,7 @@ export function CarrierTransportingSection({
 
       <CarrierTripCta
         trip={primaryTrip}
+        variant="hero"
         testID={`${testID}-card-${primaryTrip.id}`}
         onStart={handleStartTrip}
         isStarting={startingTripId === primaryTrip.id}
@@ -88,6 +94,7 @@ export function CarrierTransportingSection({
         footer={primaryTrip.status === TripStatus.ACTIVE ? <TrackingActiveIndicator variant="inline" /> : undefined}
       />
       <CarrierRequirementsSheet {...requirements.sheetProps} />
+      <TripStartSheet {...tripStart.sheetProps} />
     </View>
   );
 }

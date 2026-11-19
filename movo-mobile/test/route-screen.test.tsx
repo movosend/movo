@@ -1,9 +1,24 @@
 import React from "react";
-import { render, fireEvent, act, waitFor } from "@testing-library/react-native";
+import { render, fireEvent, act, waitFor, screen } from "@testing-library/react-native";
 import OptimizedRouteScreen from "../app/(app)/route/index";
 import { useOptimizedRoute } from "../src/hooks/use-optimized-route";
 import { router } from "expo-router";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
+
+/** Confirma la hoja de "Iniciar viaje" (`TripStartSheet`): el inicio corre cuando termina de cerrarse. */
+async function confirmTripStartSheet() {
+  // La hoja se monta en un efecto (`useSheetAnimation`): primero se deja asentar el render del toque.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  await act(async () => {
+    fireEvent.press(screen.getByTestId("trip-start-sheet-confirm"));
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 
 // MOVO-117: la checklist de requisitos ante un 403 se testea aparte; acá se usa el doble del hook.
 jest.mock("../src/hooks/use-carrier-requirements-sheet", () =>
@@ -355,6 +370,7 @@ describe("OptimizedRouteScreen (MOVO-207)", () => {
     expect(getByText("Iniciar viaje")).toBeTruthy();
 
     await fireEvent.press(getByTestId("route-trip-cta-start-button"));
+    await confirmTripStartSheet();
     expect(mockStartTripMutateAsync).toHaveBeenCalledWith("trip-declared-1");
   });
 
@@ -391,6 +407,7 @@ describe("OptimizedRouteScreen (MOVO-207)", () => {
 
     const { getByTestId, getByText, queryByTestId } = await render(<OptimizedRouteScreen />);
     await fireEvent.press(getByTestId("route-trip-cta-start-button"));
+    await confirmTripStartSheet();
 
     await waitFor(() => expect(getByText("Para iniciar tu viaje te queda un solo paso.")).toBeTruthy());
     expect(getByTestId("carrier-requirements-sheet-checklist-license-cta")).toBeTruthy();

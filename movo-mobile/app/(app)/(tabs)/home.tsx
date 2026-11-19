@@ -46,7 +46,8 @@ import { useTabBarScrollHandler } from '../../../src/store/tab-bar-store';
  * punta) con saludo (solo primer nombre — el completo queda para Perfil, que tiene más
  * espacio) + banner de KYC, y debajo: envíos activos por rol (MOVO-193), CTA primaria
  * "Enviar un paquete", tareas pendientes ("Requiere tu atención", MOVO-193) y
- * actividad reciente de envíos propios. El wizard de creación en sí (`/send`) es un
+ * actividad reciente de envíos propios. Con un viaje del día (o en curso) la CTA de envío no se muestra: la
+ * tarjeta del viaje es la acción principal. El wizard de creación en sí (`/send`) es un
  * ticket aparte — acá solo se resuelve el punto de entrada, bloqueado hasta que el
  * KYC de identidad esté aprobado (mismo criterio que ya usaba el banner).
  *
@@ -108,8 +109,11 @@ export default function AuthenticatedHomeScreen() {
   // un solo aviso para todo Inicio que reintenta lo que falló. Las mismas queries que usan
   // las secciones, así que no hay requests de más.
   const tripsQuery = useMyTrips("upcoming", isCarrier);
-  const showsActiveTripCard =
-    isCarrier && splitCarrierHomeTrips(tripsQuery.data?.items ?? []).primaryTrip?.status === TripStatus.ACTIVE;
+  const homeTrip = isCarrier ? splitCarrierHomeTrips(tripsQuery.data?.items ?? []).primaryTrip : null;
+  const showsActiveTripCard = homeTrip?.status === TripStatus.ACTIVE;
+  // Con un viaje para iniciar hoy (o uno en curso), Inicio es ese viaje: "Enviar un paquete" sale de la pantalla
+  // para que "Iniciar viaje" sea la única acción principal. Sin viaje del día, Inicio vuelve a ser el de siempre.
+  const hasHomeTrip = homeTrip !== null;
   const attentionQuery = useAttentionTasks();
   const failedSections = [
     { failed: sendingQuery.isError && !sending?.length, refetch: sendingQuery.refetch },
@@ -147,7 +151,8 @@ export default function AuthenticatedHomeScreen() {
   useResumeActiveTrip({ userId: user?.userId, isCarrier, isFocused, trips: tripsQuery.data?.items });
   const { canBrowse, isRequirementsLoading } = useTransportGate();
   useAutoStartTour('first_steps', {
-    enabled: isFocused && currentKycStatus === KycStatus.APPROVED && !isRequirementsLoading,
+    // El tour señala "Enviar un paquete", que no está mientras haya un viaje del día.
+    enabled: isFocused && currentKycStatus === KycStatus.APPROVED && !isRequirementsLoading && !hasHomeTrip,
     delayMs: 700,
     context: { firstName: firstName ?? null, canBrowse },
   });
@@ -264,12 +269,14 @@ export default function AuthenticatedHomeScreen() {
           isLoading={sendingQuery.isLoading || receivingQuery.isLoading}
         />
 
-        <HomeSendCta
-          testID="app-home-send-cta"
-          kycStatus={currentKycStatus}
-          isSuspended={suspension !== null}
-          scrollIntoView={scrollTourAnchorIntoView}
-        />
+        {hasHomeTrip ? null : (
+          <HomeSendCta
+            testID="app-home-send-cta"
+            kycStatus={currentKycStatus}
+            isSuspended={suspension !== null}
+            scrollIntoView={scrollTourAnchorIntoView}
+          />
+        )}
 
         <AttentionSection testID="app-home-attention" />
 

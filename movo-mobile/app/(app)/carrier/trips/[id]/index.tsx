@@ -35,6 +35,8 @@ import {
 } from "../../../../../src/lib/trip-format";
 import { weekdayName } from "../../../../../src/lib/trip-recurrence";
 import { requireCarrierLocation } from "../../../../../src/store/carrier-location-gate-store";
+import { useTripStartConfirm } from "../../../../../src/hooks/use-trip-start-confirm";
+import { TripStartSheet } from "../../../../../components/trips/trip-start-sheet";
 import { TripStatus, type TripAcceptedPackage, type TripWithAcceptedPackages } from "../../../../../src/api/trips-client";
 
 const EDIT_ACTION_ID = "edit-trip";
@@ -106,6 +108,7 @@ export default function TripDetailScreen() {
   const startTrip = useStartTrip();
   const updateTrip = useUpdateTrip();
   const requirements = useCarrierRequirementsSheet("start");
+  const tripStart = useTripStartConfirm();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   // MOVO-314: cancelar con paquetes aceptados baja al transportista de cada envío antes de cancelar
@@ -197,7 +200,8 @@ export default function TripDetailScreen() {
 
   // Iniciar el viaje arranca el tracking: sin ubicación en segundo plano se cortaría apenas se
   // apague la pantalla, así que primero pasa por el gate (MOVO-279).
-  const handleStart = (t: TripWithAcceptedPackages) => requireCarrierLocation(() => startTripNow(t));
+  const handleStart = (t: TripWithAcceptedPackages) =>
+    tripStart.requestStart(t, () => requireCarrierLocation(() => startTripNow(t)));
 
   const startTripNow = async (t: TripWithAcceptedPackages) => {
     setStartError(null);
@@ -559,6 +563,7 @@ export default function TripDetailScreen() {
         />
       ) : null}
       <CarrierRequirementsSheet {...requirements.sheetProps} />
+      <TripStartSheet {...tripStart.sheetProps} />
     </SafeAreaView>
   );
 }

@@ -1,9 +1,24 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, waitFor, screen } from "@testing-library/react-native";
 import { Alert } from "react-native";
 import TripDetailScreen from "../app/(app)/carrier/trips/[id]/index";
 import { TripStatus, type TripAcceptedPackage, type TripWithAcceptedPackages } from "../src/api/trips-client";
+
+/** Confirma la hoja de "Iniciar viaje" (`TripStartSheet`): el inicio corre cuando termina de cerrarse. */
+async function confirmTripStartSheet() {
+  // La hoja se monta en un efecto (`useSheetAnimation`): primero se deja asentar el render del toque.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  await act(async () => {
+    fireEvent.press(screen.getByTestId("trip-start-sheet-confirm"));
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 
 const mockPush = jest.fn();
 const mockBack = jest.fn();
@@ -366,6 +381,7 @@ describe("TripDetailScreen (MOVO-263)", () => {
     const { getByTestId } = await render(<TripDetailScreen />);
 
     await fireEvent.press(getByTestId("trip-detail-start"));
+    await confirmTripStartSheet();
 
     await waitFor(() => expect(mockStartMutateAsync).toHaveBeenCalledWith("trip-1"));
     await waitFor(() => expect(getByTestId("trip-detail-start-error")).toBeTruthy());
@@ -379,6 +395,7 @@ describe("TripDetailScreen (MOVO-263)", () => {
     const { getByTestId, getByText, queryByTestId } = await render(<TripDetailScreen />);
 
     await fireEvent.press(getByTestId("trip-detail-start"));
+    await confirmTripStartSheet();
 
     await waitFor(() => expect(getByText("Para iniciar tu viaje necesitás completar estos dos pasos.")).toBeTruthy());
     expect(getByTestId("carrier-requirements-sheet-checklist-license-cta")).toBeTruthy();
@@ -392,6 +409,7 @@ describe("TripDetailScreen (MOVO-263)", () => {
     const { getByTestId, queryByTestId } = await render(<TripDetailScreen />);
 
     await fireEvent.press(getByTestId("trip-detail-start"));
+    await confirmTripStartSheet();
 
     await waitFor(() => expect(getByTestId("trip-detail-start-error")).toBeTruthy());
     expect(queryByTestId("carrier-requirements-sheet")).toBeNull();
@@ -479,6 +497,7 @@ describe("TripDetailScreen (MOVO-263)", () => {
     const { getByTestId } = await render(<TripDetailScreen />);
 
     await fireEvent.press(getByTestId("trip-detail-start"));
+    await confirmTripStartSheet();
 
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith({ pathname: "/route", params: { tripId: "trip-1" } }));
   });

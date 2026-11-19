@@ -12,8 +12,8 @@ import { SkeletonBlock } from "../ui/skeleton-block";
 
 /** Alto de `ActiveShipmentCard` (padding 20 + encabezado + stepper + retiro/entrega + CTA). */
 export const ACTIVE_CARD_SKELETON_HEIGHT = 260;
-/** Alto de `CarrierTripCta` (card del viaje en curso/de hoy). */
-export const TRIP_CARD_SKELETON_HEIGHT = 168;
+/** Alto de `CarrierTripCta` en su variante `hero` (card del viaje en curso/de hoy en Inicio). */
+export const TRIP_CARD_SKELETON_HEIGHT = 212;
 /** Alto de una card de "Requiere tu atención". */
 export const ATTENTION_CARD_SKELETON_HEIGHT = 92;
 
