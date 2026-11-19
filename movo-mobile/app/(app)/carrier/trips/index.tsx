@@ -9,7 +9,7 @@ import { TripCard } from "../../../../components/trips/trip-card";
 import { TripHistoryCard } from "../../../../components/trips/trip-history-card";
 import { TripsSegmented } from "../../../../components/trips/trips-segmented";
 import { SkeletonBlock } from "../../../../components/ui/skeleton-block";
-import { SuccessBanner } from "../../../../components/ui/success-banner";
+import { SuccessToast } from "../../../../components/ui/success-toast";
 import { useActiveSuspension } from "../../../../src/hooks/use-account-restriction";
 import { useMyTripsPaged } from "../../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
@@ -108,6 +108,9 @@ export default function MyTripsScreen() {
   const showAddBar = isLoading || isError || hasTrips || isHistory;
   // Alto de la barra = 12 (padding superior) + 52 (botón) + inset inferior real del dispositivo.
   const barBottomPadding = Math.max(insets.bottom, 12);
+  // Alto real de la barra del pie, para apoyar los avisos encima: con la cuenta suspendida la barra muestra
+  // `SuspendedActionNotice`, más alto que el botón (review de PR #347). Arranca con el alto del botón.
+  const [footerHeight, setFooterHeight] = useState(12 + 52 + barBottomPadding);
   const scrollBottomPadding = showAddBar ? 12 + 52 + barBottomPadding + 24 : insets.bottom + 24;
 
   // MOVO-262 AC5: tocar la card abre el detalle (MOVO-263). `as any`: ruta nueva, todavía no
@@ -136,17 +139,6 @@ export default function MyTripsScreen() {
         <Text className="mt-2.5 font-sans text-[14px] leading-[20px] text-fg-3">
           Declarás el camino que ya vas a hacer y te aparecen paquetes que van para el mismo lado.
         </Text>
-
-        <SuccessBanner
-          testID="my-trips-cancelled-success"
-          message={cancelledMessage}
-          onDismiss={() => setCancelledMessage(null)}
-        />
-        <SuccessBanner
-          testID={showCreatedSuccess ? "my-trips-created-success" : "my-trips-auto-created-success"}
-          message={showCreatedSuccess ? "¡Viaje declarado!" : autoCreatedMessage}
-          onDismiss={() => (showCreatedSuccess ? setShowCreatedSuccess(false) : setAutoCreatedMessage(null))}
-        />
 
         <TripsSegmented value={scope} onChange={setScope} />
 
@@ -246,6 +238,7 @@ export default function MyTripsScreen() {
       <View
         className="absolute inset-x-0 bottom-0 border-t border-border bg-bg px-5 pt-3"
         style={{ paddingBottom: barBottomPadding }}
+        onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
       >
         {suspension ? (
           // MOVO-300 AC2: el gateway rechaza declarar un viaje con la cuenta suspendida.
@@ -263,6 +256,23 @@ export default function MyTripsScreen() {
         )}
       </View>
       ) : null}
+      {/* Avisos flotantes sobre la barra del pie: no empujan la lista al aparecer ni al irse. */}
+      <View
+        pointerEvents="box-none"
+        className="absolute inset-x-0 gap-2 px-5"
+        style={{ bottom: showAddBar ? footerHeight + 12 : insets.bottom + 16 }}
+      >
+        <SuccessToast
+          testID="my-trips-cancelled-success"
+          message={cancelledMessage}
+          onDismiss={() => setCancelledMessage(null)}
+        />
+        <SuccessToast
+          testID={showCreatedSuccess ? "my-trips-created-success" : "my-trips-auto-created-success"}
+          message={showCreatedSuccess ? "¡Viaje declarado!" : autoCreatedMessage}
+          onDismiss={() => (showCreatedSuccess ? setShowCreatedSuccess(false) : setAutoCreatedMessage(null))}
+        />
+      </View>
     </SafeAreaView>
   );
 }

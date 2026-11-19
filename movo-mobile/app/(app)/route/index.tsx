@@ -34,7 +34,7 @@ import { RouteMap } from "../../../components/route/route-map";
 import { StopList } from "../../../components/route/stop-list";
 import { CarrierRequirementsSheet } from "../../../components/carrier/carrier-requirements-checklist";
 import { CarrierTripCta } from "../../../components/trips/carrier-trip-cta";
-import { TripStatus } from "../../../src/api/trips-client";
+import { TripStatus, type TripWithAcceptedPackages } from "../../../src/api/trips-client";
 import { useCarrierRequirementsSheet } from "../../../src/hooks/use-carrier-requirements-sheet";
 import { useStartTrip, useTrip } from "../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
@@ -48,6 +48,8 @@ import {
   ROUTE_SHEET_DURATION_MS,
 } from "../../../src/lib/route-sheet-motion";
 import { requireCarrierLocation } from "../../../src/store/carrier-location-gate-store";
+import { useTripStartConfirm } from "../../../src/hooks/use-trip-start-confirm";
+import { TripStartSheet } from "../../../components/trips/trip-start-sheet";
 
 // Punto de partida declarado del transportista (Claude Design originPin en calle Blas Pascal / Las Mulitas, Córdoba)
 const DEMO_ORIGIN = { lat: -31.3533, lng: -64.2562 };
@@ -170,11 +172,14 @@ export default function OptimizedRouteScreen() {
   const tripData = tripQuery?.data;
   const startTripMutation = useStartTrip();
   const requirements = useCarrierRequirementsSheet("start");
+  const tripStart = useTripStartConfirm();
   const [isStartingTrip, setIsStartingTrip] = useState(false);
   const [startTripError, setStartTripError] = useState<string | null>(null);
 
   // Iniciar el viaje arranca el tracking: primero pasa por el gate de ubicación.
-  const handleStartTrip = () => requireCarrierLocation(startTripNow);
+  // Mismo diálogo que en Inicio y en el detalle: iniciar no se deshace.
+  const handleStartTrip = (trip: TripWithAcceptedPackages) =>
+    tripStart.requestStart(trip, () => requireCarrierLocation(startTripNow));
 
   const startTripNow = async () => {
     if (!tripId) return;
@@ -718,6 +723,7 @@ export default function OptimizedRouteScreen() {
         </>
       )}
       <CarrierRequirementsSheet {...requirements.sheetProps} />
+      <TripStartSheet {...tripStart.sheetProps} />
     </View>
   );
 }

@@ -1,8 +1,23 @@
-import { act, fireEvent, render } from "@testing-library/react-native";
+import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { router } from "expo-router";
 import { CarrierTransportingSection } from "../components/home/carrier-transporting-section";
 import { TripStatus } from "../src/api/trips-client";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
+
+/** Confirma la hoja de "Iniciar viaje" (`TripStartSheet`): el inicio corre cuando termina de cerrarse. */
+async function confirmTripStartSheet() {
+  // La hoja se monta en un efecto (`useSheetAnimation`): primero se deja asentar el render del toque.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  await act(async () => {
+    fireEvent.press(screen.getByTestId("trip-start-sheet-confirm"));
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 
 // MOVO-117: la checklist de requisitos ante un 403 se testea aparte; acá se usa el doble del hook.
 jest.mock("../src/hooks/use-carrier-requirements-sheet", () =>
@@ -81,8 +96,54 @@ describe("CarrierTransportingSection", () => {
     expect(getByText("Hoy")).toBeTruthy();
     expect(getByText("Iniciar viaje")).toBeTruthy();
 
-    fireEvent.press(getByText("Iniciar viaje"));
+    await fireEvent.press(getByText("Iniciar viaje"));
+    await confirmTripStartSheet();
     expect(mockStartTripMutateAsync).toHaveBeenCalledWith("t-ready");
+  });
+
+  describe("tarjeta de Inicio: abrir vs. iniciar", () => {
+    const readyTrip = {
+      id: "t-ready",
+      carrierId: "c1",
+      originAddress: "Av. Colón 100, Córdoba",
+      destinationAddress: "San Martín 200, Villa Carlos Paz",
+      departureAt: new Date().toISOString(),
+      status: TripStatus.DECLARED,
+      hasAcceptedPackages: true,
+      acceptedPackagesCount: 1,
+    };
+
+    it("tocar la tarjeta abre el detalle del viaje y no lo inicia", async () => {
+      mockUseMyTrips.mockReturnValue({ data: { items: [readyTrip], total: 1 } });
+      const { getByTestId } = await render(<CarrierTransportingSection />);
+
+      fireEvent.press(getByTestId("app-home-transporting-card-t-ready-open"));
+
+      expect(router.push).toHaveBeenCalledWith("/carrier/trips/t-ready");
+      expect(screen.queryByTestId("trip-start-sheet")).toBeNull();
+      expect(mockStartTripMutateAsync).not.toHaveBeenCalled();
+    });
+
+    it("'Iniciar viaje' abre la hoja de confirmación con la ruta y, si la cancela, el viaje no arranca", async () => {
+      mockUseMyTrips.mockReturnValue({ data: { items: [readyTrip], total: 1 } });
+      const { getByText, getByTestId } = await render(<CarrierTransportingSection />);
+
+      await act(async () => {
+        fireEvent.press(getByText("Iniciar viaje"));
+      });
+
+      expect(getByTestId("trip-start-sheet")).toBeTruthy();
+      expect(getByTestId("trip-start-sheet-route")).toHaveTextContent(/Córdoba.*Villa Carlos Paz/);
+      expect(mockStartTripMutateAsync).not.toHaveBeenCalled();
+
+      await act(async () => {
+        fireEvent.press(getByTestId("trip-start-sheet-cancel"));
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(mockStartTripMutateAsync).not.toHaveBeenCalled();
+  });
   });
 
   it("renderiza card para viaje activo con botón 'Ver mapa'", async () => {
@@ -138,9 +199,8 @@ describe("CarrierTransportingSection", () => {
     mockStartTripMutateAsync.mockResolvedValueOnce({});
 
     const { getByText } = await render(<CarrierTransportingSection />);
-    await act(async () => {
-      fireEvent.press(getByText("Iniciar viaje"));
-    });
+    await fireEvent.press(getByText("Iniciar viaje"));
+    await confirmTripStartSheet();
 
     expect(mockStartTripMutateAsync).toHaveBeenCalledWith("t-start");
     expect(router.push).toHaveBeenCalledWith({ pathname: "/route", params: { tripId: "t-start" } });
@@ -171,9 +231,8 @@ describe("CarrierTransportingSection", () => {
     );
 
     const { getByText, findByText } = await render(<CarrierTransportingSection />);
-    await act(async () => {
-      fireEvent.press(getByText("Iniciar viaje"));
-    });
+    await fireEvent.press(getByText("Iniciar viaje"));
+    await confirmTripStartSheet();
 
     const errorMsg = await findByText(
       "Ya tenés otro viaje en curso. Solo podés tener 1 viaje activo a la vez.",
@@ -205,9 +264,8 @@ describe("CarrierTransportingSection", () => {
     );
 
     const { getByText, getByTestId, queryByTestId } = await render(<CarrierTransportingSection />);
-    await act(async () => {
-      fireEvent.press(getByText("Iniciar viaje"));
-    });
+    await fireEvent.press(getByText("Iniciar viaje"));
+    await confirmTripStartSheet();
 
     expect(getByText("Para iniciar tu viaje te queda un solo paso.")).toBeTruthy();
     expect(getByTestId("carrier-requirements-sheet-checklist-mp-cta")).toBeTruthy();

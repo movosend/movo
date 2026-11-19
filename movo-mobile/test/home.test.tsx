@@ -1,8 +1,23 @@
 import { KycStatus, UserRole } from "@movo/shared/dist/types/user";
-import { act, fireEvent, render } from "@testing-library/react-native";
+import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { router } from "expo-router";
 import { RefreshControl } from "react-native";
 import AuthenticatedHomeScreen from "../app/(app)/(tabs)/home";
+
+/** Confirma la hoja de "Iniciar viaje" (`TripStartSheet`): el inicio corre cuando termina de cerrarse. */
+async function confirmTripStartSheet() {
+  // La hoja se monta en un efecto (`useSheetAnimation`): primero se deja asentar el render del toque.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  await act(async () => {
+    fireEvent.press(screen.getByTestId("trip-start-sheet-confirm"));
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 
 // MOVO-117: la checklist de requisitos ante un 403 se testea aparte; acá se usa el doble del hook.
 jest.mock("../src/hooks/use-carrier-requirements-sheet", () =>
@@ -215,8 +230,73 @@ describe("AuthenticatedHomeScreen", () => {
     expect(getByText(/estoy transportando/i)).toBeTruthy();
     expect(getByText("Iniciar viaje")).toBeTruthy();
 
-    fireEvent.press(getByText("Iniciar viaje"));
+    await fireEvent.press(getByText("Iniciar viaje"));
+    await confirmTripStartSheet();
     expect(mockStartTripMutateAsync).toHaveBeenCalledWith("trip-declared-1");
+  });
+
+  it("con un viaje para iniciar hoy, 'Iniciar viaje' es la única acción principal: no hay 'Enviar un paquete'", async () => {
+    mockUseMyTrips.mockReturnValue({
+      data: {
+        items: [
+          {
+            id: "trip-today-1",
+            carrierId: "me",
+            originAddress: "Av. Colón 100, Córdoba",
+            destinationAddress: "San Martín 200, Villa Carlos Paz",
+            departureAt: new Date().toISOString(),
+            status: "declared",
+            hasAcceptedPackages: true,
+            acceptedPackagesCount: 1,
+            executablePackagesCount: 1,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ],
+        total: 1,
+      },
+    });
+
+    const { getByTestId, queryByTestId } = await render(<AuthenticatedHomeScreen />);
+
+    expect(getByTestId("app-home-transporting-card-trip-today-1-start-button")).toBeTruthy();
+    expect(queryByTestId("app-home-send-cta")).toBeNull();
+  });
+
+  it("mientras cargan los viajes del transportista no aparece 'Enviar un paquete' (no aparece para irse)", async () => {
+    mockUseMyTrips.mockReturnValue({ data: undefined, isLoading: true, isError: false, refetch: jest.fn() });
+
+    const { queryByTestId } = await render(<AuthenticatedHomeScreen />);
+
+    expect(queryByTestId("app-home-send-cta")).toBeNull();
+  });
+
+  it("con un viaje que sale otro día, 'Enviar un paquete' sigue en Inicio", async () => {
+    const tomorrow = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+    mockUseMyTrips.mockReturnValue({
+      data: {
+        items: [
+          {
+            id: "trip-later-1",
+            originAddress: "Av. Colón 100, Córdoba",
+            destinationAddress: "San Martín 200, Villa Carlos Paz",
+            departureAt: tomorrow,
+            status: "declared",
+            hasAcceptedPackages: true,
+            acceptedPackagesCount: 1,
+            executablePackagesCount: 1,
+            createdAt: tomorrow,
+            updatedAt: tomorrow,
+          },
+        ],
+        total: 1,
+      },
+    });
+
+    const { getByTestId, queryByTestId } = await render(<AuthenticatedHomeScreen />);
+
+    expect(queryByTestId("app-home-transporting")).toBeNull();
+    expect(getByTestId("app-home-send-cta")).toBeTruthy();
   });
 
   it("muestra la fecha del día y navega a Mi perfil al tocar el avatar", async () => {
