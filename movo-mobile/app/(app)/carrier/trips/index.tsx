@@ -9,7 +9,7 @@ import { TripCard } from "../../../../components/trips/trip-card";
 import { TripHistoryCard } from "../../../../components/trips/trip-history-card";
 import { TripsSegmented } from "../../../../components/trips/trips-segmented";
 import { SkeletonBlock } from "../../../../components/ui/skeleton-block";
-import { SuccessBanner } from "../../../../components/ui/success-banner";
+import { SuccessToast } from "../../../../components/ui/success-toast";
 import { useActiveSuspension } from "../../../../src/hooks/use-account-restriction";
 import { useMyTripsPaged } from "../../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
@@ -137,17 +137,6 @@ export default function MyTripsScreen() {
           Declarás el camino que ya vas a hacer y te aparecen paquetes que van para el mismo lado.
         </Text>
 
-        <SuccessBanner
-          testID="my-trips-cancelled-success"
-          message={cancelledMessage}
-          onDismiss={() => setCancelledMessage(null)}
-        />
-        <SuccessBanner
-          testID={showCreatedSuccess ? "my-trips-created-success" : "my-trips-auto-created-success"}
-          message={showCreatedSuccess ? "¡Viaje declarado!" : autoCreatedMessage}
-          onDismiss={() => (showCreatedSuccess ? setShowCreatedSuccess(false) : setAutoCreatedMessage(null))}
-        />
-
         <TripsSegmented value={scope} onChange={setScope} />
 
         {isLoading ? (
@@ -263,6 +252,23 @@ export default function MyTripsScreen() {
         )}
       </View>
       ) : null}
+      {/* Avisos flotantes sobre la barra del pie: no empujan la lista al aparecer ni al irse. */}
+      <View
+        pointerEvents="box-none"
+        className="absolute inset-x-0 gap-2 px-5"
+        style={{ bottom: showAddBar ? 12 + 52 + barBottomPadding + 12 : insets.bottom + 16 }}
+      >
+        <SuccessToast
+          testID="my-trips-cancelled-success"
+          message={cancelledMessage}
+          onDismiss={() => setCancelledMessage(null)}
+        />
+        <SuccessToast
+          testID={showCreatedSuccess ? "my-trips-created-success" : "my-trips-auto-created-success"}
+          message={showCreatedSuccess ? "¡Viaje declarado!" : autoCreatedMessage}
+          onDismiss={() => (showCreatedSuccess ? setShowCreatedSuccess(false) : setAutoCreatedMessage(null))}
+        />
+      </View>
     </SafeAreaView>
   );
 }
