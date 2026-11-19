@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { FastifyInstance } from "fastify";
-import { OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
+import { OfferStatus, ShipmentStatus, TripStatus, argentinaDayBounds, toArgentinaCalendarDateString } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createOfferRepository, OfferRepository } from "../src/repositories/offer-repository";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
@@ -710,6 +710,28 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
         });
 
         expect(earlier.tripId).toBe(first.tripId);
+        expect(await countTrips()).toBe(1);
+      });
+
+      it("se suma a un viaje declared del mismo día aunque su salida ya haya pasado (ventana abierta)", async () => {
+        // Aceptar con la ventana ya abierta ancla el viaje auto-creado en "ahora"; el siguiente
+        // paquete del mismo día lo tiene que encontrar aunque esa salida ya sea pasado.
+        const todayString = toArgentinaCalendarDateString(new Date());
+        const today = new Date(`${todayString}T00:00:00.000Z`);
+        const allDay = {
+          pickupDate: today,
+          pickupTimeWindowStart: new Date("1970-01-01T00:00:00.000Z"),
+          pickupTimeWindowEnd: new Date("1970-01-01T23:59:00.000Z"),
+        };
+        const first = await acceptNew(allDay, { offeredDate: today });
+        await appWithVehicle.db.trip.update({
+          where: { id: first.tripId },
+          // Sin cruzar la medianoche argentina: el viaje tiene que seguir siendo de hoy.
+          data: { departureAt: new Date(Math.max(Date.now() - 60_000, argentinaDayBounds(todayString).start.getTime())) },
+        });
+        const second = await acceptNew({ ...allDay, deliveryLat: -31.38, deliveryLng: -64.18 }, { offeredDate: today });
+
+        expect(second.tripId).toBe(first.tripId);
         expect(await countTrips()).toBe(1);
       });
 

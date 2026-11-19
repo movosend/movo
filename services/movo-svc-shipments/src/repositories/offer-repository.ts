@@ -1,4 +1,11 @@
-import { FundingRoute, OfferStatus, ShipmentStatus, TripStatus, toArgentinaCalendarDateString } from "@movo/shared";
+import {
+  FundingRoute,
+  OfferStatus,
+  ShipmentStatus,
+  TripStatus,
+  argentinaDayBounds,
+  toArgentinaCalendarDateString,
+} from "@movo/shared";
 import { toPaymentMethod } from "./payment-method";
 import { selectFundingRoute } from "../domain/funding";
 import { Prisma, PrismaClient, Offer as OfferRow, Shipment as ShipmentRow } from "../generated/prisma/client";
@@ -794,11 +801,20 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           const departureAt = effectiveDepartureAt > now ? effectiveDepartureAt : now;
 
           // MOVO-314: antes de crear, se intenta sumar el envío a un viaje `declared` del
-          // mismo transportista (salida compatible con la ventana de retiro, corredor compatible). Evita un viaje por
+          // mismo transportista (salida el día del retiro, corredor compatible). Evita un viaje por
           // paquete y los viajes vacíos que dejaba una asignación caída al reofertar.
+          // Los candidatos se buscan por el día argentino del retiro, no por salida futura: un viaje
+          // auto-creado con la ventana ya abierta sale "ahora" (clamp de arriba) y un minuto después
+          // quedaría afuera, armando un viaje por paquete. Un `declared` con paquete no lo expira el
+          // barrido (`cancelOverdueDeclared` solo toma los vacíos).
           if (autoTripDefaults.reuseDetourKm !== undefined) {
+            const pickupDay = argentinaDayBounds(toArgentinaCalendarDateString(effectiveDepartureAt));
             const candidates = await tx.trip.findMany({
-              where: { carrierId: current.carrierId, status: TripStatus.DECLARED, departureAt: { gt: now } },
+              where: {
+                carrierId: current.carrierId,
+                status: TripStatus.DECLARED,
+                departureAt: { gte: pickupDay.start, lt: pickupDay.end },
+              },
             });
             const reusable = pickReusableTrip(
               candidates.map((t) => ({
