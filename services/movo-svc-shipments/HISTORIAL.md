@@ -3645,13 +3645,6 @@ auto-creaba siempre un `Trip` (MOVO-234, su AC5 "asociar a un viaje compatible" 
 
 Pendiente: el filtro "de paso" del tab Transportar en `movo-mobile` sigue comparando solo el día calendario.
 
-**Fix posterior (reuso con la ventana abierta)**: los candidatos se filtraban con `departureAt > now`. Al aceptar con la
-ventana de retiro ya abierta, el viaje auto-creado sale "ahora" (clamp) y un minuto después dejaba de ser candidato: cada
-paquete del mismo día armaba su propio viaje (visto en dev el 19/11). Ahora la consulta trae los `declared` del día
-argentino del retiro (`argentinaDayBounds`), la misma regla que ya aplica `pickReusableTrip`. Un `declared` con salida
-pasada y paquete no lo expira el barrido (`cancelOverdueDeclared` solo toma los vacíos). El viaje reutilizado sigue sin
-ampliar su origen/destino al corredor del paquete nuevo.
-
 ### MOVO-294 — Secciones de la ficha de usuario del panel
 
 `GET /internal/admin/users/:id/{shipments,trips,ratings}` en `modules/admin-internal/` (`admin-users.service.ts`):
@@ -4059,3 +4052,13 @@ Mensajes señalados: ventana móvil de 7 días, porque ni un mensaje moderado ni
 ### Review de PR #342 — Operación: sanción estructurada, demanda y ciudades que cayeron a cero
 
 `ShipmentEvent.sanctionWithdrawal` (columna `sanction_withdrawal`, en la misma migración `20261114120000`, con backfill por el motivo exacto del propio emisor): la marca `cancelShipment` solo cuando lo llama `sanction-effects` (`admin-internal.routes.ts`), y `cancellationCauseOf` ya no compara el texto del motivo, que el emisor escribe libre. Un envío cotizado sin conteo de demanda tiene `highDemand = null` en el reporte (pricing manda `false`, que no es una medición), así los tres indicadores de demanda miden la misma población; se lee `demand_published_shipments` para distinguirlo. El desglose por ciudad conserva las que solo publicaron en el período anterior. `boundsOf`/`round2` del repositorio pasaron a `reportRangeBounds`/`reportRound` de `@movo/shared`.
+
+### Fix de MOVO-314 — Reuso de viaje con la salida ya pasada
+
+`offer-repository.ts#acceptOffer` toma como candidatos los viajes `declared` del transportista con salida futura y, con
+la salida pasada, los que todavía deben un paquete (`PENDING_PACKAGE_OFFER_FILTER` de `trip-repository.ts`). Sin lo
+segundo, aceptar con la ventana de retiro abierta (viaje auto-creado con salida en "ahora") armaba un viaje por paquete.
+Un vencido vacío o con sus paquetes terminados no se reutiliza: lo cierran `cancelOverdueDeclared`/`completeFinishedDeclared`,
+cuyo `NOT EXISTS` no ve una aceptación concurrente. La fecha se decide solo en `pickReusableTrip`, con la salida ya
+ajustada a "ahora" (la del viaje que se crearía), así que pasada la medianoche compara contra el día nuevo. El viaje
+reutilizado no amplía su origen ni su destino.
