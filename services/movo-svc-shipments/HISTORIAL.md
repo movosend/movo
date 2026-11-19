@@ -4053,6 +4053,16 @@ Mensajes señalados: ventana móvil de 7 días, porque ni un mensaje moderado ni
 
 `ShipmentEvent.sanctionWithdrawal` (columna `sanction_withdrawal`, en la misma migración `20261114120000`, con backfill por el motivo exacto del propio emisor): la marca `cancelShipment` solo cuando lo llama `sanction-effects` (`admin-internal.routes.ts`), y `cancellationCauseOf` ya no compara el texto del motivo, que el emisor escribe libre. Un envío cotizado sin conteo de demanda tiene `highDemand = null` en el reporte (pricing manda `false`, que no es una medición), así los tres indicadores de demanda miden la misma población; se lee `demand_published_shipments` para distinguirlo. El desglose por ciudad conserva las que solo publicaron en el período anterior. `boundsOf`/`round2` del repositorio pasaron a `reportRangeBounds`/`reportRound` de `@movo/shared`.
 
+### Fix de MOVO-314 — Reuso de viaje con la salida ya pasada
+
+`offer-repository.ts#acceptOffer` toma como candidatos los viajes `declared` del transportista con salida futura y, con
+la salida pasada, los que todavía deben un paquete (`PENDING_PACKAGE_OFFER_FILTER` de `trip-repository.ts`). Sin lo
+segundo, aceptar con la ventana de retiro abierta (viaje auto-creado con salida en "ahora") armaba un viaje por paquete.
+Un vencido vacío o con sus paquetes terminados no se reutiliza: lo cierran `cancelOverdueDeclared`/`completeFinishedDeclared`,
+cuyo `NOT EXISTS` no ve una aceptación concurrente. La fecha se decide solo en `pickReusableTrip`, con la salida ya
+ajustada a "ahora" (la del viaje que se crearía), así que pasada la medianoche compara contra el día nuevo. El viaje
+reutilizado no amplía su origen ni su destino.
+
 ### PR #345 — Elegibilidad para calificar (`GET /shipments/:id/ratings/eligibility`)
 
 La regla de quién puede calificar (disputa activa o resuelta, no-retiro, ventana de 72 h) pasó a `checkRatingWrite` (`ratings.service.ts`), que devuelve el bloqueo con su motivo (`RatingBlockReason`) o hasta cuándo se puede escribir, en vez de tirar. El alta y la edición lo convierten en el mismo `ApiError` de antes, y `getRatingEligibility` lo evalúa para cada contraparte del caller (`ratingCounterparties`: el transportista califica a emisor y receptor) y devuelve `{ counterparties: [{ rateeId, rateeRole, canRate, reason, windowEndsAt }] }`: una regla futura que distinga al calificado (DD-063) no diverge entre filas. El `enum` del schema sale de `RATING_BLOCK_REASONS`. Sin cambios en la regla; `GET /pending-ratings` sigue sin mirar las disputas resueltas (el mobile no lo usa).

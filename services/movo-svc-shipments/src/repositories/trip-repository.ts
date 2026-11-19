@@ -112,6 +112,17 @@ const TRIP_FINISHED_SHIPMENT_STATUSES: ShipmentStatus[] = [
   ShipmentStatus.DISPUTED,
 ];
 
+/**
+ * Oferta `accepted` cuyo envío todavía no terminó (`TRIP_FINISHED_SHIPMENT_STATUSES`): un paquete que el
+ * viaje sigue debiendo. Es lo que deja a un viaje `declared` con la salida pasada fuera de los barridos
+ * (`cancelOverdueDeclared` y `completeFinishedDeclared`), y por eso lo que permite que `acceptOffer` le sume
+ * un paquete sin cruzarse con ellos.
+ */
+export const PENDING_PACKAGE_OFFER_FILTER = {
+  status: "accepted",
+  shipment: { status: { notIn: TRIP_FINISHED_SHIPMENT_STATUSES } },
+} satisfies Prisma.OfferWhereInput;
+
 /** Viaje `active` con al menos un paquete y todos terminados (`TRIP_FINISHED_SHIPMENT_STATUSES`): pasa a `completed`. */
 const ACTIVE_FINISHED_WHERE = {
   status: TripStatus.ACTIVE,

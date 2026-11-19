@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from "vitest";
 import { FastifyInstance } from "fastify";
 import { OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
@@ -711,6 +711,47 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
 
         expect(earlier.tripId).toBe(first.tripId);
         expect(await countTrips()).toBe(1);
+      });
+
+      describe("aceptación con la ventana de retiro ya abierta", () => {
+        // Reloj fijo (solo `Date`) a las 12:00 ART del día del retiro, con la ventana de 09:00 a
+        // 18:00 ART: el viaje auto-creado sale "ahora" (clamp de `departureAt`) sin depender de la
+        // hora real en la que corre CI.
+        const NOON_ART = new Date("2030-01-01T15:00:00.000Z");
+        const openWindow = {
+          pickupTimeWindowStart: new Date("1970-01-01T09:00:00.000Z"),
+          pickupTimeWindowEnd: new Date("1970-01-01T18:00:00.000Z"),
+        };
+
+        beforeEach(() => {
+          vi.useFakeTimers({ toFake: ["Date"], now: NOON_ART });
+        });
+        afterEach(() => {
+          vi.useRealTimers();
+        });
+
+        it("se suma al viaje del mismo día aunque su salida ya haya pasado", async () => {
+          const first = await acceptNew(openWindow);
+          vi.setSystemTime(new Date(NOON_ART.getTime() + 60_000));
+          const second = await acceptNew({ ...openWindow, deliveryLat: -31.38, deliveryLng: -64.18 });
+
+          expect(second.tripId).toBe(first.tripId);
+          expect(await countTrips()).toBe(1);
+        });
+
+        it("no se suma a un viaje con la salida pasada que ya no debe ningún paquete", async () => {
+          // Es el que cierra `cancelOverdueDeclared`: sumarle un paquete se cruzaría con el barrido.
+          const first = await acceptNew(openWindow);
+          await appWithVehicle.db.shipment.update({
+            where: { id: first.shipmentId },
+            data: { status: ShipmentStatus.CANCELLED },
+          });
+          vi.setSystemTime(new Date(NOON_ART.getTime() + 60_000));
+          const second = await acceptNew(openWindow);
+
+          expect(second.tripId).not.toBe(first.tripId);
+          expect(await countTrips()).toBe(2);
+        });
       });
 
       it("no se suma a un viaje de otro transportista", async () => {
