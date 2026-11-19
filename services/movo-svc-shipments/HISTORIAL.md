@@ -3645,6 +3645,13 @@ auto-creaba siempre un `Trip` (MOVO-234, su AC5 "asociar a un viaje compatible" 
 
 Pendiente: el filtro "de paso" del tab Transportar en `movo-mobile` sigue comparando solo el día calendario.
 
+**Fix posterior (reuso con la ventana abierta)**: los candidatos se filtraban con `departureAt > now`. Al aceptar con la
+ventana de retiro ya abierta, el viaje auto-creado sale "ahora" (clamp) y un minuto después dejaba de ser candidato: cada
+paquete del mismo día armaba su propio viaje (visto en dev el 19/11). Ahora la consulta trae los `declared` del día
+argentino del retiro (`argentinaDayBounds`), la misma regla que ya aplica `pickReusableTrip`. Un `declared` con salida
+pasada y paquete no lo expira el barrido (`cancelOverdueDeclared` solo toma los vacíos). El viaje reutilizado sigue sin
+ampliar su origen/destino al corredor del paquete nuevo.
+
 ### MOVO-294 — Secciones de la ficha de usuario del panel
 
 `GET /internal/admin/users/:id/{shipments,trips,ratings}` en `modules/admin-internal/` (`admin-users.service.ts`):
