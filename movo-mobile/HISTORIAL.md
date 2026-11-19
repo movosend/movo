@@ -5180,3 +5180,11 @@ El historial ya no dice "Llevaste N paquetes" con los que están en disputa: van
 ### Review de PR #343 — textos de la disputa sin afirmar retención
 
 Ningún texto de la disputa dice que el cobro "queda retenido": por DD-054 casi siempre se abre desde `completed`, con el cobro ya acreditado, y por DD-056 también desde `assigned` sin reserva; solo en `in_transit`/`delivered` queda plata retenida. Los avisos dicen "te va a avisar cuando se resuelva" y el rótulo del monto del transportista es "Monto en disputa". El contador del carrusel de envíos en curso se acota si la lista se achica con el carrusel montado (`role-section.tsx`).
+
+### PR #345 — Calificar solo cuando el backend lo permite
+
+`ShipmentRatingsCard` muestra "Calificar"/"Editar" por contraparte según `GET /shipments/:id/ratings/eligibility` (`useRatingEligibility`, bajo la clave de las calificaciones), no según `deliveredAt` y el estado: ese cálculo no sabía de disputas resueltas y le ofrecía calificar al receptor, que el backend rechaza con 403. La sección se muestra en cualquier envío entregado, cancelado o en disputa (`RATING_SECTION_STATUSES`): el emisor que ganó una disputa o al que no le retiraron el paquete califica un `cancelled`; una contraparte con `not_delivered` y sin calificación no aparece, y sin filas tampoco el encabezado. El texto dice hasta cuándo (`windowEndsAt`) y la consulta se repite al cierre de la ventana (`msUntilNextWindowClose`). Mientras carga no se ofrece calificar; solo un 404 (backend sin el endpoint) vuelve al cálculo local: un timeout o un 5xx no, porque reabría el bug. El ex receptor no consulta (sería un 403).
+
+### PR #345 — Ofertas aceptadas abiertas y el punto de atención de Transportar
+
+`isOpenAcceptedOffer` (`offer-format.ts`): aceptada con el envío en curso. La usan los contadores de Transportar y de "Mis ofertas" y el feed (`offersByShipmentId`), así una aceptada de un envío entregado, cancelado o en disputa no cuenta ni se marca como aceptada. `offerNeedsAttention` es el único criterio de "requiere algo tuyo", para la sección de "Mis ofertas" y para el punto del acceso en Transportar: una aceptada que espera el pago del emisor o en disputa no lo prende, una pendiente superada sí. En "Mis ofertas", el descarte de la caducada y la navegación al detalle siguen mirando cualquier aceptada, a propósito.

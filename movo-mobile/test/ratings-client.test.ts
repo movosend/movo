@@ -66,4 +66,12 @@ describe("ratingsClient", () => {
     expect(httpClient.get).toHaveBeenCalledWith("/shipments/shipment-1/ratings");
     expect(result).toEqual([mockRating]);
   });
+  it("getRatingEligibility envía GET /shipments/:id/ratings/eligibility", async () => {
+    (httpClient.get as jest.Mock).mockResolvedValueOnce({ canRate: false, reason: "dispute_lost" });
+
+    const result = await ratingsClient.getRatingEligibility("shipment-1");
+
+    expect(httpClient.get).toHaveBeenCalledWith("/shipments/shipment-1/ratings/eligibility");
+    expect(result).toEqual({ canRate: false, reason: "dispute_lost" });
+  });
 });

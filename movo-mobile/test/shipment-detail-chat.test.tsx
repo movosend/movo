@@ -81,6 +81,7 @@ jest.mock("../src/hooks/use-offers", () => ({
 
 jest.mock("../src/hooks/use-ratings", () => ({
   useShipmentRatings: () => ({ data: [], refetch: jest.fn() }),
+  useRatingEligibility: () => ({ data: undefined, error: null, refetch: jest.fn() }),
   useCreateRating: () => ({ mutateAsync: jest.fn(), isPending: false }),
   useUpdateRating: () => ({ mutateAsync: jest.fn(), isPending: false }),
 }));

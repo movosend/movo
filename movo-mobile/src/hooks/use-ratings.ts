@@ -3,6 +3,7 @@ import {
   ratingsClient,
   type CreateRatingInput,
   type Rating,
+  type ShipmentRatingEligibility,
   type UpdateRatingInput,
 } from "../api/ratings-client";
 
@@ -18,6 +19,34 @@ export function useShipmentRatings(
     queryKey: shipmentRatingsQueryKey(shipmentId),
     queryFn: () => ratingsClient.listShipmentRatings(shipmentId!),
     enabled: (options?.enabled ?? true) && !!shipmentId,
+  });
+}
+
+/**
+ * Próximo cierre de una ventana abierta, en ms desde ahora (mínimo 1 s), o `false` si no hay ninguna: la consulta se
+ * repite ahí para no dejar el botón de calificar después de que el backend ya lo rechaza (409).
+ */
+export function msUntilNextWindowClose(
+  eligibility: ShipmentRatingEligibility | undefined,
+  now: number = Date.now()
+): number | false {
+  const closes = (eligibility?.counterparties ?? [])
+    .map((c) => (c.canRate && c.windowEndsAt ? new Date(c.windowEndsAt).getTime() : NaN))
+    .filter((t) => !isNaN(t));
+  if (closes.length === 0) return false;
+  return Math.max(Math.min(...closes) - now + 1000, 1000);
+}
+
+/** Bajo la clave de las calificaciones: calificar o editar invalida las dos juntas. */
+export function useRatingEligibility(
+  shipmentId: string | undefined,
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: [...shipmentRatingsQueryKey(shipmentId), "eligibility"] as const,
+    queryFn: () => ratingsClient.getRatingEligibility(shipmentId!),
+    enabled: (options?.enabled ?? true) && !!shipmentId,
+    refetchInterval: (query) => msUntilNextWindowClose(query.state.data),
   });
 }
 
