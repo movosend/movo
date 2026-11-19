@@ -130,8 +130,10 @@ jest.mock("../src/hooks/use-shipment-tracking", () => ({
 }));
 
 const mockRefetchRatings = jest.fn();
+const mockUseRatingEligibility = jest.fn((_shipmentId?: string) => ({ data: undefined, error: null, refetch: jest.fn() }));
 jest.mock("../src/hooks/use-ratings", () => ({
   useShipmentRatings: () => ({ data: [], refetch: mockRefetchRatings }),
+  useRatingEligibility: (shipmentId?: string) => mockUseRatingEligibility(shipmentId),
   useCreateRating: () => ({ mutateAsync: jest.fn(), isPending: false }),
   useUpdateRating: () => ({ mutateAsync: jest.fn(), isPending: false }),
 }));
@@ -705,6 +707,55 @@ describe("ShipmentDetailScreen", () => {
     const { getByTestId } = await render(<ShipmentDetailScreen />);
 
     expect(getByTestId("shipment-detail-ratings")).toBeTruthy();
+  });
+
+  // Review PR #345: una disputa ganada por el emisor y el no-retiro del transportista terminan `cancelled`, y ahí el
+  // emisor califica: la sección se muestra y le pregunta al backend.
+  it("en un envío cancelado consulta la elegibilidad y muestra a quién se puede calificar", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+    mockUseRatingEligibility.mockClear();
+    mockUseRatingEligibility.mockReturnValueOnce({
+      data: {
+        counterparties: [
+          { rateeId: "carrier-1", rateeRole: "carrier", canRate: true, reason: null, windowEndsAt: null },
+        ],
+      },
+      error: null,
+      refetch: jest.fn(),
+    } as never);
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({ senderId: "user-1", carrierId: "carrier-1", status: ShipmentStatus.CANCELLED }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(mockUseRatingEligibility).toHaveBeenCalledWith("shipment-1");
+    expect(getByTestId("shipment-detail-ratings")).toBeTruthy();
+  });
+
+  it("el receptor que transfirió no pide la elegibilidad (el backend le respondería 403)", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockUseRatingEligibility.mockClear();
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({
+        carrierId: "carrier-1",
+        status: ShipmentStatus.COMPLETED,
+        receiverTransfer: { viewerIsFormerReceiver: true, pending: null, completed: null },
+      }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(mockUseRatingEligibility).not.toHaveBeenCalledWith("shipment-1");
+    expect(queryByTestId("shipment-detail-ratings")).toBeNull();
   });
 
   it("muestra 'Precio pactado' y el monto pactado cuando agreedPriceArs está presente (MOVO-244)", async () => {

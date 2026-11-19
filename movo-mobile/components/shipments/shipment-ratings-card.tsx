@@ -1,11 +1,15 @@
 import { AlertCircle, Clock } from "lucide-react-native";
+import type { ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
+import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus, type RatingRole } from "@movo/shared/dist/types/shipment";
 import { AvatarImage } from "../ui/avatar-image";
 import { SkeletonBlock } from "../ui/skeleton-block";
 import { StarRatingInput } from "../ui/star-rating-input";
-import type { Rating } from "../../src/api/ratings-client";
+import type { Rating, RatingEligibility, ShipmentRatingEligibility } from "../../src/api/ratings-client";
 import type { ShipmentSummary } from "../../src/api/shipments-client";
+import { formatFundingDeadline } from "../../src/lib/funds-status-format";
+import { FULFILLED_SHIPMENT_STATUSES } from "../../src/lib/shipment-format";
 import { usePublicProfile } from "../../src/hooks/use-profile";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import type { RatingTarget } from "./rating-sheet";
@@ -15,11 +19,19 @@ export interface ShipmentRatingsCardProps {
   currentUserId: string;
   ratings: Rating[] | undefined;
   isLoadingRatings?: boolean;
+  /** A quién puede calificar el usuario, según el backend (`useRatingEligibility`). Mientras carga no se ofrece
+   * calificar: tocar antes de saberlo llevaba al error del backend (ej. el receptor tras una disputa resuelta). */
+  eligibility: ShipmentRatingEligibility | undefined;
+  /** Error de la consulta. Solo un 404 (backend anterior al endpoint) vuelve al cálculo local: ante un timeout o un
+   * 5xx el cálculo local le ofrecía calificar a quien el backend se lo rechaza, y no se ofrece. */
+  eligibilityError?: unknown;
   onRate: (target: RatingTarget) => void;
   /** Abre el perfil público de la contraparte (MOVO-154) al tocar avatar/nombre —
    * acción distinta de calificar, por eso no comparte `Pressable` con el botón
    * "Calificar"/"Editar". */
   onViewProfile?: (userId: string) => void;
+  /** Encabezado de la sección: va solo si hay alguna fila, así la pantalla no deja un título vacío. */
+  header?: ReactNode;
   testID?: string;
 }
 
@@ -29,6 +41,49 @@ export function isRatingWindowExpired(deliveredAt: string | null | undefined): b
   if (isNaN(deliveredTime)) return false;
   const WINDOW_MS = 72 * 60 * 60 * 1000;
   return Date.now() - deliveredTime > WINDOW_MS;
+}
+
+/** El backend todavía no tiene `GET /ratings/eligibility` (una versión anterior): el único error con respaldo local. */
+export function isEligibilityEndpointMissing(error: unknown): boolean {
+  return error instanceof ApiError && error.statusCode === 404;
+}
+
+export interface RatingAvailability {
+  canRate: boolean;
+  blockReason: RatingEligibility["reason"];
+  /** Hasta cuándo se puede calificar (ISO), si el backend lo dijo. */
+  windowEndsAt: string | null;
+}
+
+/**
+ * Si se ofrece calificar a `rateeId` y, si no, qué motivo mostrar. Manda el backend (`eligibility`); el cálculo local
+ * (ventana desde `deliveredAt`, disputa activa) queda solo para un backend sin el endpoint, porque no conoce las
+ * disputas ya resueltas. Sin respuesta todavía, o ante cualquier otro error, no se ofrece.
+ */
+export function resolveRatingAvailability(
+  shipment: ShipmentSummary,
+  rateeId: string,
+  eligibility: ShipmentRatingEligibility | undefined,
+  eligibilityError: unknown
+): RatingAvailability {
+  if (eligibility) {
+    const entry = eligibility.counterparties.find((c) => c.rateeId === rateeId);
+    if (!entry) return { canRate: false, blockReason: null, windowEndsAt: null };
+    return { canRate: entry.canRate, blockReason: entry.reason, windowEndsAt: entry.windowEndsAt };
+  }
+  if (!isEligibilityEndpointMissing(eligibilityError)) {
+    return { canRate: false, blockReason: null, windowEndsAt: null };
+  }
+  if (shipment.status === ShipmentStatus.DISPUTED) {
+    return { canRate: false, blockReason: "dispute_active", windowEndsAt: null };
+  }
+  if (!FULFILLED_SHIPMENT_STATUSES.includes(shipment.status)) {
+    return { canRate: false, blockReason: "not_delivered", windowEndsAt: null };
+  }
+  if (isRatingWindowExpired(shipment.deliveredAt)) {
+    return { canRate: false, blockReason: "window_expired", windowEndsAt: null };
+  }
+  return { canRate: true, blockReason: null, windowEndsAt: null };
 }
 
 export interface CounterpartyInfo {
@@ -70,16 +125,14 @@ export function resolveCounterparties(
 function CounterpartyRatingRow({
   counterparty,
   myRating,
-  isExpired,
-  isInDispute,
+  availability: { canRate, blockReason, windowEndsAt },
   onRate,
   onViewProfile,
   testID,
 }: {
   counterparty: CounterpartyInfo;
   myRating?: Rating;
-  isExpired: boolean;
-  isInDispute: boolean;
+  availability: RatingAvailability;
   onRate: (target: RatingTarget) => void;
   onViewProfile?: (userId: string) => void;
   testID?: string;
@@ -150,7 +203,7 @@ function CounterpartyRatingRow({
         </Pressable>
 
         {/* Action button */}
-        {!hasRated && !isExpired && !isInDispute ? (
+        {!hasRated && canRate ? (
           <Pressable
             testID={testID ? `${testID}-rate-btn-${counterparty.userId}` : `rate-btn-${counterparty.userId}`}
             onPress={handlePress}
@@ -164,7 +217,7 @@ function CounterpartyRatingRow({
           </Pressable>
         ) : null}
 
-        {hasRated && !isExpired && !isInDispute ? (
+        {hasRated && canRate ? (
           <Pressable
             testID={testID ? `${testID}-edit-btn-${counterparty.userId}` : `edit-btn-${counterparty.userId}`}
             onPress={handlePress}
@@ -205,25 +258,34 @@ function CounterpartyRatingRow({
             </Text>
           ) : null}
         </View>
-      ) : isExpired ? (
+      ) : blockReason === "window_expired" ? (
         <View className="flex-row items-center gap-1.5 pt-0.5">
           <Clock size={13} color={colors.fg3} />
           <Text className="font-sans text-[12px] text-fg-3">
             El plazo de 72 horas para calificar terminó
           </Text>
         </View>
-      ) : isInDispute ? (
+      ) : blockReason === "dispute_active" ? (
         <View className="flex-row items-center gap-1.5 pt-0.5">
           <AlertCircle size={13} color="#D97706" />
           <Text className="font-sans text-[12px] text-amber-700 dark:text-amber-400">
             Vas a poder calificar cuando se resuelva la disputa
           </Text>
         </View>
-      ) : (
+      ) : blockReason === "dispute_lost" ? (
+        <View className="flex-row items-center gap-1.5 pt-0.5">
+          <AlertCircle size={13} color={colors.fg3} />
+          <Text className="font-sans text-[12px] text-fg-3">
+            Este envío tuvo una disputa: solo califica quien la ganó
+          </Text>
+        </View>
+      ) : !canRate ? null : (
         <View className="flex-row items-center gap-1.5 pt-0.5">
           <Clock size={13} color={colors.fg3} />
           <Text className="font-sans text-[12px] text-fg-3">
-            Tenés 72 hs desde la entrega para enviar tu opinión
+            {windowEndsAt
+              ? `Podés calificar hasta ${formatFundingDeadline(windowEndsAt)}`
+              : "Tenés 72 hs desde la entrega para enviar tu opinión"}
           </Text>
         </View>
       )}
@@ -232,43 +294,48 @@ function CounterpartyRatingRow({
 }
 
 /**
- * Sección de calificaciones post-entrega en el detalle del envío (MOVO-153 / MOVO-22).
- * Muestra el listado de contrapartes del envío que el usuario actual puede calificar
- * o ya calificó.
+ * Sección de calificaciones en el detalle del envío (MOVO-153 / MOVO-22): las contrapartes que el usuario puede
+ * calificar o ya calificó. Se muestra en cualquier envío terminado o en disputa; una contraparte que el backend dice
+ * que no corresponde calificar (`not_delivered`, ej. un cancelado sin no-retiro) y sin calificación no aparece, y si no
+ * queda ninguna, tampoco la sección.
  */
 export function ShipmentRatingsCard({
   shipment,
   currentUserId,
   ratings,
+  eligibility,
+  eligibilityError,
   onRate,
   onViewProfile,
+  header,
   testID,
 }: ShipmentRatingsCardProps) {
-  const counterparties = resolveCounterparties(shipment, currentUserId);
-  const isExpired = isRatingWindowExpired(shipment.deliveredAt);
-  const isInDispute = shipment.status === ShipmentStatus.DISPUTED;
+  const rows = resolveCounterparties(shipment, currentUserId)
+    .map((counterparty) => ({
+      counterparty,
+      myRating: ratings?.find((r) => r.raterId === currentUserId && r.rateeId === counterparty.userId),
+      availability: resolveRatingAvailability(shipment, counterparty.userId, eligibility, eligibilityError),
+    }))
+    .filter(({ myRating, availability }) => myRating || availability.blockReason !== "not_delivered");
 
-  if (counterparties.length === 0) return null;
+  if (rows.length === 0) return null;
 
   return (
-    <View testID={testID ?? "shipment-ratings-card"} className="gap-3">
-      {counterparties.map((counterparty) => {
-        const myRating = ratings?.find(
-          (r) => r.raterId === currentUserId && r.rateeId === counterparty.userId
-        );
-        return (
+    <View>
+      {header}
+      <View testID={testID ?? "shipment-ratings-card"} className="gap-3">
+        {rows.map(({ counterparty, myRating, availability }) => (
           <CounterpartyRatingRow
             key={counterparty.userId}
             counterparty={counterparty}
             myRating={myRating}
-            isExpired={isExpired}
-            isInDispute={isInDispute}
+            availability={availability}
             onRate={onRate}
             onViewProfile={onViewProfile}
             testID={testID}
           />
-        );
-      })}
+        ))}
+      </View>
     </View>
   );
 }

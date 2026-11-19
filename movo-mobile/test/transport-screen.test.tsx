@@ -211,6 +211,11 @@ function myOfferSummary(
   };
 }
 
+function withShipmentStatus(id: string, status: "pending" | "accepted", shipmentStatus: string) {
+  const offer = myOfferSummary({ id, status });
+  return { ...offer, shipment: { ...offer.shipment, status: shipmentStatus } };
+}
+
 function baseAvailableResult(overrides: Record<string, unknown> = {}) {
   return {
     data: undefined,
@@ -497,6 +502,26 @@ describe("TransportScreen", () => {
     expect(queryByTestId("transport-card-offered-debt-preview")).toBeNull();
   });
 
+  // Review PR #345: "Mis ofertas" la manda a "Cerradas"; el feed no la marcaba como aceptada igual.
+  it("una aceptada cuyo envío ya se entregó no se marca como aceptada en el feed", async () => {
+    mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+    mockUseAvailableShipments.mockReturnValue(
+      baseAvailableResult({ data: pages([availableShipment({ id: "offered-1", hasMyOffer: true })]) }),
+    );
+    mockUseMyOffers.mockReturnValue({
+      data: {
+        items: [{ ...withShipmentStatus("o1", "accepted", "delivered"), shipmentId: "offered-1" }],
+        page: 1,
+        limit: 50,
+        total: 1,
+      },
+    });
+
+    const { queryByTestId } = await render(<TransportScreen />);
+
+    expect(queryByTestId("transport-card-offered-1-offer-status")).toBeNull();
+  });
+
   it("bug real: una oferta retirada del historial no se muestra como si siguiera vigente", async () => {
     // `hasMyOffer` (calculado por el backend) es `false` acá -- ya no hay ninguna
     // oferta activa sobre este envío -- pero `GET /offers/mine` sigue devolviendo la
@@ -638,7 +663,7 @@ describe("TransportScreen", () => {
       });
       mockUseMyOffers.mockReturnValue({
         data: {
-          items: [myOfferSummary({ id: "o1", status: "pending" }), myOfferSummary({ id: "o2", status: "accepted" })],
+          items: [myOfferSummary({ id: "o1", status: "pending" }), withShipmentStatus("o2", "accepted", "assigned")],
           page: 1,
           limit: 50,
           total: 2,
@@ -650,8 +675,73 @@ describe("TransportScreen", () => {
       // MOVO-221: solo cuenta declared (TRIP_A) -- el segundo (completed) no.
       expect(getByText("1 declarado")).toBeTruthy();
       expect(getByText("1 pendiente · 1 aceptada")).toBeTruthy();
-      // Punto de atención (lime) solo cuando hay al menos una oferta aceptada.
+      // Punto de atención (lime): una aceptada con el retiro por delante requiere algo del transportista.
       expect(getByTestId("transport-my-offers-attention-dot")).toBeTruthy();
+    });
+
+    // Review PR #345: mismo criterio que la sección de atención de "Mis ofertas" (`offerNeedsAttention`).
+    it.each([
+      ["espera el pago del emisor", "assignment_pending", "1 aceptada"],
+      ["está en disputa (cerrada, sin acción del transportista)", "disputed", "0 aceptadas"],
+    ])("una aceptada cuyo envío %s no prende el punto", async (_label, shipmentStatus, acceptedLabel) => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([]) }));
+      mockUseMyTrips.mockReturnValue({ data: { items: [], page: 1, limit: 50, total: 0 } });
+      mockUseMyOffers.mockReturnValue({
+        data: { items: [withShipmentStatus("o1", "accepted", shipmentStatus)], page: 1, limit: 50, total: 1 },
+      });
+
+      const { getByText, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByText(`0 pendientes · ${acceptedLabel}`)).toBeTruthy();
+      expect(queryByTestId("transport-my-offers-attention-dot")).toBeNull();
+    });
+
+    it("una pendiente superada prende el punto, como en la sección de atención de 'Mis ofertas'", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([]) }));
+      mockUseMyTrips.mockReturnValue({ data: { items: [], page: 1, limit: 50, total: 0 } });
+      mockUseMyOffers.mockReturnValue({
+        data: {
+          items: [
+            myOfferSummary({
+              id: "o1",
+              status: "pending",
+              competitiveRank: { rank: 2, total: 3, lowestPriceNetArs: 1800, highestPriceNetArs: 2400 },
+            }),
+          ],
+          page: 1,
+          limit: 50,
+          total: 1,
+        },
+      });
+
+      const { getByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-my-offers-attention-dot")).toBeTruthy();
+    });
+
+    it("no cuenta como aceptada (ni prende el punto) una oferta cuyo envío ya terminó, igual que 'Mis ofertas'", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([]) }));
+      mockUseMyTrips.mockReturnValue({ data: { items: [], page: 1, limit: 50, total: 0 } });
+      const finished = (id: string, status: string) => {
+        const offer = myOfferSummary({ id, status: "accepted" });
+        return { ...offer, shipment: { ...offer.shipment, status } };
+      };
+      mockUseMyOffers.mockReturnValue({
+        data: {
+          items: [finished("o1", "delivered"), finished("o2", "completed"), finished("o3", "cancelled")],
+          page: 1,
+          limit: 50,
+          total: 3,
+        },
+      });
+
+      const { getByText, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByText("0 pendientes · 0 aceptadas")).toBeTruthy();
+      expect(queryByTestId("transport-my-offers-attention-dot")).toBeNull();
     });
 
     it("MOVO-221: un viaje active tampoco cuenta en tripsMeta -- solo declared", async () => {

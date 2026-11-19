@@ -1,11 +1,15 @@
+import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import { Text } from "react-native";
 import { fireEvent, render } from "@testing-library/react-native";
 import {
   ShipmentRatingsCard,
   isRatingWindowExpired,
   resolveCounterparties,
 } from "../components/shipments/shipment-ratings-card";
-import type { Rating } from "../src/api/ratings-client";
+import type { Rating, RatingEligibility, ShipmentRatingEligibility } from "../src/api/ratings-client";
+import { formatFundingDeadline } from "../src/lib/funds-status-format";
+import { msUntilNextWindowClose } from "../src/hooks/use-ratings";
 import type { ShipmentSummary } from "../src/api/shipments-client";
 
 jest.mock("../src/hooks/use-profile", () => ({
@@ -22,6 +26,27 @@ jest.mock("../src/hooks/use-profile", () => ({
     isLoading: false,
   }),
 }));
+
+const ROLE_BY_ID = { "carrier-1": "carrier", "sender-1": "sender", "receiver-1": "receiver" } as const;
+
+/** La misma elegibilidad para cada contraparte posible (el card busca la suya por `rateeId`). */
+function forAll(
+  canRate: boolean,
+  reason: RatingEligibility["reason"],
+  windowEndsAt: string | null = null
+): ShipmentRatingEligibility {
+  return {
+    counterparties: Object.entries(ROLE_BY_ID).map(([rateeId, rateeRole]) => ({
+      rateeId,
+      rateeRole,
+      canRate,
+      reason,
+      windowEndsAt,
+    })),
+  };
+}
+
+const CAN_RATE = forAll(true, null);
 
 describe("ShipmentRatingsCard", () => {
   const baseShipment: ShipmentSummary = {
@@ -120,6 +145,7 @@ describe("ShipmentRatingsCard", () => {
         shipment={baseShipment}
         currentUserId="carrier-1"
         ratings={carrierRatings}
+        eligibility={CAN_RATE}
         onRate={handleRate}
       />
     );
@@ -162,6 +188,7 @@ describe("ShipmentRatingsCard", () => {
         shipment={baseShipment}
         currentUserId="carrier-1"
         ratings={[]}
+        eligibility={CAN_RATE}
         onRate={handleRate}
         onViewProfile={handleViewProfile}
       />
@@ -181,6 +208,7 @@ describe("ShipmentRatingsCard", () => {
         shipment={baseShipment}
         currentUserId="carrier-1"
         ratings={[]}
+        eligibility={CAN_RATE}
         onRate={handleRate}
       />
     );
@@ -188,7 +216,7 @@ describe("ShipmentRatingsCard", () => {
     expect(getByTestId("rating-row-profile-sender-1").props.accessibilityRole).toBeUndefined();
   });
 
-  it("muestra advertencia cuando el envío está en disputa", async () => {
+  it("muestra advertencia cuando el backend dice que el envío está en disputa", async () => {
     const disputedShipment: ShipmentSummary = {
       ...baseShipment,
       status: ShipmentStatus.DISPUTED,
@@ -199,6 +227,7 @@ describe("ShipmentRatingsCard", () => {
         shipment={disputedShipment}
         currentUserId="sender-1"
         ratings={[]}
+        eligibility={forAll(false, "dispute_active")}
         onRate={jest.fn()}
       />
     );
@@ -220,6 +249,7 @@ describe("ShipmentRatingsCard", () => {
         shipment={expiredShipment}
         currentUserId="sender-1"
         ratings={[]}
+        eligibility={forAll(false, "window_expired")}
         onRate={jest.fn()}
       />
     );
@@ -228,5 +258,156 @@ describe("ShipmentRatingsCard", () => {
       getByText("El plazo de 72 horas para calificar terminó")
     ).toBeTruthy();
     expect(queryByTestId("rate-btn-carrier-1")).toBeNull();
+  });
+  // TestFlight build 19: el receptor veía "Calificar" tras una disputa resuelta y el backend respondía 403.
+  it("tras una disputa resuelta que no ganó, no ofrece calificar y dice por qué", async () => {
+    const { getByText, queryByTestId } = await render(
+      <ShipmentRatingsCard
+        shipment={{ ...baseShipment, status: ShipmentStatus.COMPLETED }}
+        currentUserId="receiver-1"
+        ratings={[]}
+        eligibility={forAll(false, "dispute_lost")}
+        onRate={jest.fn()}
+      />
+    );
+
+    expect(getByText("Este envío tuvo una disputa: solo califica quien la ganó")).toBeTruthy();
+    expect(queryByTestId("rate-btn-carrier-1")).toBeNull();
+  });
+
+  it("tampoco deja editar una calificación ya hecha si el backend no lo permite", async () => {
+    const { getByTestId, queryByTestId } = await render(
+      <ShipmentRatingsCard
+        shipment={baseShipment}
+        currentUserId="sender-1"
+        ratings={mockRatings}
+        eligibility={forAll(false, "dispute_lost")}
+        onRate={jest.fn()}
+      />
+    );
+
+    expect(getByTestId("rating-row-carrier-1")).toBeTruthy();
+    expect(queryByTestId("edit-btn-carrier-1")).toBeNull();
+  });
+
+  it("mientras no llega la elegibilidad no ofrece calificar", async () => {
+    const { queryByTestId } = await render(
+      <ShipmentRatingsCard
+        shipment={baseShipment}
+        currentUserId="receiver-1"
+        ratings={[]}
+        eligibility={undefined}
+        onRate={jest.fn()}
+      />
+    );
+
+    expect(queryByTestId("rate-btn-carrier-1")).toBeNull();
+  });
+
+  it("si el backend no tiene el endpoint (404), vuelve al cálculo local", async () => {
+    const { getByTestId } = await render(
+      <ShipmentRatingsCard
+        shipment={baseShipment}
+        currentUserId="receiver-1"
+        ratings={[]}
+        eligibility={undefined}
+        eligibilityError={new ApiError(404, "NOT_FOUND", "Not Found")}
+        onRate={jest.fn()}
+      />
+    );
+
+    expect(getByTestId("rate-btn-carrier-1")).toBeTruthy();
+  });
+
+  // Review PR #345: el cálculo local ante un timeout o un 5xx le volvía a ofrecer calificar al receptor tras una
+  // disputa resuelta (el 403 de TestFlight).
+  it.each([
+    ["un 5xx", new ApiError(503, "INTERNAL_ERROR", "Servicio no disponible")],
+    ["un corte de red", new TypeError("Network request failed")],
+  ])("ante %s no ofrece calificar", async (_label, error) => {
+    const { queryByTestId } = await render(
+      <ShipmentRatingsCard
+        shipment={{ ...baseShipment, status: ShipmentStatus.COMPLETED }}
+        currentUserId="receiver-1"
+        ratings={[]}
+        eligibility={undefined}
+        eligibilityError={error}
+        onRate={jest.fn()}
+      />
+    );
+
+    expect(queryByTestId("rate-btn-carrier-1")).toBeNull();
+  });
+
+  it("dice hasta cuándo se puede calificar con el cierre que da el backend, no desde la entrega", async () => {
+    const windowEndsAt = new Date(Date.now() + 50 * 3600 * 1000).toISOString();
+    const { getByText, queryByText } = await render(
+      <ShipmentRatingsCard
+        shipment={{ ...baseShipment, status: ShipmentStatus.CANCELLED }}
+        currentUserId="sender-1"
+        ratings={[]}
+        eligibility={forAll(true, null, windowEndsAt)}
+        onRate={jest.fn()}
+      />
+    );
+
+    expect(getByText(`Podés calificar hasta ${formatFundingDeadline(windowEndsAt)}`)).toBeTruthy();
+    expect(queryByText("Tenés 72 hs desde la entrega para enviar tu opinión")).toBeNull();
+  });
+
+  it("aplica a cada fila la elegibilidad de su contraparte", async () => {
+    const { getByTestId, queryByTestId, getByText } = await render(
+      <ShipmentRatingsCard
+        shipment={baseShipment}
+        currentUserId="carrier-1"
+        ratings={[]}
+        eligibility={{
+          counterparties: [
+            { rateeId: "sender-1", rateeRole: "sender", canRate: true, reason: null, windowEndsAt: null },
+            { rateeId: "receiver-1", rateeRole: "receiver", canRate: false, reason: "window_expired", windowEndsAt: null },
+          ],
+        }}
+        onRate={jest.fn()}
+      />
+    );
+
+    expect(getByTestId("rate-btn-sender-1")).toBeTruthy();
+    expect(queryByTestId("rate-btn-receiver-1")).toBeNull();
+    expect(getByText("El plazo de 72 horas para calificar terminó")).toBeTruthy();
+  });
+
+  it("en un cancelado sin nada para calificar no muestra la sección ni su encabezado", async () => {
+    const { queryByTestId, queryByText } = await render(
+      <ShipmentRatingsCard
+        shipment={{ ...baseShipment, status: ShipmentStatus.CANCELLED }}
+        currentUserId="carrier-1"
+        ratings={[]}
+        eligibility={forAll(false, "not_delivered")}
+        onRate={jest.fn()}
+        header={<Text>Calificaciones</Text>}
+      />
+    );
+
+    expect(queryByTestId("shipment-ratings-card")).toBeNull();
+    expect(queryByText("Calificaciones")).toBeNull();
+  });
+});
+
+describe("msUntilNextWindowClose", () => {
+  const NOW = Date.parse("2030-01-05T00:00:00.000Z");
+
+  it("vuelve a consultar al cierre más próximo de una ventana abierta", () => {
+    const eligibility: ShipmentRatingEligibility = {
+      counterparties: [
+        { rateeId: "a", rateeRole: "sender", canRate: true, reason: null, windowEndsAt: "2030-01-05T02:00:00.000Z" },
+        { rateeId: "b", rateeRole: "receiver", canRate: true, reason: null, windowEndsAt: "2030-01-05T01:00:00.000Z" },
+      ],
+    };
+    expect(msUntilNextWindowClose(eligibility, NOW)).toBe(3600 * 1000 + 1000);
+  });
+
+  it("sin ventanas abiertas no repite la consulta", () => {
+    expect(msUntilNextWindowClose(undefined, NOW)).toBe(false);
+    expect(msUntilNextWindowClose(forAll(false, "window_expired"), NOW)).toBe(false);
   });
 });
