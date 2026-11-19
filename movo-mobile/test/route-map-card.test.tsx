@@ -115,6 +115,22 @@ describe("RouteMapCard", () => {
     expect(coords[coords.length - 1]).toEqual({ latitude: DELIVERY.lat, longitude: DELIVERY.lng });
   });
 
+  it("cada pin dice solo su rol: retiro y entrega se distinguen aunque compartan avenida", async () => {
+    mockUseShipmentRoute.mockReturnValue({ data: undefined, isError: false });
+    const { getAllByText, queryByText } = await render(
+      <RouteMapCard
+        testID="map"
+        pickup={{ ...PICKUP, address: "Av. República de China 1200, Valle Escondido, Córdoba" }}
+        delivery={{ ...DELIVERY, address: "Av. República de China 2400, Valle Escondido, Córdoba" }}
+      />,
+    );
+
+    expect(getAllByText("Retiro").length).toBeGreaterThan(0);
+    expect(getAllByText("Entrega").length).toBeGreaterThan(0);
+    // Sin la dirección: con dos rótulos sobre la misma avenida el mapa quedaba cargado.
+    expect(queryByText(/República de China/)).toBeNull();
+  });
+
   it("con pickup null y pickupLabel muestra solo la entrega y el origen como texto (MOVO-194 AC4)", async () => {
     mockUseShipmentRoute.mockReturnValue({ data: undefined, isError: false });
     const { getByTestId, queryByTestId, queryByText } = await render(
@@ -125,7 +141,7 @@ describe("RouteMapCard", () => {
     expect(getByTestId("map-pickup-label")).toHaveTextContent("Retiro en Av. Colón 1000");
     expect(queryByTestId("map-route-base")).toBeNull();
     expect(queryByTestId("map-route-loading")).toBeNull();
-    expect(queryByText("Bv. San Juan 500")).toBeTruthy();
+    expect(queryByText("Entrega")).toBeTruthy();
   });
 
   it("sin pickup ni pickupLabel sigue mostrando el estado vacío", async () => {

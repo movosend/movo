@@ -1,7 +1,11 @@
 import { Pencil } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState, Pressable, Text, View } from "react-native";
-import MapView, { Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
+import MapView, {
+  Polyline,
+  PROVIDER_GOOGLE,
+  type LatLng,
+} from "react-native-maps";
 import Animated, {
   processColor,
   useAnimatedProps,
@@ -21,7 +25,11 @@ import {
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useShipmentRoute } from "../../src/hooks/use-shipments";
 import { hexToRgba } from "../../src/lib/color";
-import { cumulativeFractions, decodePolyline, simplifyPolyline } from "../../src/lib/polyline";
+import {
+  cumulativeFractions,
+  decodePolyline,
+  simplifyPolyline,
+} from "../../src/lib/polyline";
 import {
   LIVE_REMAINING_LINE_WIDTH,
   LIVE_TRACE_LINE_WIDTH,
@@ -92,7 +100,10 @@ interface RoutePoint {
   lng: number;
 }
 
-function buildFallbackRoutePoints(pickup: RoutePoint, delivery: RoutePoint): LatLng[] {
+function buildFallbackRoutePoints(
+  pickup: RoutePoint,
+  delivery: RoutePoint,
+): LatLng[] {
   const points: LatLng[] = [];
   for (let i = 0; i <= FALLBACK_ROUTE_STEPS; i += 1) {
     const t = i / FALLBACK_ROUTE_STEPS;
@@ -146,15 +157,42 @@ function sweepFrame(
   return { coordinates, strokeColor: nativeStrokeColor };
 }
 
-function RouteBadge({ label }: { label: string }) {
+/**
+ * Pin de retiro / entrega: rótulo con el rol, una punta que lo une al punto y el punto. Antes eran dos etiquetas
+ * blancas con la dirección y un círculo y un cuadrado negros de 14 px: con dos direcciones sobre la misma avenida
+ * no se distinguía cuál era cuál, y con la calle el mapa quedaba cargado (feedback de TestFlight). La dirección
+ * completa ya está en las tarjetas de retiro y entrega. Retiro en tinta y entrega en lima, los mismos colores que la
+ * ruta de la hoja de "Iniciar viaje".
+ */
+function RoutePin({ kind }: { kind: "pickup" | "delivery" }) {
+  const isPickup = kind === "pickup";
+  const surface = isPickup ? "bg-ink-950 dark:bg-ink-800" : "bg-lime-500";
   return (
-    <View
-      className="max-w-[150px] rounded-full border border-border bg-bg px-2.5 py-1"
-      style={{ shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } }}
-    >
-      <Text className="font-sans-medium text-[11px] text-fg" numberOfLines={1}>
-        {label}
-      </Text>
+    <View className="items-center">
+      <View
+        className={`rounded-full px-2.5 py-1 ${surface} ${isPickup ? "dark:border dark:border-ink-700" : ""}`}
+        style={{
+          shadowColor: "#000",
+          shadowOpacity: 0.22,
+          shadowRadius: 5,
+          shadowOffset: { width: 0, height: 2 },
+        }}
+      >
+        <Text
+          className={`font-sans-semibold text-[11px] uppercase tracking-wider ${isPickup ? "text-paper" : "text-ink-950"}`}
+        >
+          {isPickup ? "Retiro" : "Entrega"}
+        </Text>
+      </View>
+      {/* Punta del rótulo: un cuadrado girado del mismo color, medio tapado por el rótulo. */}
+      <View className={`-mt-[5px] h-2.5 w-2.5 rotate-45 ${surface}`} />
+      <View
+        className={`mt-1 h-4 w-4 rounded-full border-[3px] ${
+          isPickup
+            ? "border-white bg-ink-950 dark:border-ink-950 dark:bg-white"
+            : "border-ink-950 bg-lime-500"
+        }`}
+      />
     </View>
   );
 }
@@ -260,8 +298,11 @@ export function RouteMapCard({
   const { colorScheme } = useColorScheme();
   const colors = useThemeColors();
   const mapRef = useRef<MapView>(null);
-  const [minZoomLevel, setMinZoomLevel] = useState<number | undefined>(undefined);
-  const mapBackgroundColor = colorScheme === "dark" ? MAP_GEOMETRY_COLOR_DARK : MAP_GEOMETRY_COLOR_LIGHT;
+  const [minZoomLevel, setMinZoomLevel] = useState<number | undefined>(
+    undefined,
+  );
+  const mapBackgroundColor =
+    colorScheme === "dark" ? MAP_GEOMETRY_COLOR_DARK : MAP_GEOMETRY_COLOR_LIGHT;
 
   const { data: route, isError: routeFailed } = useShipmentRoute(
     pickup ? { lat: pickup.lat, lng: pickup.lng } : null,
@@ -308,13 +349,18 @@ export function RouteMapCard({
     if (route) return decodePolyline(route.polyline);
     return routeFailed ? buildFallbackRoutePoints(pickup, delivery) : [];
   }, [pickup, delivery, route, routeFailed]);
-  const isRouteLoading = Boolean(pickup && delivery) && routePoints.length === 0;
+  const isRouteLoading =
+    Boolean(pickup && delivery) && routePoints.length === 0;
 
   // Trazo del barrido: simplificado y con el largo acumulado de cada punto, así avanza a
   // velocidad constante por distancia (no por cantidad de puntos) y cada frame trabaja
   // sobre unas pocas decenas de puntos en vez de los miles de la ruta real.
   const sweepPath = useMemo(() => {
-    if (routePoints.length < 2) return { points: routePoints, fractions: cumulativeFractions(routePoints) };
+    if (routePoints.length < 2)
+      return {
+        points: routePoints,
+        fractions: cumulativeFractions(routePoints),
+      };
     let minLat = Infinity;
     let maxLat = -Infinity;
     let minLng = Infinity;
@@ -326,7 +372,10 @@ export function RouteMapCard({
       if (point.longitude > maxLng) maxLng = point.longitude;
     }
     const span = Math.max(maxLat - minLat, maxLng - minLng);
-    const points = simplifyPolyline(routePoints, span * SWEEP_SIMPLIFY_TOLERANCE);
+    const points = simplifyPolyline(
+      routePoints,
+      span * SWEEP_SIMPLIFY_TOLERANCE,
+    );
     return { points, fractions: cumulativeFractions(points) };
   }, [routePoints]);
 
@@ -337,9 +386,13 @@ export function RouteMapCard({
   }, [routePoints, startedAt, sweepLength]);
 
   // El barrido corre solo con trazo, pantalla en foco y app en primer plano.
-  const [appActive, setAppActive] = useState(AppState.currentState !== "background");
+  const [appActive, setAppActive] = useState(
+    AppState.currentState !== "background",
+  );
   useEffect(() => {
-    const subscription = AppState.addEventListener("change", (state) => setAppActive(state === "active"));
+    const subscription = AppState.addEventListener("change", (state) =>
+      setAppActive(state === "active"),
+    );
     return () => subscription.remove();
   }, []);
   // Con seguimiento en vivo no hay barrido: la ruta es la de `liveLayer`.
@@ -365,11 +418,24 @@ export function RouteMapCard({
   // El frame se calcula una sola vez por cambio (`useDerivedValue`); cada mapa (la card y la pantalla
   // completa) tiene su `animatedProps`, porque uno solo va a un componente, y solo copia el resultado.
   const sweep = useDerivedValue(
-    () => sweepFrame(sweepPoints, sweepFractions, sweepLength.value, sweepOpacity.value, colors.fg1),
+    () =>
+      sweepFrame(
+        sweepPoints,
+        sweepFractions,
+        sweepLength.value,
+        sweepOpacity.value,
+        colors.fg1,
+      ),
     [sweepPoints, sweepFractions, colors.fg1],
   );
-  const animatedSweepProps = useAnimatedProps<{ coordinates: LatLng[]; strokeColor: string }>(() => sweep.value);
-  const fullscreenSweepProps = useAnimatedProps<{ coordinates: LatLng[]; strokeColor: string }>(() => sweep.value);
+  const animatedSweepProps = useAnimatedProps<{
+    coordinates: LatLng[];
+    strokeColor: string;
+  }>(() => sweep.value);
+  const fullscreenSweepProps = useAnimatedProps<{
+    coordinates: LatLng[];
+    strokeColor: string;
+  }>(() => sweep.value);
 
   const deliveryOnly = !pickup && !!delivery && pickupLabel !== undefined;
 
@@ -377,7 +443,8 @@ export function RouteMapCard({
   // Feedback de TestFlight build 18: la línea base (de `/shipments/route`) quedaba debajo del punteado
   // (de `/tracking`, otra llamada a Google) y se veían dos líneas casi paralelas.
   const livePosition = live?.position ?? null;
-  const livePlanned = live && live.planned.length > 1 ? live.planned : routePoints;
+  const livePlanned =
+    live && live.planned.length > 1 ? live.planned : routePoints;
   const liveApproach = live?.approach ?? NO_TRACE;
   const livePhase: LivePhase = live?.phase ?? "delivery";
   // Por campo y no por `live`: el caller lo arma como objeto nuevo en cada render, y la proyección
@@ -396,7 +463,9 @@ export function RouteMapCard({
     segment: 0,
   });
   const sameSegmentRoute =
-    segmentState.planned === livePlanned && segmentState.approach === liveApproach && segmentState.phase === livePhase;
+    segmentState.planned === livePlanned &&
+    segmentState.approach === liveApproach &&
+    segmentState.phase === livePhase;
   const startSegment = sameSegmentRoute ? segmentState.segment : 0;
   const liveLines = useMemo(
     () =>
@@ -405,19 +474,45 @@ export function RouteMapCard({
         planned: livePlanned,
         // La traza no se dibuja sin `pickup`: arranca en el retiro (MOVO-194 AC4).
         trace: liveTrace,
-        carrier: liveLat !== undefined && liveLng !== undefined ? { latitude: liveLat, longitude: liveLng } : null,
+        carrier:
+          liveLat !== undefined && liveLng !== undefined
+            ? { latitude: liveLat, longitude: liveLng }
+            : null,
         approach: liveApproach,
         startSegment,
       }),
-    [livePhase, livePlanned, liveApproach, liveTrace, liveLat, liveLng, startSegment],
+    [
+      livePhase,
+      livePlanned,
+      liveApproach,
+      liveTrace,
+      liveLat,
+      liveLng,
+      startSegment,
+    ],
   );
   useEffect(() => {
     if (liveLines.segment !== startSegment || !sameSegmentRoute) {
-      setSegmentState({ planned: livePlanned, approach: liveApproach, phase: livePhase, segment: liveLines.segment });
+      setSegmentState({
+        planned: livePlanned,
+        approach: liveApproach,
+        phase: livePhase,
+        segment: liveLines.segment,
+      });
     }
-  }, [liveLines.segment, startSegment, sameSegmentRoute, livePlanned, liveApproach, livePhase]);
+  }, [
+    liveLines.segment,
+    startSegment,
+    sameSegmentRoute,
+    livePlanned,
+    liveApproach,
+    livePhase,
+  ]);
   // El receptor (sin `pickup`) solo ve lo que falta desde el transportista ya en camino.
-  const remainingPoints = !pickup && (!livePosition || livePhase === "pickup") ? NO_POINTS : liveLines.remaining;
+  const remainingPoints =
+    !pickup && (!livePosition || livePhase === "pickup")
+      ? NO_POINTS
+      : liveLines.remaining;
   const tracePoints = liveLines.trace;
 
   const [sheetHeight, setSheetHeight] = useState(0);
@@ -429,9 +524,14 @@ export function RouteMapCard({
         remaining: remainingPoints,
         toPickup: liveLines.toPickup,
         toPickupGapM: liveLines.toPickupGapM,
-        carrier: liveLat !== undefined && liveLng !== undefined ? { latitude: liveLat, longitude: liveLng } : null,
+        carrier:
+          liveLat !== undefined && liveLng !== undefined
+            ? { latitude: liveLat, longitude: liveLng }
+            : null,
         pickup: pickup ? { latitude: pickup.lat, longitude: pickup.lng } : null,
-        delivery: delivery ? { latitude: delivery.lat, longitude: delivery.lng } : null,
+        delivery: delivery
+          ? { latitude: delivery.lat, longitude: delivery.lng }
+          : null,
       }),
     [
       livePhase,
@@ -451,11 +551,19 @@ export function RouteMapCard({
   // A pantalla completa con seguimiento: transportista y entrega, más el retiro mientras va a buscarlo
   // (el criterio del mapa de la pantalla de seguimiento que reemplaza). Sin seguimiento, la ruta.
   const fullscreenFitPoints: LatLng[] = [];
-  if (live && livePosition) fullscreenFitPoints.push({ latitude: livePosition.lat, longitude: livePosition.lng });
+  if (live && livePosition)
+    fullscreenFitPoints.push({
+      latitude: livePosition.lat,
+      longitude: livePosition.lng,
+    });
   if (pickup && (!live || !livePosition || livePhase === "pickup")) {
     fullscreenFitPoints.push({ latitude: pickup.lat, longitude: pickup.lng });
   }
-  if (delivery) fullscreenFitPoints.push({ latitude: delivery.lat, longitude: delivery.lng });
+  if (delivery)
+    fullscreenFitPoints.push({
+      latitude: delivery.lat,
+      longitude: delivery.lng,
+    });
 
   const noticeView = (prefix: string, top: number) =>
     notice ? (
@@ -465,7 +573,13 @@ export function RouteMapCard({
         className={`absolute left-3 right-14 rounded-[12px] px-3 py-2 ${
           notice.tone === "warning" ? "bg-warning-100" : "bg-bg"
         }`}
-        style={{ top, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } }}
+        style={{
+          top,
+          shadowColor: "#000",
+          shadowOpacity: 0.12,
+          shadowRadius: 4,
+          shadowOffset: { width: 0, height: 1 },
+        }}
       >
         <Text
           className={`font-sans-semibold text-caption ${notice.tone === "warning" ? "text-warning-700" : "text-fg"}`}
@@ -484,7 +598,10 @@ export function RouteMapCard({
     ) : null;
 
   // La ruta sin seguimiento: base gris (la de toda la app) y el barrido en tinta encima.
-  const routeLayer = (prefix: string, sweepProps: typeof animatedSweepProps | null) => (
+  const routeLayer = (
+    prefix: string,
+    sweepProps: typeof animatedSweepProps | null,
+  ) => (
     <>
       <Polyline
         testID={testID ? `${testID}-${prefix}route-base` : undefined}
@@ -536,7 +653,10 @@ export function RouteMapCard({
           <StaticMarker
             key={`${prefix}carrier-${live.stale ? "stale" : "live"}`}
             testID={testID ? `${testID}-${prefix}carrier` : undefined}
-            coordinate={{ latitude: livePosition.lat, longitude: livePosition.lng }}
+            coordinate={{
+              latitude: livePosition.lat,
+              longitude: livePosition.lng,
+            }}
           >
             <View
               style={{
@@ -559,13 +679,22 @@ export function RouteMapCard({
         testID={testID}
         className="items-center justify-center rounded-[14px] border border-dashed border-border-strong bg-bg-sub px-4 py-8"
       >
-        <Text className="font-sans-medium text-[13px] text-fg-3">Definí el origen y destino para ver la ruta</Text>
+        <Text className="font-sans-medium text-[13px] text-fg-3">
+          Definí el origen y destino para ver la ruta
+        </Text>
       </View>
     );
   }
 
   return (
-    <View testID={testID} className={bare ? "overflow-hidden" : "overflow-hidden rounded-[14px] border border-border"}>
+    <View
+      testID={testID}
+      className={
+        bare
+          ? "overflow-hidden"
+          : "overflow-hidden rounded-[14px] border border-border"
+      }
+    >
       <ExpandableMap
         style={{ height: MAP_HEIGHT, backgroundColor: mapBackgroundColor }}
         backgroundColor={mapBackgroundColor}
@@ -584,7 +713,12 @@ export function RouteMapCard({
               <>
                 {/* Debajo del botón de cerrar (arriba a la izquierda, 44 px). */}
                 <FullscreenNotice>{noticeView("fs-", 0)}</FullscreenNotice>
-                {renderFullscreenSheet?.({ close, estimate: liveEstimate, estimateLoading: live?.loadingInitial ?? false, onHeightChange: setSheetHeight })}
+                {renderFullscreenSheet?.({
+                  close,
+                  estimate: liveEstimate,
+                  estimateLoading: live?.loadingInitial ?? false,
+                  onHeightChange: setSheetHeight,
+                })}
               </>
             }
           >
@@ -597,12 +731,7 @@ export function RouteMapCard({
                   coordinate={{ latitude: pickup.lat, longitude: pickup.lng }}
                   anchor={{ x: 0.5, y: 1 }}
                 >
-                  <View className="items-center">
-                    <View className="mb-1.5">
-                      <RouteBadge label={pickup.address} />
-                    </View>
-                    <View className="h-3.5 w-3.5 rounded-full border-2 border-white bg-ink-950 dark:border-ink-950 dark:bg-white" />
-                  </View>
+                  <RoutePin kind="pickup" />
                 </StaticMarker>
               </>
             ) : null}
@@ -611,12 +740,7 @@ export function RouteMapCard({
               coordinate={{ latitude: delivery.lat, longitude: delivery.lng }}
               anchor={{ x: 0.5, y: 1 }}
             >
-              <View className="items-center">
-                <View className="mb-1.5">
-                  <RouteBadge label={delivery.address} />
-                </View>
-                <View className="h-3.5 w-3.5 rounded-[3px] border-2 border-white bg-ink-950 dark:border-ink-950 dark:bg-white" />
-              </View>
+              <RoutePin kind="delivery" />
             </StaticMarker>
             {liveLayer("fs-")}
           </FullscreenMap>
@@ -626,7 +750,9 @@ export function RouteMapCard({
           ref={mapRef}
           testID={testID ? `${testID}-map` : undefined}
           provider={PROVIDER_GOOGLE}
-          customMapStyle={colorScheme === "dark" ? movoMapStyleDark : movoMapStyleLight}
+          customMapStyle={
+            colorScheme === "dark" ? movoMapStyleDark : movoMapStyleLight
+          }
           // Insets negativos en vez de `flex: 1`: el borde propio de la view nativa
           // (línea blanca de 1px) cae fuera del recorte del contenedor. Ver
           // `MAP_EDGE_BLEED`.
@@ -642,27 +768,52 @@ export function RouteMapCard({
               ? {
                   latitude: (pickup.lat + delivery.lat) / 2,
                   longitude: (pickup.lng + delivery.lng) / 2,
-                  latitudeDelta: Math.max(Math.abs(pickup.lat - delivery.lat) * 1.8, 0.02),
-                  longitudeDelta: Math.max(Math.abs(pickup.lng - delivery.lng) * 1.8, 0.02),
+                  latitudeDelta: Math.max(
+                    Math.abs(pickup.lat - delivery.lat) * 1.8,
+                    0.02,
+                  ),
+                  longitudeDelta: Math.max(
+                    Math.abs(pickup.lng - delivery.lng) * 1.8,
+                    0.02,
+                  ),
                 }
-              : { latitude: delivery.lat, longitude: delivery.lng, latitudeDelta: 0.02, longitudeDelta: 0.02 }
+              : {
+                  latitude: delivery.lat,
+                  longitude: delivery.lng,
+                  latitudeDelta: 0.02,
+                  longitudeDelta: 0.02,
+                }
           }
           minZoomLevel={minZoomLevel}
           maxZoomLevel={MAX_ZOOM_LEVEL}
           onMapReady={() => {
             const map = mapRef.current;
             if (!map || !pickup) return;
-            map.fitToCoordinates([pickup, delivery].map((p) => ({ latitude: p.lat, longitude: p.lng })), {
-              edgePadding: EDGE_PADDING,
-              animated: false,
-            });
+            map.fitToCoordinates(
+              [pickup, delivery].map((p) => ({
+                latitude: p.lat,
+                longitude: p.lng,
+              })),
+              {
+                edgePadding: EDGE_PADDING,
+                animated: false,
+              },
+            );
             // El zoom del encuadre recién se puede leer después de aplicarlo.
             requestAnimationFrame(() => {
               map
                 .getCamera()
                 .then((camera) => {
-                  if (typeof camera.zoom === "number" && Number.isFinite(camera.zoom)) {
-                    setMinZoomLevel(Math.min(Math.max(camera.zoom - EXTRA_ZOOM_OUT_LEVELS, 0), MAX_ZOOM_LEVEL));
+                  if (
+                    typeof camera.zoom === "number" &&
+                    Number.isFinite(camera.zoom)
+                  ) {
+                    setMinZoomLevel(
+                      Math.min(
+                        Math.max(camera.zoom - EXTRA_ZOOM_OUT_LEVELS, 0),
+                        MAX_ZOOM_LEVEL,
+                      ),
+                    );
                   }
                 })
                 .catch(() => {
@@ -688,19 +839,16 @@ export function RouteMapCard({
             <>
               {/* Con seguimiento en vivo ni la base ni el barrido: la ruta la dibuja `liveLayer`. */}
               {/* Con la pantalla completa abierta el barrido de la card (tapada) no se anima: serían dos mapas redibujando. */}
-              {live ? null : routeLayer("", fullscreenOpen ? null : animatedSweepProps)}
+              {live
+                ? null
+                : routeLayer("", fullscreenOpen ? null : animatedSweepProps)}
 
               <StaticMarker
                 key={`pickup-${pickup.address}`}
                 coordinate={{ latitude: pickup.lat, longitude: pickup.lng }}
                 anchor={{ x: 0.5, y: 1 }}
               >
-                <View className="items-center">
-                  <View className="mb-1.5">
-                    <RouteBadge label={pickup.address} />
-                  </View>
-                  <View className="h-3.5 w-3.5 rounded-full border-2 border-white bg-ink-950 dark:border-ink-950 dark:bg-white" />
-                </View>
+                <RoutePin kind="pickup" />
               </StaticMarker>
             </>
           ) : null}
@@ -709,12 +857,7 @@ export function RouteMapCard({
             coordinate={{ latitude: delivery.lat, longitude: delivery.lng }}
             anchor={{ x: 0.5, y: 1 }}
           >
-            <View className="items-center">
-              <View className="mb-1.5">
-                <RouteBadge label={delivery.address} />
-              </View>
-              <View className="h-3.5 w-3.5 rounded-[3px] border-2 border-white bg-ink-950 dark:border-ink-950 dark:bg-white" />
-            </View>
+            <RoutePin kind="delivery" />
           </StaticMarker>
           {liveLayer("")}
         </MapView>
@@ -726,7 +869,9 @@ export function RouteMapCard({
             testID={testID ? `${testID}-last-signal` : undefined}
             className="absolute left-3 top-3 rounded-full bg-warning-100 px-2.5 py-1"
           >
-            <Text className="font-sans-semibold text-caption text-warning-700">{live.lastSignalLabel}</Text>
+            <Text className="font-sans-semibold text-caption text-warning-700">
+              {live.lastSignalLabel}
+            </Text>
           </View>
         ) : null}
 
@@ -743,7 +888,12 @@ export function RouteMapCard({
             onPress={onEdit}
             hitSlop={8}
             className="absolute right-14 top-3 h-9 w-9 items-center justify-center rounded-full bg-bg"
-            style={{ shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } }}
+            style={{
+              shadowColor: "#000",
+              shadowOpacity: 0.15,
+              shadowRadius: 4,
+              shadowOffset: { width: 0, height: 1 },
+            }}
           >
             <Pencil size={16} color={colors.fg1} strokeWidth={1.8} />
           </Pressable>
@@ -756,7 +906,10 @@ export function RouteMapCard({
           className="flex-row items-center gap-2 border-t border-border bg-bg px-3.5 py-3"
         >
           <View className="h-2.5 w-2.5 rounded-full border-2 border-fg-3" />
-          <Text className="flex-1 font-sans text-[12.5px] text-fg-2" numberOfLines={1}>
+          <Text
+            className="flex-1 font-sans text-[12.5px] text-fg-2"
+            numberOfLines={1}
+          >
             Retiro en {pickupLabel}
           </Text>
         </View>
@@ -770,7 +923,11 @@ function FullscreenNotice({ children }: { children: ReactNode }) {
   const insets = useSafeAreaInsets();
   if (!children) return null;
   return (
-    <View pointerEvents="none" className="absolute left-1 right-1" style={{ top: insets.top + 60 }}>
+    <View
+      pointerEvents="none"
+      className="absolute left-1 right-1"
+      style={{ top: insets.top + 60 }}
+    >
       {children}
     </View>
   );
