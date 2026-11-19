@@ -1,5 +1,5 @@
 import { Check } from "lucide-react-native";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Pressable, Text, View } from "react-native";
 import Animated, { FadeInDown, FadeOutDown } from "react-native-reanimated";
 
@@ -25,11 +25,16 @@ export function SuccessToast({
   autoDismissMs = AUTO_DISMISS_MS,
   testID,
 }: SuccessToastProps) {
+  // `onDismiss` en un ref: el caller suele pasar una arrow inline, y depender de ella reiniciaba el timer en cada
+  // render del padre (con refetches seguidos, el aviso no se cerraba nunca solo).
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+  const canDismiss = onDismiss !== undefined;
   useEffect(() => {
-    if (!message || autoDismissMs <= 0 || !onDismiss) return;
-    const timer = setTimeout(onDismiss, autoDismissMs);
+    if (!message || autoDismissMs <= 0 || !canDismiss) return;
+    const timer = setTimeout(() => onDismissRef.current?.(), autoDismissMs);
     return () => clearTimeout(timer);
-  }, [message, autoDismissMs, onDismiss]);
+  }, [message, autoDismissMs, canDismiss]);
 
   if (!message) return null;
 

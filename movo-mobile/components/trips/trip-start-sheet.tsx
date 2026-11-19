@@ -5,6 +5,7 @@ import type { TripWithAcceptedPackages } from "../../src/api/trips-client";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { formatTimeOfDay } from "../../src/lib/time-format";
 import {
+  formatDepartureDateOnly,
   formatPackagesCount,
   isTripDepartureToday,
   tripPlaceLabel,
@@ -22,10 +23,24 @@ export interface TripStartSheetProps {
 }
 
 /**
+ * "HOY · 17:00 H" si sale hoy; si no, con la fecha ("20 DE NOVIEMBRE · 17:00 H"): un viaje se puede iniciar días
+ * antes de la salida, y uno `declared` vencido también, así que la hoja tiene que decir de qué día es el que se
+ * inicia (review de PR #347).
+ */
+export function tripStartWhenLabel(departureAt: string): string {
+  const time = formatTimeOfDay(departureAt);
+  const day = isTripDepartureToday(departureAt) ? "Hoy" : formatDepartureDateOnly(departureAt);
+  return time ? `${day} · ${time}` : day;
+}
+
+/**
  * Confirmación de "Iniciar viaje" (reemplaza al `Alert` nativo). Iniciar no se deshace: arranca el tracking y
- * los envíos pasan a seguirse en vivo, así que la hoja muestra qué viaje es (origen → destino, hora, paquetes)
- * y qué cambia al iniciarlo, con el mismo lenguaje visual que la tarjeta de Inicio: bloque oscuro de la ruta y
- * un solo botón lima.
+ * los envíos pasan a seguirse en vivo, así que la hoja muestra qué viaje es (origen → destino, día y hora,
+ * paquetes) y qué cambia al iniciarlo, con el mismo lenguaje visual que la tarjeta de Inicio: bloque oscuro de la
+ * ruta y un solo botón lima.
+ *
+ * `BottomSheetModal` se monta siempre, aunque todavía no haya `trip`: si se montara recién junto con
+ * `visible=true`, `useSheetAnimation` arrancaría ya abierto y la apertura no se animaría.
  */
 export function TripStartSheet({
   visible,
@@ -35,26 +50,9 @@ export function TripStartSheet({
   onClosed,
   testID = "trip-start-sheet",
 }: TripStartSheetProps) {
-  const colors = useThemeColors();
-
-  // Mientras se cierra, `trip` puede ya no estar: la hoja se queda con el último para no vaciarse en la animación.
-  if (!trip) return null;
-
-  const origin = tripPlaceLabel(trip.originAddress);
-  const destination = tripPlaceLabel(trip.destinationAddress);
-  const time = formatTimeOfDay(trip.departureAt);
-  const when = isTripDepartureToday(trip.departureAt)
-    ? `Hoy${time ? ` · ${time}` : ""}`
-    : time;
-
-  const handleConfirm = () => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    onConfirm();
-  };
-
   return (
     <BottomSheetModal
-      visible={visible}
+      visible={visible && trip !== null}
       onRequestClose={onClose}
       onClosed={onClosed}
       testID={testID}
@@ -63,6 +61,33 @@ export function TripStartSheet({
       sheetClassName="rounded-t-[28px] bg-bg px-5 pt-3"
       contentClassName="gap-5"
     >
+      {trip ? <TripStartSheetBody trip={trip} onConfirm={onConfirm} onClose={onClose} testID={testID} /> : null}
+    </BottomSheetModal>
+  );
+}
+
+function TripStartSheetBody({
+  trip,
+  onConfirm,
+  onClose,
+  testID,
+}: {
+  trip: TripWithAcceptedPackages;
+  onConfirm: () => void;
+  onClose: () => void;
+  testID: string;
+}) {
+  const colors = useThemeColors();
+  const origin = tripPlaceLabel(trip.originAddress);
+  const destination = tripPlaceLabel(trip.destinationAddress);
+
+  const handleConfirm = () => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    onConfirm();
+  };
+
+  return (
+    <>
       <View className="items-center">
         <View className="h-1 w-10 rounded-full bg-border" />
       </View>
@@ -72,20 +97,13 @@ export function TripStartSheet({
           <Navigation size={22} color="#0A0A0B" strokeWidth={2} />
         </View>
         <View className="flex-1">
-          <Text className="font-sans-semibold text-[22px] tracking-tight text-fg">
-            ¿Arrancás el viaje?
-          </Text>
-          <Text className="font-sans text-small text-fg-2">
-            Revisá que sea este antes de salir.
-          </Text>
+          <Text className="font-sans-semibold text-[22px] tracking-tight text-fg">¿Arrancás el viaje?</Text>
+          <Text className="font-sans text-small text-fg-2">Revisá que sea este antes de salir.</Text>
         </View>
       </View>
 
       {/* La ruta, en el mismo bloque oscuro que la tarjeta de Inicio. */}
-      <View
-        testID={`${testID}-route`}
-        className="rounded-[18px] bg-ink-950 p-4 dark:bg-ink-800"
-      >
+      <View testID={`${testID}-route`} className="rounded-[18px] bg-ink-950 p-4 dark:bg-ink-800">
         <View className="flex-row gap-3">
           <View className="items-center pt-[5px]">
             <View className="h-2.5 w-2.5 rounded-full border-2 border-paper/70" />
@@ -94,37 +112,28 @@ export function TripStartSheet({
           </View>
           <View className="flex-1 gap-3">
             <View>
-              <Text className="font-sans text-[11px] uppercase tracking-wider text-paper/50">
-                Salís de
-              </Text>
-              <Text
-                numberOfLines={1}
-                className="font-sans-semibold text-[16px] text-paper"
-              >
+              <Text className="font-sans text-[11px] uppercase tracking-wider text-paper/50">Salís de</Text>
+              <Text numberOfLines={1} className="font-sans-semibold text-[16px] text-paper">
                 {origin}
               </Text>
             </View>
             <View>
-              <Text className="font-sans text-[11px] uppercase tracking-wider text-paper/50">
-                Llegás a
-              </Text>
-              <Text
-                numberOfLines={1}
-                className="font-sans-semibold text-[16px] text-paper"
-              >
+              <Text className="font-sans text-[11px] uppercase tracking-wider text-paper/50">Llegás a</Text>
+              <Text numberOfLines={1} className="font-sans-semibold text-[16px] text-paper">
                 {destination}
               </Text>
             </View>
           </View>
         </View>
-        <View className="mt-4 flex-row items-center gap-2 border-t border-paper/10 pt-3">
-          {when ? (
-            <View className="rounded-full bg-lime-500 px-2.5 py-1">
-              <Text className="font-sans-semibold text-[11px] uppercase tracking-wider text-ink-950">
-                {when}
-              </Text>
-            </View>
-          ) : null}
+        <View className="mt-4 flex-row flex-wrap items-center gap-2 border-t border-paper/10 pt-3">
+          <View className="rounded-full bg-lime-500 px-2.5 py-1">
+            <Text
+              testID={`${testID}-when`}
+              className="font-sans-semibold text-[11px] uppercase tracking-wider text-ink-950"
+            >
+              {tripStartWhenLabel(trip.departureAt)}
+            </Text>
+          </View>
           <Text className="font-sans-medium text-[13px] text-paper/70">
             {formatPackagesCount(trip.acceptedPackagesCount)}
           </Text>
@@ -137,8 +146,7 @@ export function TripStartSheet({
             <Radio size={16} color={colors.fg1} strokeWidth={2} />
           </View>
           <Text className="flex-1 pt-1.5 font-sans text-small leading-5 text-fg-2">
-            Compartimos tu ubicación en vivo con quienes esperan tus paquetes,
-            hasta que termines el viaje.
+            Compartimos tu ubicación en vivo con quienes esperan tus paquetes, hasta que termines el viaje.
           </Text>
         </View>
         <View className="flex-row items-start gap-3">
@@ -160,9 +168,7 @@ export function TripStartSheet({
           className="h-[56px] flex-row items-center justify-center gap-2.5 rounded-[14px] bg-lime-500 active:bg-lime-400"
         >
           <Navigation size={20} color="#0A0A0B" strokeWidth={2} />
-          <Text className="font-sans-semibold text-[16px] text-ink-950">
-            Iniciar viaje
-          </Text>
+          <Text className="font-sans-semibold text-[16px] text-ink-950">Iniciar viaje</Text>
         </Pressable>
         <Pressable
           testID={`${testID}-cancel`}
@@ -171,11 +177,9 @@ export function TripStartSheet({
           accessibilityLabel="Todavía no"
           className="h-11 items-center justify-center rounded-[12px]"
         >
-          <Text className="font-sans-medium text-small text-fg-2">
-            Todavía no
-          </Text>
+          <Text className="font-sans-medium text-small text-fg-2">Todavía no</Text>
         </Pressable>
       </View>
-    </BottomSheetModal>
+    </>
   );
 }

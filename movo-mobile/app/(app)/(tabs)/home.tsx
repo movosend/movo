@@ -114,6 +114,10 @@ export default function AuthenticatedHomeScreen() {
   // Con un viaje para iniciar hoy (o uno en curso), Inicio es ese viaje: "Enviar un paquete" sale de la pantalla
   // para que "Iniciar viaje" sea la única acción principal. Sin viaje del día, Inicio vuelve a ser el de siempre.
   const hasHomeTrip = homeTrip !== null;
+  // Mientras cargan los viajes no se sabe si hay uno del día: ni la CTA de envío ni el tour que la señala, así no
+  // aparecen para desaparecer apenas llega el viaje (review de PR #347).
+  const tripsPending = isCarrier && tripsQuery.isLoading;
+  const showSendCta = !hasHomeTrip && !tripsPending;
   const attentionQuery = useAttentionTasks();
   const failedSections = [
     { failed: sendingQuery.isError && !sending?.length, refetch: sendingQuery.refetch },
@@ -152,7 +156,7 @@ export default function AuthenticatedHomeScreen() {
   const { canBrowse, isRequirementsLoading } = useTransportGate();
   useAutoStartTour('first_steps', {
     // El tour señala "Enviar un paquete", que no está mientras haya un viaje del día.
-    enabled: isFocused && currentKycStatus === KycStatus.APPROVED && !isRequirementsLoading && !hasHomeTrip,
+    enabled: isFocused && currentKycStatus === KycStatus.APPROVED && !isRequirementsLoading && showSendCta,
     delayMs: 700,
     context: { firstName: firstName ?? null, canBrowse },
   });
@@ -269,14 +273,14 @@ export default function AuthenticatedHomeScreen() {
           isLoading={sendingQuery.isLoading || receivingQuery.isLoading}
         />
 
-        {hasHomeTrip ? null : (
+        {showSendCta ? (
           <HomeSendCta
             testID="app-home-send-cta"
             kycStatus={currentKycStatus}
             isSuspended={suspension !== null}
             scrollIntoView={scrollTourAnchorIntoView}
           />
-        )}
+        ) : null}
 
         <AttentionSection testID="app-home-attention" />
 

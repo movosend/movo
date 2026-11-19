@@ -263,6 +263,14 @@ describe("AuthenticatedHomeScreen", () => {
     expect(queryByTestId("app-home-send-cta")).toBeNull();
   });
 
+  it("mientras cargan los viajes del transportista no aparece 'Enviar un paquete' (no aparece para irse)", async () => {
+    mockUseMyTrips.mockReturnValue({ data: undefined, isLoading: true, isError: false, refetch: jest.fn() });
+
+    const { queryByTestId } = await render(<AuthenticatedHomeScreen />);
+
+    expect(queryByTestId("app-home-send-cta")).toBeNull();
+  });
+
   it("con un viaje que sale otro día, 'Enviar un paquete' sigue en Inicio", async () => {
     const tomorrow = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
     mockUseMyTrips.mockReturnValue({

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { TripWithAcceptedPackages } from "../api/trips-client";
 import type { TripStartSheetProps } from "../../components/trips/trip-start-sheet";
 
@@ -8,24 +8,33 @@ import type { TripStartSheetProps } from "../../components/trips/trip-start-shee
  * abrir el viaje lo iniciaba sin aviso (feedback de TestFlight).
  *
  * La acción corre en `onClosed`, con la hoja ya desmontada: el gate de ubicación que sigue puede abrir su propio
- * `Modal`, y iOS no presenta uno mientras otro se está cerrando (ver `BottomSheetModal#onClosed`).
+ * `Modal`, y iOS no presenta uno mientras otro se está cerrando (ver `BottomSheetModal#onClosed`). Si quien la
+ * contiene se desmonta durante la animación de cierre, `onClosed` no llega: la acción confirmada corre en el
+ * cleanup, así una confirmación nunca se pierde. Mientras hay una confirmación en curso (hoja abierta o cerrándose
+ * con la acción pendiente), un segundo toque en "Iniciar viaje" no hace nada.
  */
 export function useTripStartConfirm(): {
   requestStart: (trip: TripWithAcceptedPackages, onConfirm: () => void) => void;
-  sheetProps: Pick<
-    TripStartSheetProps,
-    "visible" | "trip" | "onConfirm" | "onClose" | "onClosed"
-  >;
+  sheetProps: Pick<TripStartSheetProps, "visible" | "trip" | "onConfirm" | "onClose" | "onClosed">;
 } {
   const [trip, setTrip] = useState<TripWithAcceptedPackages | null>(null);
   const [visible, setVisible] = useState(false);
   const requestedRef = useRef<(() => void) | null>(null);
   const confirmedRef = useRef<(() => void) | null>(null);
 
+  useEffect(
+    () => () => {
+      const action = confirmedRef.current;
+      confirmedRef.current = null;
+      action?.();
+    },
+    [],
+  );
+
   return {
     requestStart: (nextTrip, onConfirm) => {
+      if (requestedRef.current || confirmedRef.current) return;
       requestedRef.current = onConfirm;
-      confirmedRef.current = null;
       setTrip(nextTrip);
       setVisible(true);
     },
@@ -44,7 +53,6 @@ export function useTripStartConfirm(): {
         const action = confirmedRef.current;
         confirmedRef.current = null;
         requestedRef.current = null;
-        setTrip(null);
         action?.();
       },
     },

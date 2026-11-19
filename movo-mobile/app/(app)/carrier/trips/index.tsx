@@ -108,6 +108,9 @@ export default function MyTripsScreen() {
   const showAddBar = isLoading || isError || hasTrips || isHistory;
   // Alto de la barra = 12 (padding superior) + 52 (botón) + inset inferior real del dispositivo.
   const barBottomPadding = Math.max(insets.bottom, 12);
+  // Alto real de la barra del pie, para apoyar los avisos encima: con la cuenta suspendida la barra muestra
+  // `SuspendedActionNotice`, más alto que el botón (review de PR #347). Arranca con el alto del botón.
+  const [footerHeight, setFooterHeight] = useState(12 + 52 + barBottomPadding);
   const scrollBottomPadding = showAddBar ? 12 + 52 + barBottomPadding + 24 : insets.bottom + 24;
 
   // MOVO-262 AC5: tocar la card abre el detalle (MOVO-263). `as any`: ruta nueva, todavía no
@@ -235,6 +238,7 @@ export default function MyTripsScreen() {
       <View
         className="absolute inset-x-0 bottom-0 border-t border-border bg-bg px-5 pt-3"
         style={{ paddingBottom: barBottomPadding }}
+        onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
       >
         {suspension ? (
           // MOVO-300 AC2: el gateway rechaza declarar un viaje con la cuenta suspendida.
@@ -256,7 +260,7 @@ export default function MyTripsScreen() {
       <View
         pointerEvents="box-none"
         className="absolute inset-x-0 gap-2 px-5"
-        style={{ bottom: showAddBar ? 12 + 52 + barBottomPadding + 12 : insets.bottom + 16 }}
+        style={{ bottom: showAddBar ? footerHeight + 12 : insets.bottom + 16 }}
       >
         <SuccessToast
           testID="my-trips-cancelled-success"

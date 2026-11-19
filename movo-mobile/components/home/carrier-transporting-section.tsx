@@ -4,12 +4,18 @@ import { Text, View } from "react-native";
 import type { TripWithAcceptedPackages } from "../../src/api/trips-client";
 import { useCarrierRequirementsSheet } from "../../src/hooks/use-carrier-requirements-sheet";
 import { useMyTrips, useStartTrip } from "../../src/hooks/use-trips";
-import { formatTripStartErrorMessage, splitCarrierHomeTrips } from "../../src/lib/trip-format";
+import {
+  formatTripStartErrorMessage,
+  splitCarrierHomeTrips,
+} from "../../src/lib/trip-format";
 import { CarrierRequirementsSheet } from "../carrier/carrier-requirements-checklist";
 import { CarrierTripCta } from "../trips/carrier-trip-cta";
 import { TrackingActiveIndicator } from "../location/tracking-active-indicator";
 import { TripStatus } from "../../src/api/trips-client";
-import { HomeSectionSkeleton, TRIP_CARD_SKELETON_HEIGHT } from "./home-section-states";
+import {
+  HomeSectionSkeleton,
+  TRIP_CARD_SKELETON_HEIGHT,
+} from "./home-section-states";
 import { requireCarrierLocation } from "../../src/store/carrier-location-gate-store";
 import { useTripStartConfirm } from "../../src/hooks/use-trip-start-confirm";
 import { TripStartSheet } from "../trips/trip-start-sheet";
@@ -39,23 +45,18 @@ export function CarrierTransportingSection({
   const tripStart = useTripStartConfirm();
 
   const [startingTripId, setStartingTripId] = useState<string | null>(null);
-  const [startTripError, setStartTripError] = useState<{ id: string; message: string } | null>(null);
+  const [startTripError, setStartTripError] = useState<{
+    id: string;
+    message: string;
+  } | null>(null);
 
   const { primaryTrip } = splitCarrierHomeTrips(myTripsData?.items ?? []);
 
-  if (!primaryTrip) {
-    // MOVO-168: cargando no es lo mismo que "sin viaje de hoy".
-    if (isLoading) {
-      return <HomeSectionSkeleton testID={`${testID}-skeleton`} cardHeight={TRIP_CARD_SKELETON_HEIGHT} />;
-    }
-    // Fallida: sin datos no sabemos si estás transportando, el aviso es el de `home.tsx`.
-    return null;
-  }
-
-  // Iniciar el viaje arranca el tracking: primero pasa por el gate de ubicación.
   // Primero confirma (iniciar no se deshace) y después pasa por el gate de ubicación.
   const handleStartTrip = (targetTrip: TripWithAcceptedPackages) =>
-    tripStart.requestStart(targetTrip, () => requireCarrierLocation(() => startTripNow(targetTrip)));
+    tripStart.requestStart(targetTrip, () =>
+      requireCarrierLocation(() => startTripNow(targetTrip)),
+    );
 
   const startTripNow = async (targetTrip: TripWithAcceptedPackages) => {
     try {
@@ -64,7 +65,10 @@ export function CarrierTransportingSection({
       await startTripMutation.mutateAsync(targetTrip.id);
       // Mismo destino que iniciar desde el detalle del viaje: al arrancar, el transportista va
       // al mapa en vez de quedarse en Inicio (feedback de TestFlight, build 16).
-      router.push({ pathname: "/route", params: { tripId: targetTrip.id } } as never);
+      router.push({
+        pathname: "/route",
+        params: { tripId: targetTrip.id },
+      } as never);
     } catch (err) {
       // MOVO-117: un 403 por licencia/MP faltante abre la checklist en vez de un error genérico.
       if (requirements.handleError(err)) return;
@@ -75,7 +79,16 @@ export function CarrierTransportingSection({
     }
   };
 
-  return (
+  const content = !primaryTrip ? (
+    // MOVO-168: cargando no es lo mismo que "sin viaje de hoy". Fallida: sin datos no sabemos si estás
+    // transportando, el aviso es el de `home.tsx`.
+    isLoading ? (
+      <HomeSectionSkeleton
+        testID={`${testID}-skeleton`}
+        cardHeight={TRIP_CARD_SKELETON_HEIGHT}
+      />
+    ) : null
+  ) : (
     <View testID={testID} className="mb-6">
       {/* Mismo encabezado que "Actividad reciente": label + línea divisoria fina. */}
       <Text className="mb-3 font-sans-medium text-caption uppercase text-fg-3">
@@ -89,12 +102,26 @@ export function CarrierTransportingSection({
         testID={`${testID}-card-${primaryTrip.id}`}
         onStart={handleStartTrip}
         isStarting={startingTripId === primaryTrip.id}
-        errorMessage={startTripError?.id === primaryTrip.id ? startTripError.message : null}
+        errorMessage={
+          startTripError?.id === primaryTrip.id ? startTripError.message : null
+        }
         // El "en vivo" va con el viaje, no como un aviso suelto arriba que repetía el punto de "En curso".
-        footer={primaryTrip.status === TripStatus.ACTIVE ? <TrackingActiveIndicator variant="inline" /> : undefined}
+        footer={
+          primaryTrip.status === TripStatus.ACTIVE ? (
+            <TrackingActiveIndicator variant="inline" />
+          ) : undefined
+        }
       />
       <CarrierRequirementsSheet {...requirements.sheetProps} />
-      <TripStartSheet {...tripStart.sheetProps} />
     </View>
+  );
+
+  // La hoja de confirmación queda siempre en el mismo lugar del árbol, con o sin viaje: si un refetch deja la
+  // sección sin viaje mientras se cierra, no se remonta y el viaje confirmado igual se inicia (review de PR #347).
+  return (
+    <>
+      {content}
+      <TripStartSheet {...tripStart.sheetProps} />
+    </>
   );
 }

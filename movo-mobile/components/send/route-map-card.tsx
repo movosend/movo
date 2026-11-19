@@ -164,14 +164,31 @@ function sweepFrame(
  * completa ya está en las tarjetas de retiro y entrega. Retiro en tinta y entrega en lima, los mismos colores que la
  * ruta de la hoja de "Iniciar viaje".
  */
+// Medidas del pin, fijas para poder anclar el centro del punto (no el pie del marcador) a la coordenada.
+const PIN_LABEL_HEIGHT = 22;
+const PIN_TIP_SIZE = 10;
+/** La punta se monta media debajo del rótulo. */
+const PIN_TIP_OVERLAP = 5;
+const PIN_DOT_GAP = 4;
+const PIN_DOT_SIZE = 16;
+const PIN_HEIGHT =
+  PIN_LABEL_HEIGHT +
+  PIN_TIP_SIZE -
+  PIN_TIP_OVERLAP +
+  PIN_DOT_GAP +
+  PIN_DOT_SIZE;
+/** Anchor del `Marker`: el centro del punto cae sobre la dirección real (review de PR #347). */
+const PIN_ANCHOR = { x: 0.5, y: (PIN_HEIGHT - PIN_DOT_SIZE / 2) / PIN_HEIGHT };
+
 function RoutePin({ kind }: { kind: "pickup" | "delivery" }) {
   const isPickup = kind === "pickup";
   const surface = isPickup ? "bg-ink-950 dark:bg-ink-800" : "bg-lime-500";
   return (
-    <View className="items-center">
+    <View className="items-center" style={{ height: PIN_HEIGHT }}>
       <View
-        className={`rounded-full px-2.5 py-1 ${surface} ${isPickup ? "dark:border dark:border-ink-700" : ""}`}
+        className={`items-center justify-center rounded-full px-2.5 ${surface} ${isPickup ? "dark:border dark:border-ink-700" : ""}`}
         style={{
+          height: PIN_LABEL_HEIGHT,
           shadowColor: "#000",
           shadowOpacity: 0.22,
           shadowRadius: 5,
@@ -185,13 +202,25 @@ function RoutePin({ kind }: { kind: "pickup" | "delivery" }) {
         </Text>
       </View>
       {/* Punta del rótulo: un cuadrado girado del mismo color, medio tapado por el rótulo. */}
-      <View className={`-mt-[5px] h-2.5 w-2.5 rotate-45 ${surface}`} />
       <View
-        className={`mt-1 h-4 w-4 rounded-full border-[3px] ${
+        className={`rotate-45 ${surface}`}
+        style={{
+          width: PIN_TIP_SIZE,
+          height: PIN_TIP_SIZE,
+          marginTop: -PIN_TIP_OVERLAP,
+        }}
+      />
+      <View
+        className={`rounded-full border-[3px] ${
           isPickup
             ? "border-white bg-ink-950 dark:border-ink-950 dark:bg-white"
             : "border-ink-950 bg-lime-500"
         }`}
+        style={{
+          width: PIN_DOT_SIZE,
+          height: PIN_DOT_SIZE,
+          marginTop: PIN_DOT_GAP,
+        }}
       />
     </View>
   );
@@ -729,7 +758,7 @@ export function RouteMapCard({
                 <StaticMarker
                   key={`fs-pickup-${pickup.address}`}
                   coordinate={{ latitude: pickup.lat, longitude: pickup.lng }}
-                  anchor={{ x: 0.5, y: 1 }}
+                  anchor={PIN_ANCHOR}
                 >
                   <RoutePin kind="pickup" />
                 </StaticMarker>
@@ -738,7 +767,7 @@ export function RouteMapCard({
             <StaticMarker
               key={`fs-delivery-${delivery.address}`}
               coordinate={{ latitude: delivery.lat, longitude: delivery.lng }}
-              anchor={{ x: 0.5, y: 1 }}
+              anchor={PIN_ANCHOR}
             >
               <RoutePin kind="delivery" />
             </StaticMarker>
@@ -846,7 +875,7 @@ export function RouteMapCard({
               <StaticMarker
                 key={`pickup-${pickup.address}`}
                 coordinate={{ latitude: pickup.lat, longitude: pickup.lng }}
-                anchor={{ x: 0.5, y: 1 }}
+                anchor={PIN_ANCHOR}
               >
                 <RoutePin kind="pickup" />
               </StaticMarker>
@@ -855,7 +884,7 @@ export function RouteMapCard({
           <StaticMarker
             key={`delivery-${delivery.address}`}
             coordinate={{ latitude: delivery.lat, longitude: delivery.lng }}
-            anchor={{ x: 0.5, y: 1 }}
+            anchor={PIN_ANCHOR}
           >
             <RoutePin kind="delivery" />
           </StaticMarker>
