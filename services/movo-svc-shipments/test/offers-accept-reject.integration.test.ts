@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from "vitest";
 import { FastifyInstance } from "fastify";
-import { OfferStatus, ShipmentStatus, TripStatus, argentinaDayBounds, toArgentinaCalendarDateString } from "@movo/shared";
+import { OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createOfferRepository, OfferRepository } from "../src/repositories/offer-repository";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
@@ -713,26 +713,45 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
         expect(await countTrips()).toBe(1);
       });
 
-      it("se suma a un viaje declared del mismo día aunque su salida ya haya pasado (ventana abierta)", async () => {
-        // Aceptar con la ventana ya abierta ancla el viaje auto-creado en "ahora"; el siguiente
-        // paquete del mismo día lo tiene que encontrar aunque esa salida ya sea pasado.
-        const todayString = toArgentinaCalendarDateString(new Date());
-        const today = new Date(`${todayString}T00:00:00.000Z`);
-        const allDay = {
-          pickupDate: today,
-          pickupTimeWindowStart: new Date("1970-01-01T00:00:00.000Z"),
-          pickupTimeWindowEnd: new Date("1970-01-01T23:59:00.000Z"),
+      describe("aceptación con la ventana de retiro ya abierta", () => {
+        // Reloj fijo (solo `Date`) a las 12:00 ART del día del retiro, con la ventana de 09:00 a
+        // 18:00 ART: el viaje auto-creado sale "ahora" (clamp de `departureAt`) sin depender de la
+        // hora real en la que corre CI.
+        const NOON_ART = new Date("2030-01-01T15:00:00.000Z");
+        const openWindow = {
+          pickupTimeWindowStart: new Date("1970-01-01T09:00:00.000Z"),
+          pickupTimeWindowEnd: new Date("1970-01-01T18:00:00.000Z"),
         };
-        const first = await acceptNew(allDay, { offeredDate: today });
-        await appWithVehicle.db.trip.update({
-          where: { id: first.tripId },
-          // Sin cruzar la medianoche argentina: el viaje tiene que seguir siendo de hoy.
-          data: { departureAt: new Date(Math.max(Date.now() - 60_000, argentinaDayBounds(todayString).start.getTime())) },
-        });
-        const second = await acceptNew({ ...allDay, deliveryLat: -31.38, deliveryLng: -64.18 }, { offeredDate: today });
 
-        expect(second.tripId).toBe(first.tripId);
-        expect(await countTrips()).toBe(1);
+        beforeEach(() => {
+          vi.useFakeTimers({ toFake: ["Date"], now: NOON_ART });
+        });
+        afterEach(() => {
+          vi.useRealTimers();
+        });
+
+        it("se suma al viaje del mismo día aunque su salida ya haya pasado", async () => {
+          const first = await acceptNew(openWindow);
+          vi.setSystemTime(new Date(NOON_ART.getTime() + 60_000));
+          const second = await acceptNew({ ...openWindow, deliveryLat: -31.38, deliveryLng: -64.18 });
+
+          expect(second.tripId).toBe(first.tripId);
+          expect(await countTrips()).toBe(1);
+        });
+
+        it("no se suma a un viaje con la salida pasada que ya no debe ningún paquete", async () => {
+          // Es el que cierra `cancelOverdueDeclared`: sumarle un paquete se cruzaría con el barrido.
+          const first = await acceptNew(openWindow);
+          await appWithVehicle.db.shipment.update({
+            where: { id: first.shipmentId },
+            data: { status: ShipmentStatus.CANCELLED },
+          });
+          vi.setSystemTime(new Date(NOON_ART.getTime() + 60_000));
+          const second = await acceptNew(openWindow);
+
+          expect(second.tripId).not.toBe(first.tripId);
+          expect(await countTrips()).toBe(2);
+        });
       });
 
       it("no se suma a un viaje de otro transportista", async () => {

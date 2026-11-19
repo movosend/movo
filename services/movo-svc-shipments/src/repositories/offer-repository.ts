@@ -1,11 +1,4 @@
-import {
-  FundingRoute,
-  OfferStatus,
-  ShipmentStatus,
-  TripStatus,
-  argentinaDayBounds,
-  toArgentinaCalendarDateString,
-} from "@movo/shared";
+import { FundingRoute, OfferStatus, ShipmentStatus, TripStatus, toArgentinaCalendarDateString } from "@movo/shared";
 import { toPaymentMethod } from "./payment-method";
 import { selectFundingRoute } from "../domain/funding";
 import { Prisma, PrismaClient, Offer as OfferRow, Shipment as ShipmentRow } from "../generated/prisma/client";
@@ -28,6 +21,7 @@ import {
   OfferWithShipmentContext,
 } from "../models/offer";
 import { TRIP_SERIES_INCLUDE, Trip, buildTripCreateData, mapTrip } from "../models/trip";
+import { PENDING_PACKAGE_OFFER_FILTER } from "./trip-repository";
 
 /** MOVO-177: el transportista puede proponer retirar hasta 3 días después de la
  * fecha pedida por el emisor. Constante propia del repositorio: es la única regla de
@@ -803,19 +797,22 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           // MOVO-314: antes de crear, se intenta sumar el envío a un viaje `declared` del
           // mismo transportista (salida el día del retiro, corredor compatible). Evita un viaje por
           // paquete y los viajes vacíos que dejaba una asignación caída al reofertar.
-          // Los candidatos se buscan por el día argentino del retiro, no por salida futura: un viaje
-          // auto-creado con la ventana ya abierta sale "ahora" (clamp de arriba) y un minuto después
-          // quedaría afuera, armando un viaje por paquete. Un `declared` con paquete no lo expira el
-          // barrido (`cancelOverdueDeclared` solo toma los vacíos).
+          //
+          // Candidatos: los `declared` con salida futura y, con la salida ya pasada, solo los que
+          // todavía deben un paquete. El segundo grupo cubre la aceptación con la ventana abierta: el
+          // viaje auto-creado sale "ahora" (clamp de arriba) y un minuto después ya no tiene salida
+          // futura. A un vencido vacío o con sus paquetes terminados no se le suma nada: es lo que
+          // cierran `cancelOverdueDeclared`/`completeFinishedDeclared`, y su `NOT EXISTS` no ve una
+          // oferta aceptada en paralelo (el barrido lo cerraría con el paquete nuevo adentro).
+          // La regla de fecha vive solo en `pickReusableTrip`, con la salida ya ajustada: es la
+          // misma que tendría el viaje nuevo si no hay reuso, también pasada la medianoche.
           if (autoTripDefaults.reuseDetourKm !== undefined) {
-            const pickupDay = argentinaDayBounds(toArgentinaCalendarDateString(effectiveDepartureAt));
-            const candidates = await tx.trip.findMany({
-              where: {
-                carrierId: current.carrierId,
-                status: TripStatus.DECLARED,
-                departureAt: { gte: pickupDay.start, lt: pickupDay.end },
-              },
-            });
+            const reusableWhere = {
+              carrierId: current.carrierId,
+              status: TripStatus.DECLARED,
+              OR: [{ departureAt: { gte: now } }, { offers: { some: PENDING_PACKAGE_OFFER_FILTER } }],
+            } satisfies Prisma.TripWhereInput;
+            const candidates = await tx.trip.findMany({ where: reusableWhere });
             const reusable = pickReusableTrip(
               candidates.map((t) => ({
                 id: t.id,
@@ -832,7 +829,7 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
                 deliveryLng: shipment.deliveryLng.toNumber(),
               },
               {
-                start: effectiveDepartureAt,
+                start: departureAt,
                 end: offerExpiresAtInstant(
                   current.offeredDate,
                   current.offeredPickupTimeWindowEnd,
@@ -842,10 +839,10 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
               autoTripDefaults.reuseDetourKm,
             );
             if (reusable) {
-              // Toma el lock de la fila y confirma que sigue `declared`: un `start()`
+              // Toma el lock de la fila y confirma que sigue siendo candidato: un `start()`
               // concurrente del viaje (que cierra sus paquetes) no se cruza con esto.
               const locked = await tx.trip.updateMany({
-                where: { id: reusable.id, status: TripStatus.DECLARED },
+                where: { ...reusableWhere, id: reusable.id },
                 data: { updatedAt: now },
               });
               if (locked.count === 1) joinedTripId = reusable.id;
