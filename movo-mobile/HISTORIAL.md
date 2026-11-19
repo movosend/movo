@@ -5180,3 +5180,7 @@ El historial ya no dice "Llevaste N paquetes" con los que están en disputa: van
 ### Review de PR #343 — textos de la disputa sin afirmar retención
 
 Ningún texto de la disputa dice que el cobro "queda retenido": por DD-054 casi siempre se abre desde `completed`, con el cobro ya acreditado, y por DD-056 también desde `assigned` sin reserva; solo en `in_transit`/`delivered` queda plata retenida. Los avisos dicen "te va a avisar cuando se resuelva" y el rótulo del monto del transportista es "Monto en disputa". El contador del carrusel de envíos en curso se acota si la lista se achica con el carrusel montado (`role-section.tsx`).
+
+### Fix — el viaje del día manda en Inicio, confirmación al iniciar y pines del mapa
+
+Con un viaje para iniciar hoy (o uno en curso), Inicio es ese viaje: `CarrierTripCta` tiene la variante `hero` (superficie oscura, único botón lima) y `home.tsx` saca "Enviar un paquete" y no arranca el tour de primeros pasos, que la señala. Tocar la tarjeta abre el detalle del viaje; el botón ya no lo inicia directo: `useTripStartConfirm` + `TripStartSheet` piden confirmación en Inicio, el detalle y el mapa, y el inicio corre en `onClosed` (el gate de ubicación puede abrir otro `Modal`). En "Mis viajes" los avisos pasan a `SuccessToast` flotante, que no empuja la lista. Los pines de `RouteMapCard` dicen solo "Retiro"/"Entrega" (sin la calle: con dos direcciones sobre la misma avenida no se distinguían y el mapa quedaba cargado). `SuccessBanner` sigue en el resto de las pantallas.
