@@ -1,4 +1,9 @@
-import { DisputeReason, type DisputePartyRole, type DisputeSummary } from "@movo/shared/dist/types/dispute";
+import {
+  DisputeReason,
+  type DisputeOutcome,
+  type DisputePartyRole,
+  type DisputeSummary,
+} from "@movo/shared/dist/types/dispute";
 
 /** Por qué se abrió, como cláusula ("el paquete llegó dañado"). `other` no tiene cláusula: se dice "por otro motivo". */
 const REASON_CLAUSE: Record<DisputeReason, string | null> = {
@@ -45,4 +50,30 @@ export function disputeExplanation(
   if (dispute.openedByRole === null) return `La abrió Movo ${why}.`;
   if (viewerRole !== null && dispute.openedByRole === viewerRole) return `La abriste vos ${why}.`;
   return `La abrió ${PARTY_LABEL[dispute.openedByRole]} ${why}.`;
+}
+
+/**
+ * A favor de quién se resolvió una disputa, leído del `reason` del evento de resolución (`disputed → completed|cancelled`).
+ * Los eventos no traen el `outcome`: el texto lo arma `dispute-resolution.service.ts` de `svc-shipments`
+ * ("Disputa resuelta a favor del emisor" / "… a favor del transportista" / "… con un resultado parcial"), y si cambia
+ * esto devuelve `null` y la app cae al texto genérico. Limitación aceptada: lo robusto es exponer el `outcome` en la API.
+ */
+export function disputeOutcomeFromReason(reason: string | null | undefined): DisputeOutcome | null {
+  if (!reason) return null;
+  if (reason.includes("a favor del emisor")) return "sender";
+  if (reason.includes("a favor del transportista")) return "carrier";
+  if (reason.includes("resultado parcial")) return "partial";
+  return null;
+}
+
+/**
+ * Resultado de la disputa visto por quien mira, sin montos (DD-056). Mismas palabras que la push `dispute_resolved`
+ * ("Se resolvió a tu favor", "… con un acuerdo parcial"). Al receptor nunca le dice "a tu favor": no es parte del
+ * resultado. Sin `outcome` reconocible, un texto genérico.
+ */
+export function disputeOutcomeText(outcome: DisputeOutcome | null, viewerRole: DisputePartyRole | null | undefined): string {
+  if (outcome === null) return "Movo revisó el caso y cerró la disputa.";
+  if (outcome === "partial") return "Se resolvió con un acuerdo parcial.";
+  if (viewerRole === outcome) return "Se resolvió a tu favor.";
+  return outcome === "carrier" ? "Se resolvió a favor del transportista." : "Se resolvió a favor del emisor.";
 }

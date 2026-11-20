@@ -1,6 +1,6 @@
 import type { DisputeSummary } from "@movo/shared/dist/types/dispute";
-import { disputeExplanation } from "./dispute-format";
-import { isOfferAcceptance, shouldShowEventReason } from "./shipment-format";
+import { disputeExplanation, disputeOutcomeFromReason, disputeOutcomeText } from "./dispute-format";
+import { isDisputeResolution, isOfferAcceptance, shouldShowEventReason } from "./shipment-format";
 import type { ChatDeliveryStatus, ChatMessage, ChatParticipantRole } from "@movo/shared/dist/types/chat";
 import type { ReceiverTransferRequest } from "@movo/shared/dist/types/receiver-transfer";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
@@ -139,6 +139,10 @@ export type ChatEventCard = {
   reason?: string | null;
   /** El emisor aceptó la oferta: se dibuja como "transportista elegido" aunque el estado sea `assigned` (efectivo). */
   offerAccepted?: boolean;
+  /** Resolución de la disputa (`disputed → completed|cancelled`, DD-056): ícono propio en neutro, igual para todos. */
+  disputeResolution?: boolean;
+  /** "Disputa abierta" cuya disputa ya se resolvió: la hoja deja de prometer el aviso. */
+  disputeResolved?: boolean;
 };
 
 /** Quién mira la conversación y los nombres que necesitan los textos de las tarjetas. */
@@ -174,7 +178,7 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
     createdAt: event.createdAt,
     status: event.toStatus,
     detail,
-    reason: shouldShowEventReason(event.toStatus) ? (event.reason ?? null) : null,
+    reason: shouldShowEventReason(event.toStatus, event.fromStatus) ? (event.reason ?? null) : null,
   });
   // Solo la entrada desde `published` es una aceptación (también directo a `assigned`, en efectivo): `assigned →
   // assigned_unfunded` es un hold perdido (DD-037) y `assignment_pending → assigned` es la reserva del pago.
@@ -186,6 +190,12 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
         ? `Aceptaste la oferta ${offerOf}`
         : `${sender} aceptó la oferta ${offerOf}`;
     return { ...card(text), offerAccepted: true };
+  }
+  // DD-056: sin esta tarjeta, `disputed → completed` no aparecía y el chat seguía en "Disputa abierta" (feedback de
+  // TestFlight, build 19). El resultado va visto por quien mira y sin montos, como la push `dispute_resolved`.
+  if (isDisputeResolution(event.toStatus, event.fromStatus)) {
+    const outcome = disputeOutcomeText(disputeOutcomeFromReason(event.reason), viewer.role);
+    return { ...card("Disputa resuelta", false, outcome), disputeResolution: true };
   }
   switch (event.toStatus) {
     case ShipmentStatus.IN_TRANSIT:
@@ -202,6 +212,22 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
     default:
       return null;
   }
+}
+
+/**
+ * Las tarjetas de los cambios de estado, en orden. Marca como resuelta la "Disputa abierta" que tiene una resolución
+ * posterior: su hoja deja de decir que Movo "les va a avisar cuando se resuelva".
+ */
+export function chatEventCards(events: readonly ShipmentEvent[], viewer: ChatEventViewer): ChatEventCard[] {
+  return events.flatMap((event, index) => {
+    const card = chatEventCard(event, viewer);
+    if (!card) return [];
+    if (card.status === ShipmentStatus.DISPUTED && !card.disputeResolution) {
+      const resolved = events.slice(index + 1).some((later) => isDisputeResolution(later.toStatus, later.fromStatus));
+      if (resolved) return [{ ...card, disputeResolved: true }];
+    }
+    return [card];
+  });
 }
 
 /**
@@ -414,7 +440,17 @@ export function chatReadOnlyCopy(params: {
  * Qué significa un cambio de estado del chat, para la hoja que se abre al tocar su tarjeta: qué pasó y qué sigue.
  * En una disputa suma quién la abrió y por qué (`card.detail`); en una cancelación, el motivo (`card.reason`).
  */
-export function chatEventExplanation(card: Pick<ChatEventCard, "status" | "detail" | "reason" | "offerAccepted">): string[] {
+export function chatEventExplanation(
+  card: Pick<ChatEventCard, "status" | "detail" | "reason" | "offerAccepted" | "disputeResolution" | "disputeResolved">,
+): string[] {
+  if (card.disputeResolution) {
+    return [
+      ...(card.detail ? [card.detail] : []),
+      // Solo se ve la de `→ completed`: con `→ cancelled` (a favor del emisor) el backend cierra el chat a las partes
+      // (`CHAT_CLOSED`, `chat-window.ts`) y la resolución queda en la línea de tiempo del detalle.
+      "Movo revisó lo que pasó con las partes y cerró el envío. El chat queda en solo lectura y se archiva en 24 h.",
+    ];
+  }
   if (card.offerAccepted && card.status === ShipmentStatus.ASSIGNED) {
     return ["El emisor eligió esta oferta. El envío se paga en efectivo al retirar el paquete, sin reserva previa."];
   }
@@ -431,7 +467,9 @@ export function chatEventExplanation(card: Pick<ChatEventCard, "status" | "detai
       return [
         ...(card.detail ? [card.detail] : []),
         // Sin afirmar qué pasó con la plata: casi siempre se abre desde `completed`, con el cobro ya acreditado (DD-054).
-        "Movo revisa lo que pasó con las partes y les va a avisar cuando se resuelva. Mientras tanto el chat queda en solo lectura.",
+        card.disputeResolved
+          ? "Movo revisó lo que pasó con las partes y la disputa ya se resolvió. El resultado está en la tarjeta “Disputa resuelta”."
+          : "Movo revisa lo que pasó con las partes y les va a avisar cuando se resuelva. Mientras tanto el chat queda en solo lectura.",
       ];
     case ShipmentStatus.CANCELLED:
       return [

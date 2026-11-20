@@ -8,7 +8,7 @@ import { dismissChatNotifications } from "../lib/dismiss-chat-notifications";
 import { useAuthStore } from "../store/auth-store";
 import {
   buildChatTimeline,
-  chatEventCard,
+  chatEventCards,
   chatTransferCard,
   eventsSinceCurrentAssignment,
   transfersSinceCurrentAssignment,
@@ -81,7 +81,7 @@ export function useChatConversation(shipmentId: string | undefined, options: { f
       senderFirstName: participants.find((p) => p.role === "sender")?.firstName ?? null,
       dispute: shipmentQuery.data?.dispute ?? null,
     };
-    const statusCards = eventsSinceCurrentAssignment(eventsQuery.data ?? []).map((event) => chatEventCard(event, viewer));
+    const statusCards = chatEventCards(eventsSinceCurrentAssignment(eventsQuery.data ?? []), viewer);
     const transferCards = transfersSinceCurrentAssignment(transfersQuery.data ?? [], eventsQuery.data ?? []).map(
       (transfer) => chatTransferCard(transfer, meId),
     );

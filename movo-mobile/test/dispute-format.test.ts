@@ -1,5 +1,10 @@
 import { DisputeReason } from "@movo/shared/dist/types/dispute";
-import { disputeExplanation, disputeReasonShortLabel } from "../src/lib/dispute-format";
+import {
+  disputeExplanation,
+  disputeOutcomeFromReason,
+  disputeOutcomeText,
+  disputeReasonShortLabel,
+} from "../src/lib/dispute-format";
 
 describe("dispute-format", () => {
   it("dice quién la abrió y por qué, desde el punto de vista de quien mira", () => {
@@ -22,6 +27,23 @@ describe("dispute-format", () => {
     expect(disputeExplanation({ reason: DisputeReason.PICKUP_NO_SHOW, openedByRole: null }, "sender")).toBe(
       "La abrió Movo porque el retiro no se concretó en el horario acordado.",
     );
+  });
+
+  it("lee el resultado del motivo que escribe svc-shipments al resolver", () => {
+    expect(disputeOutcomeFromReason("Disputa resuelta a favor del emisor")).toBe("sender");
+    expect(disputeOutcomeFromReason("Disputa resuelta a favor del transportista")).toBe("carrier");
+    expect(disputeOutcomeFromReason("Disputa resuelta con un resultado parcial")).toBe("partial");
+    expect(disputeOutcomeFromReason("Cambio forzado desde el panel")).toBeNull();
+    expect(disputeOutcomeFromReason(null)).toBeNull();
+  });
+
+  it("el resultado visto por quien mira: el receptor nunca gana", () => {
+    expect(disputeOutcomeText("carrier", "carrier")).toBe("Se resolvió a tu favor.");
+    expect(disputeOutcomeText("carrier", "sender")).toBe("Se resolvió a favor del transportista.");
+    expect(disputeOutcomeText("sender", "carrier")).toBe("Se resolvió a favor del emisor.");
+    expect(disputeOutcomeText("sender", "receiver")).toBe("Se resolvió a favor del emisor.");
+    expect(disputeOutcomeText("partial", "carrier")).toBe("Se resolvió con un acuerdo parcial.");
+    expect(disputeOutcomeText(null, "sender")).toBe("Movo revisó el caso y cerró la disputa.");
   });
 
   it("motivo corto", () => {

@@ -8,6 +8,7 @@ import {
   buildChatTimeline,
   chatAvailability,
   chatEventCard,
+  chatEventCards,
   chatTransferCard,
   eventsSinceCurrentAssignment,
   transfersSinceCurrentAssignment,
@@ -203,6 +204,61 @@ describe("chatEventCard", () => {
     expect(chatEventCard(event(ShipmentStatus.ASSIGNMENT_PENDING, at), { ...neutral, role: "carrier" })?.text).toBe("El emisor aceptó tu oferta");
     expect(chatEventCard(event(ShipmentStatus.DISPUTED, at), neutral)?.text).toBe("Disputa abierta");
     expect(chatEventCard(event(ShipmentStatus.CANCELLED, at), neutral)?.text).toBe("Envío cancelado");
+  });
+
+  describe("resolución de la disputa (DD-056, feedback de TestFlight build 19)", () => {
+    const resolution = (to: ShipmentStatus, reason: string | null) => ({
+      ...event(to, at, `resolved-${to}`, ShipmentStatus.DISPUTED),
+      reason,
+    });
+    const toCarrier = resolution(ShipmentStatus.COMPLETED, "Disputa resuelta a favor del transportista");
+    const toSender = resolution(ShipmentStatus.CANCELLED, "Disputa resuelta a favor del emisor");
+
+    it("disputed → completed tiene tarjeta, con el resultado visto por quien mira", () => {
+      expect(chatEventCard(toCarrier, viewer("carrier"))).toMatchObject({
+        text: "Disputa resuelta",
+        status: ShipmentStatus.COMPLETED,
+        detail: "Se resolvió a tu favor.",
+        disputeResolution: true,
+        reason: null,
+      });
+      expect(chatEventCard(toCarrier, viewer("sender"))?.detail).toBe("Se resolvió a favor del transportista.");
+      expect(chatEventCard(toCarrier, viewer("receiver"))?.detail).toBe("Se resolvió a favor del transportista.");
+      const partial = resolution(ShipmentStatus.COMPLETED, "Disputa resuelta con un resultado parcial");
+      expect(chatEventCard(partial, viewer("sender"))?.detail).toBe("Se resolvió con un acuerdo parcial.");
+    });
+
+    it("disputed → cancelled es una resolución, no un \"Envío cancelado\" a secas", () => {
+      expect(chatEventCard(toSender, viewer("sender"))).toMatchObject({ text: "Disputa resuelta", detail: "Se resolvió a tu favor.", reason: null });
+      expect(chatEventCard(toSender, viewer("carrier"))?.detail).toBe("Se resolvió a favor del emisor.");
+    });
+
+    it("con un motivo que no reconoce cae a un texto genérico", () => {
+      expect(chatEventCard(resolution(ShipmentStatus.COMPLETED, "Otra cosa"), viewer("carrier"))?.detail).toBe(
+        "Movo revisó el caso y cerró la disputa.",
+      );
+    });
+
+    it("la \"Disputa abierta\" anterior queda marcada como resuelta y su hoja deja de prometer el aviso", () => {
+      const opened = event(ShipmentStatus.DISPUTED, new Date(2026, 9, 12), "opened", ShipmentStatus.ASSIGNED);
+      const cards = chatEventCards([opened, toCarrier], viewer("carrier"));
+      expect(cards.map((c) => [c.text, c.disputeResolved ?? false])).toEqual([
+        ["Disputa abierta", true],
+        ["Disputa resuelta", false],
+      ]);
+      expect(chatEventCards([opened], viewer("carrier"))[0]?.disputeResolved).toBeUndefined();
+      expect(chatEventExplanation(cards[0]!).join(" ")).toMatch(/ya se resolvió/);
+      expect(chatEventExplanation(cards[0]!).join(" ")).not.toMatch(/les va a avisar/);
+    });
+
+    it("la hoja de la resolución dice el resultado y cómo quedó el envío", () => {
+      const completed = chatEventCard(toCarrier, viewer("carrier"))!;
+      expect(chatEventExplanation(completed)).toEqual([
+        "Se resolvió a tu favor.",
+        "Movo revisó lo que pasó con las partes y cerró el envío. El chat queda en solo lectura y se archiva en 24 h.",
+      ]);
+    });
+
   });
 
   it("no hay tarjeta para la creación, la publicación ni el pago", () => {
