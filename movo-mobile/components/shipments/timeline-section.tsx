@@ -11,7 +11,8 @@ import { ShipmentStatus as Status } from "@movo/shared/dist/types/shipment";
 import type { ShipmentEvent } from "../../src/api/shipments-client";
 import { usePublicProfile } from "../../src/hooks/use-profile";
 import { useShipmentRatings } from "../../src/hooks/use-ratings";
-import { useShipmentEvents } from "../../src/hooks/use-shipments";
+import type { ResolvedDisputeSummary } from "@movo/shared/dist/types/dispute";
+import { useShipment, useShipmentEvents } from "../../src/hooks/use-shipments";
 import { useShipmentReceiverTransfers } from "../../src/hooks/use-receiver-transfers";
 import {
   receiverTransferDetail,
@@ -41,7 +42,7 @@ import {
   shipmentStatusTone,
 } from "../../src/lib/shipment-format";
 import { ErrorBanner } from "../ui/error-banner";
-import { disputeOutcomeFromReason, disputeOutcomeText } from "../../src/lib/dispute-format";
+import { disputeOutcomeText, resolvedDisputeByEvent } from "../../src/lib/dispute-format";
 import { DISPUTE_RESOLUTION_VISUAL, SHIPMENT_STATUS_ICON, SHIPMENT_STATUS_TONE_STYLE } from "./shipment-status-visual";
 import { SkeletonBlock } from "../ui/skeleton-block";
 
@@ -135,7 +136,9 @@ function EventRow({
   receiverFirstName,
   carrierFirstName,
   isReceiver,
+  resolvedDispute,
 }: {
+  resolvedDispute: ResolvedDisputeSummary | null;
   event: ShipmentEvent;
   isCurrent: boolean;
   isLast: boolean;
@@ -181,7 +184,7 @@ function EventRow({
             ? "receiver"
             : null;
   const detail = disputeResolution
-    ? disputeOutcomeText(disputeOutcomeFromReason(event.reason), viewerRole)
+    ? disputeOutcomeText(resolvedDispute?.outcome ?? null, viewerRole)
     : shipmentEventDetail(event.toStatus, event.fromStatus);
 
   return (
@@ -420,6 +423,8 @@ export function TimelineSection({ shipmentId, parties, testID }: TimelineSection
   // MOVO-275: si falla, la línea de tiempo se muestra igual, sin las transferencias.
   const { data: transfers } = useShipmentReceiverTransfers(shipmentId);
   const { data: ratings } = useShipmentRatings(shipmentId);
+  // MOVO-363: de ahí sale a favor de quién se resolvió cada disputa (la query del detalle ya está en caché).
+  const { data: shipment } = useShipment(shipmentId);
   const { data: receiverProfile } = usePublicProfile(parties.receiverId);
   const { data: carrierProfile } = usePublicProfile(parties.carrierId ?? undefined);
   const currentUserId = useAuthStore((state) => state.user?.userId ?? null);
@@ -462,6 +467,7 @@ export function TimelineSection({ shipmentId, parties, testID }: TimelineSection
   // envío), no desde `shipment.status`: la línea de tiempo se lee entera contra una
   // sola fuente, así nunca puede mostrar un paso ya cumplido como pendiente si una de
   // las dos queries quedó desactualizada respecto de la otra.
+  const resolvedDisputes = resolvedDisputeByEvent(events, shipment?.resolvedDisputes);
   const pendingSteps = remainingLifecycleSteps(events[events.length - 1].toStatus);
 
   // MOVO-275 AC7: las solicitudes de transferencia se intercalan por fecha con los
@@ -500,6 +506,7 @@ export function TimelineSection({ shipmentId, parties, testID }: TimelineSection
             receiverFirstName={receiverFirstName}
             carrierFirstName={carrierFirstName}
             isReceiver={isReceiver}
+            resolvedDispute={resolvedDisputes.get(item.event.id) ?? null}
           />
         );
       })}

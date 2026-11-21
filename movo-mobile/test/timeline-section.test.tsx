@@ -11,8 +11,10 @@ jest.mock("../src/hooks/use-receiver-transfers", () => ({
   useCancelReceiverTransfer: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false })),
 }));
 
+const mockUseShipment = jest.fn((): { data: unknown } => ({ data: undefined }));
 jest.mock("../src/hooks/use-shipments", () => ({
   useShipmentEvents: (...args: unknown[]) => mockUseShipmentEvents(...args),
+  useShipment: () => mockUseShipment(),
 }));
 
 const mockUsePublicProfile = jest.fn();
@@ -492,5 +494,46 @@ describe("TimelineSection", () => {
 
       expect(getByText("El receptor no confirmó dentro del plazo")).toBeTruthy();
     });
+  });
+});
+
+describe("TimelineSection — resolución de una disputa (MOVO-363)", () => {
+  const resolutionEvents = [
+    event(),
+    event({ id: "event-2", fromStatus: ShipmentStatus.IN_TRANSIT, toStatus: ShipmentStatus.DISPUTED, reason: "texto viejo" }),
+    event({ id: "event-3", fromStatus: ShipmentStatus.DISPUTED, toStatus: ShipmentStatus.COMPLETED, reason: "Disputa resuelta a favor del emisor" }),
+  ];
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockUser.mockReturnValue({ userId: "sender-1" });
+    mockUsePublicProfile.mockReturnValue({ data: { id: "receiver-1", fullName: "Lucas Romero" } });
+    mockUseShipmentRatings.mockReturnValue({ data: [] });
+    mockUseShipmentReceiverTransfers.mockReturnValue({ data: [] });
+    mockUseShipmentEvents.mockReturnValue({ isLoading: false, isError: false, refetch: jest.fn(), data: resolutionEvents });
+  });
+
+  it("dice a favor de quién se resolvió con el resultado de la API, no con el texto del motivo", async () => {
+    // El motivo del evento dice "a favor del emisor", pero la API dice `carrier`: manda la API.
+    mockUseShipment.mockReturnValue({
+      data: {
+        resolvedDisputes: [
+          { id: "d1", reason: "damaged", openedByRole: "sender", openedAt: "2026-08-15T13:10:00.000Z", outcome: "carrier", resolvedAt: "2026-08-15T14:00:00.000Z" },
+        ],
+      },
+    });
+
+    const { getByText, queryByText } = await renderTimeline();
+
+    expect(getByText("Se resolvió a favor del transportista.")).toBeTruthy();
+    expect(queryByText("Se resolvió a tu favor.")).toBeNull();
+  });
+
+  it("sin la disputa cargada muestra el texto genérico", async () => {
+    mockUseShipment.mockReturnValue({ data: undefined });
+
+    const { getByText } = await renderTimeline();
+
+    expect(getByText("Movo revisó el caso y cerró la disputa.")).toBeTruthy();
   });
 });

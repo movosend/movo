@@ -76,7 +76,7 @@ function serverMessage(over: Partial<ChatMessage>): ChatMessage {
 }
 
 function page(items: ChatMessage[], over: Partial<ChatMessagesPage> = {}): ChatMessagesPage {
-  return { items, nextCursor: null, access: "open", archived: false, reportedByMe: false, ...over };
+  return { items, nextCursor: null, access: "open", archived: false, archivesAt: null, reportedByMe: false, ...over };
 }
 
 async function setup(

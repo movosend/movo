@@ -1,7 +1,9 @@
-import { DisputeReason } from "@movo/shared/dist/types/dispute";
+import { DisputeReason, type ResolvedDisputeSummary } from "@movo/shared/dist/types/dispute";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import type { ShipmentEvent } from "../src/api/shipments-client";
 import {
   disputeExplanation,
-  disputeOutcomeFromReason,
+  resolvedDisputeByEvent,
   disputeOutcomeText,
   disputeReasonShortLabel,
 } from "../src/lib/dispute-format";
@@ -29,12 +31,49 @@ describe("dispute-format", () => {
     );
   });
 
-  it("lee el resultado del motivo que escribe svc-shipments al resolver", () => {
-    expect(disputeOutcomeFromReason("Disputa resuelta a favor del emisor")).toBe("sender");
-    expect(disputeOutcomeFromReason("Disputa resuelta a favor del transportista")).toBe("carrier");
-    expect(disputeOutcomeFromReason("Disputa resuelta con un resultado parcial")).toBe("partial");
-    expect(disputeOutcomeFromReason("Cambio forzado desde el panel")).toBeNull();
-    expect(disputeOutcomeFromReason(null)).toBeNull();
+  describe("resolvedDisputeByEvent (MOVO-363)", () => {
+    const S = ShipmentStatus;
+    const ev = (id: string, from: ShipmentStatus | null, to: ShipmentStatus): ShipmentEvent => ({
+      id,
+      shipmentId: "s1",
+      fromStatus: from,
+      toStatus: to,
+      actorId: null,
+      reason: null,
+      createdAt: "2026-11-18T14:00:00.000Z",
+    });
+    const dispute = (id: string, outcome: "sender" | "carrier" | "partial"): ResolvedDisputeSummary => ({
+      id,
+      reason: DisputeReason.DAMAGED,
+      openedByRole: "sender",
+      openedAt: "2026-11-18T14:00:00.000Z",
+      outcome,
+      resolvedAt: "2026-11-18T15:00:00.000Z",
+    });
+
+    it("empareja la apertura y la resolución de cada disputa, en orden", () => {
+      const events = [ev("o1", S.ASSIGNED, S.DISPUTED), ev("r1", S.DISPUTED, S.COMPLETED), ev("o2", S.COMPLETED, S.DISPUTED), ev("r2", S.DISPUTED, S.CANCELLED)];
+      const map = resolvedDisputeByEvent(events, [dispute("d1", "carrier"), dispute("d2", "sender")]);
+      expect([...map].map(([eventId, d]) => [eventId, d.id])).toEqual([
+        ["o1", "d1"],
+        ["r1", "d1"],
+        ["o2", "d2"],
+        ["r2", "d2"],
+      ]);
+    });
+
+    it("la apertura de una disputa que sigue abierta no queda emparejada con una resuelta", () => {
+      const events = [ev("o1", S.ASSIGNED, S.DISPUTED), ev("r1", S.DISPUTED, S.COMPLETED), ev("o2", S.COMPLETED, S.DISPUTED)];
+      const map = resolvedDisputeByEvent(events, [dispute("d1", "partial")]);
+      expect(map.has("o2")).toBe(false);
+      expect(map.get("o1")?.outcome).toBe("partial");
+    });
+
+    it("sin disputas resueltas no empareja nada", () => {
+      const events = [ev("o1", S.ASSIGNED, S.DISPUTED), ev("r1", S.DISPUTED, S.COMPLETED)];
+      expect(resolvedDisputeByEvent(events, undefined).size).toBe(0);
+      expect(resolvedDisputeByEvent(events, []).size).toBe(0);
+    });
   });
 
   it("el resultado visto por quien mira: el receptor nunca gana", () => {

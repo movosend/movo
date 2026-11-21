@@ -254,7 +254,7 @@ export default function DevChatScreen() {
           <ChatComposer
             testID="dev-chat-composer"
             canWrite={data.canWrite}
-            readOnlyCopy={chatReadOnlyCopy({ archived: false, status: ShipmentStatus.DELIVERED, isFormerReceiver: false })}
+            readOnlyCopy={chatReadOnlyCopy({ archived: false, status: ShipmentStatus.DELIVERED, isFormerReceiver: false, willArchive: true })}
             onSend={send}
           />
         </View>

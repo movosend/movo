@@ -18,7 +18,7 @@ function msg(id: string, clientMessageId: string, body = id): ChatMessage {
 }
 
 function page(items: ChatMessage[], nextCursor: string | null = null): ChatMessagesPage {
-  return { items, nextCursor, access: "open", archived: false, reportedByMe: false };
+  return { items, nextCursor, access: "open", archived: false, archivesAt: null, reportedByMe: false };
 }
 
 function data(...pages: ChatMessagesPage[]): InfiniteData<ChatMessagesPage> {

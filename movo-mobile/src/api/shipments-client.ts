@@ -1,4 +1,4 @@
-import type { DisputeSummary } from "@movo/shared/dist/types/dispute";
+import type { DisputeSummary, ResolvedDisputeSummary } from "@movo/shared/dist/types/dispute";
 import type { PaymentMethod, ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { ShipmentPartyTracking } from "@movo/shared/dist/types/admin-shipments";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
@@ -88,6 +88,9 @@ export interface ShipmentSummary {
   carrierTripActive?: boolean;
   /** Disputa sin resolver (solo para las partes, con el envío en disputa): motivo y quién la abrió. */
   dispute?: DisputeSummary | null;
+  /** MOVO-363: solo en `GET /shipments/:id` para las partes. Las disputas ya resueltas (de la más vieja a la más nueva),
+   * aparte de `dispute`, que sigue significando "hay una abierta". */
+  resolvedDisputes?: ResolvedDisputeSummary[];
   /** MOVO-275: solo en `GET /shipments/mine` — el usuario le pasó la recepción de este
    * envío a otra persona (badge "Transferido"). `null` en cualquier otro caso. */
   transferredByMe?: { newReceiverId: string; newReceiverName: string | null; at: string } | null;

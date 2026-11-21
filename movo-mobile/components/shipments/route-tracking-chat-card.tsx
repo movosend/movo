@@ -18,6 +18,8 @@ export interface RouteTrackingChatCardProps {
   /** Estado del envío y si quien mira es el receptor original: deciden el texto de solo lectura. */
   status?: ShipmentStatus;
   isFormerReceiver?: boolean;
+  /** MOVO-363: el envío se entregó, así que el chat se va a archivar (si no, la franja no lo promete). */
+  delivered?: boolean;
   testID?: string;
   trackingTestID?: string;
   chatTestID?: string;
@@ -41,6 +43,7 @@ export function RouteTrackingChatCard({
   sharing = null,
   status,
   isFormerReceiver = false,
+  delivered = false,
   testID = "route-tracking-chat-card",
   trackingTestID = "route-tracking",
   chatTestID = "route-chat",
@@ -48,7 +51,7 @@ export function RouteTrackingChatCard({
   const unread = useShipmentChatUnread(shipmentId, chat);
   const showFooter = sharing !== null || chat !== null;
   // En solo lectura se dice por qué (entregado, transferiste la recepción) y que se archiva, a la vista y no solo para lectores de pantalla.
-  const readOnlyCopy = chat === "read_only" ? chatReadOnlyCopy({ archived: false, status, isFormerReceiver }) : null;
+  const readOnlyCopy = chat === "read_only" ? chatReadOnlyCopy({ archived: false, status, isFormerReceiver, willArchive: delivered }) : null;
 
   const trackingBody = (live: boolean, copy?: { label: string; live: string; idle: string }) => (
     <View className="flex-1 pr-3">

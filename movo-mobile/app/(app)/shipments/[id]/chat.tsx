@@ -259,7 +259,7 @@ export default function ShipmentChatScreen() {
           <ChatComposer
             testID="chat-composer"
             canWrite={chat.canWrite}
-            readOnlyCopy={chatReadOnlyCopy({ archived: chat.archived, status: chat.shipment?.status, isFormerReceiver: chat.isFormerReceiver })}
+            readOnlyCopy={chatReadOnlyCopy({ archived: chat.archived, status: chat.shipment?.status, isFormerReceiver: chat.isFormerReceiver, willArchive: chat.archivesAt !== null })}
             onSend={chat.send}
           />
         ) : null}

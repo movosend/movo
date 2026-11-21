@@ -756,6 +756,7 @@ export default function ShipmentDetailScreen() {
                   chat={chatAccess}
                   status={shipment.status}
                   isFormerReceiver={isFormerReceiver}
+                  delivered={shipment.deliveredAt !== null}
                   testID="shipment-detail-route-card"
                   trackingTestID="shipment-detail-live-tracking"
                   chatTestID="shipment-detail-chat"

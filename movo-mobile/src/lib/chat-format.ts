@@ -1,5 +1,5 @@
-import type { DisputeSummary } from "@movo/shared/dist/types/dispute";
-import { disputeExplanation, disputeOutcomeFromReason, disputeOutcomeText } from "./dispute-format";
+import type { DisputeSummary, ResolvedDisputeSummary } from "@movo/shared/dist/types/dispute";
+import { disputeExplanation, disputeOutcomeText } from "./dispute-format";
 import { isDisputeResolution, isOfferAcceptance, shouldShowEventReason } from "./shipment-format";
 import type { ChatDeliveryStatus, ChatMessage, ChatParticipantRole } from "@movo/shared/dist/types/chat";
 import type { ReceiverTransferRequest } from "@movo/shared/dist/types/receiver-transfer";
@@ -156,6 +156,11 @@ export type ChatEventViewer = {
   senderFirstName?: string | null;
   /** Disputa sin resolver del envío, para decir en su tarjeta quién la abrió y por qué. */
   dispute?: Pick<DisputeSummary, "reason" | "openedByRole"> | null;
+  /**
+   * MOVO-363: disputa resuelta de cada evento de apertura/resolución, por id de evento (`resolvedDisputeByEvent`).
+   * De ahí salen a favor de quién se resolvió y quién la abrió y por qué, sin leer el texto del motivo del evento.
+   */
+  resolvedDisputeByEvent?: ReadonlyMap<string, ResolvedDisputeSummary>;
 };
 
 /**
@@ -194,7 +199,7 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
   // DD-056: sin esta tarjeta, `disputed → completed` no aparecía y el chat seguía en "Disputa abierta" (feedback de
   // TestFlight, build 19). El resultado va visto por quien mira y sin montos, como la push `dispute_resolved`.
   if (isDisputeResolution(event.toStatus, event.fromStatus)) {
-    const outcome = disputeOutcomeText(disputeOutcomeFromReason(event.reason), viewer.role);
+    const outcome = disputeOutcomeText(viewer.resolvedDisputeByEvent?.get(event.id)?.outcome ?? null, viewer.role);
     return { ...card("Disputa resuelta", false, outcome), disputeResolution: true };
   }
   switch (event.toStatus) {
@@ -205,8 +210,11 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
       );
     case ShipmentStatus.DELIVERED:
       return card(isReceiver ? "Confirmaste la entrega con QR" : `${receiver} confirmó la entrega con QR`);
-    case ShipmentStatus.DISPUTED:
-      return card("Disputa abierta", false, viewer.dispute && viewer.role ? disputeExplanation(viewer.dispute, viewer.role) : null);
+    case ShipmentStatus.DISPUTED: {
+      // Una apertura ya resuelta dice quién la abrió y por qué con su propia disputa; la abierta, con la del detalle.
+      const dispute = viewer.resolvedDisputeByEvent?.get(event.id) ?? viewer.dispute;
+      return card("Disputa abierta", false, dispute && viewer.role ? disputeExplanation(dispute, viewer.role) : null);
+    }
     case ShipmentStatus.CANCELLED:
       return card("Envío cancelado");
     default:
@@ -216,9 +224,9 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
 
 /**
  * Las tarjetas de los cambios de estado, en orden. Marca como resuelta la "Disputa abierta" que tiene una resolución
- * posterior: su hoja deja de decir que Movo "les va a avisar cuando se resuelva". Y le saca "La abrió…": ese texto sale
- * de `viewer.dispute`, que es la disputa sin resolver del envío, así que solo describe la última "Disputa abierta" sin
- * resolución (si se abre otra después de una resuelta, la vieja mostraba el autor y el motivo de la nueva).
+ * posterior: su hoja deja de decir que Movo "les va a avisar cuando se resuelva". Su "La abrió…" sale de su propia
+ * disputa resuelta (`viewer.resolvedDisputeByEvent`); si todavía no llegó, sin detalle antes que con el de otra
+ * disputa (`viewer.dispute` es la sin resolver, no la de esta apertura).
  */
 export function chatEventCards(events: readonly ShipmentEvent[], viewer: ChatEventViewer): ChatEventCard[] {
   return events.flatMap((event, index) => {
@@ -226,7 +234,10 @@ export function chatEventCards(events: readonly ShipmentEvent[], viewer: ChatEve
     if (!card) return [];
     if (card.status === ShipmentStatus.DISPUTED && !card.disputeResolution) {
       const resolved = events.slice(index + 1).some((later) => isDisputeResolution(later.toStatus, later.fromStatus));
-      if (resolved) return [{ ...card, disputeResolved: true, detail: null }];
+      if (resolved) {
+        const own = viewer.resolvedDisputeByEvent?.has(event.id);
+        return [{ ...card, disputeResolved: true, detail: own ? card.detail : null }];
+      }
     }
     return [card];
   });
@@ -431,11 +442,15 @@ export function chatReadOnlyCopy(params: {
   archived: boolean;
   status: ShipmentStatus | undefined;
   isFormerReceiver: boolean;
+  /** MOVO-363: el chat se va a archivar (el envío se entregó). `false` si nunca se entregó: no se promete el archivo. */
+  willArchive?: boolean;
 }): string {
   if (params.isFormerReceiver) return "Le pasaste la recepción a otra persona. Podés leer la conversación, no escribir.";
   if (params.archived) return "Este chat está archivado. Podés leerlo, pero ya no admite mensajes.";
   if (params.status === ShipmentStatus.DISPUTED) return "El envío está en disputa. El chat queda en solo lectura.";
-  return "El envío finalizó. El chat queda en solo lectura y se archiva en 24 h.";
+  return params.willArchive
+    ? "El envío finalizó. El chat queda en solo lectura y se archiva en 24 h."
+    : "El envío finalizó. El chat queda en solo lectura.";
 }
 
 /**
