@@ -255,7 +255,19 @@ describe("chatEventCard", () => {
       const completed = chatEventCard(toCarrier, viewer("carrier"))!;
       expect(chatEventExplanation(completed)).toEqual([
         "Se resolvió a tu favor.",
-        "Movo revisó lo que pasó con las partes y cerró el envío. El chat queda en solo lectura y se archiva en 24 h.",
+        "Movo revisó lo que pasó con las partes y cerró el envío. El chat queda en solo lectura.",
+      ]);
+    });
+
+    it("si se abre otra disputa después de una resuelta, solo la nueva dice quién la abrió y por qué", () => {
+      const first = event(ShipmentStatus.DISPUTED, new Date(2026, 9, 12), "opened-1", ShipmentStatus.COMPLETED);
+      const second = event(ShipmentStatus.DISPUTED, new Date(2026, 9, 14), "opened-2", ShipmentStatus.COMPLETED);
+      const withDispute = { ...viewer("carrier"), dispute: { reason: "damaged" as never, openedByRole: "sender" as const } };
+      const cards = chatEventCards([first, toCarrier, second], withDispute);
+      expect(cards.map((c) => [c.id, c.detail])).toEqual([
+        ["opened-1", null],
+        [toCarrier.id, "Se resolvió a tu favor."],
+        ["opened-2", "La abrió el emisor porque el paquete llegó dañado."],
       ]);
     });
 

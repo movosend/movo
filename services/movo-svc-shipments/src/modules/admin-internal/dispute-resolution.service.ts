@@ -15,6 +15,7 @@ import {
   DisputeResolvableStatus,
   DisputeStatus,
   disputeFinalShipmentStatus,
+  disputeResolutionEventReason,
   disputePaymentAction,
   disputeRatingWinners,
   InternalResolveDisputeRequest,
@@ -781,18 +782,13 @@ export function createDisputeResolutionService(
           disputeFinalShipmentStatus(plan.outcome) === "cancelled"
             ? ShipmentStatus.CANCELLED
             : ShipmentStatus.COMPLETED;
-        const outcomeLabel =
-          plan.outcome === "sender"
-            ? "a favor del emisor"
-            : plan.outcome === "carrier"
-              ? "a favor del transportista"
-              : "con un resultado parcial";
         try {
           await shipmentRepository.updateStatus(
             shipment.id,
             finalStatus,
             input.adminId,
-            `Disputa resuelta ${outcomeLabel}`,
+            // El mobile lee el resultado de este texto (MOVO-362): por eso sale de `@movo/shared`.
+            disputeResolutionEventReason(plan.outcome),
             {
               expectedFrom: ShipmentStatus.DISPUTED,
               resolveDispute: { id: disputeId },

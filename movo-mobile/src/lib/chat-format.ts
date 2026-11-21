@@ -216,7 +216,9 @@ export function chatEventCard(event: ShipmentEvent, viewer: ChatEventViewer): Ch
 
 /**
  * Las tarjetas de los cambios de estado, en orden. Marca como resuelta la "Disputa abierta" que tiene una resolución
- * posterior: su hoja deja de decir que Movo "les va a avisar cuando se resuelva".
+ * posterior: su hoja deja de decir que Movo "les va a avisar cuando se resuelva". Y le saca "La abrió…": ese texto sale
+ * de `viewer.dispute`, que es la disputa sin resolver del envío, así que solo describe la última "Disputa abierta" sin
+ * resolución (si se abre otra después de una resuelta, la vieja mostraba el autor y el motivo de la nueva).
  */
 export function chatEventCards(events: readonly ShipmentEvent[], viewer: ChatEventViewer): ChatEventCard[] {
   return events.flatMap((event, index) => {
@@ -224,7 +226,7 @@ export function chatEventCards(events: readonly ShipmentEvent[], viewer: ChatEve
     if (!card) return [];
     if (card.status === ShipmentStatus.DISPUTED && !card.disputeResolution) {
       const resolved = events.slice(index + 1).some((later) => isDisputeResolution(later.toStatus, later.fromStatus));
-      if (resolved) return [{ ...card, disputeResolved: true }];
+      if (resolved) return [{ ...card, disputeResolved: true, detail: null }];
     }
     return [card];
   });
@@ -448,7 +450,8 @@ export function chatEventExplanation(
       ...(card.detail ? [card.detail] : []),
       // Solo se ve la de `→ completed`: con `→ cancelled` (a favor del emisor) el backend cierra el chat a las partes
       // (`CHAT_CLOSED`, `chat-window.ts`) y la resolución queda en la línea de tiempo del detalle.
-      "Movo revisó lo que pasó con las partes y cerró el envío. El chat queda en solo lectura y se archiva en 24 h.",
+      // Sin "se archiva en 24 h": el archivo cuenta desde la entrega, y un no-retiro resuelto nunca se entregó.
+      "Movo revisó lo que pasó con las partes y cerró el envío. El chat queda en solo lectura.",
     ];
   }
   if (card.offerAccepted && card.status === ShipmentStatus.ASSIGNED) {

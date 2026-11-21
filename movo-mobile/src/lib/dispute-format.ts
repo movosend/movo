@@ -4,6 +4,7 @@ import {
   type DisputePartyRole,
   type DisputeSummary,
 } from "@movo/shared/dist/types/dispute";
+import { disputeOutcomeFromEventReason } from "@movo/shared/dist/config/dispute-resolution-reason";
 
 /** Por qué se abrió, como cláusula ("el paquete llegó dañado"). `other` no tiene cláusula: se dice "por otro motivo". */
 const REASON_CLAUSE: Record<DisputeReason, string | null> = {
@@ -54,16 +55,11 @@ export function disputeExplanation(
 
 /**
  * A favor de quién se resolvió una disputa, leído del `reason` del evento de resolución (`disputed → completed|cancelled`).
- * Los eventos no traen el `outcome`: el texto lo arma `dispute-resolution.service.ts` de `svc-shipments`
- * ("Disputa resuelta a favor del emisor" / "… a favor del transportista" / "… con un resultado parcial"), y si cambia
- * esto devuelve `null` y la app cae al texto genérico. Limitación aceptada: lo robusto es exponer el `outcome` en la API.
+ * Los eventos no traen el `outcome` (MOVO-363): el texto lo arma `svc-shipments` con `disputeResolutionEventReason` de
+ * `@movo/shared`, el mismo módulo que lo lee acá, así que cambiar la redacción no rompe la lectura.
  */
 export function disputeOutcomeFromReason(reason: string | null | undefined): DisputeOutcome | null {
-  if (!reason) return null;
-  if (reason.includes("a favor del emisor")) return "sender";
-  if (reason.includes("a favor del transportista")) return "carrier";
-  if (reason.includes("resultado parcial")) return "partial";
-  return null;
+  return disputeOutcomeFromEventReason(reason);
 }
 
 /**
