@@ -81,6 +81,23 @@ export interface DisputeSummary {
 }
 
 /**
+ * MOVO-363: resumen de una disputa ya resuelta de un envío (`resolvedDisputes` del detalle). Trae lo que la app necesita
+ * para decir quién la abrió, por qué y a favor de quién se resolvió, sin leerlo del texto del motivo de un evento. Sin
+ * montos ni razonamiento del admin (DD-056).
+ */
+export interface ResolvedDisputeSummary {
+  id: string;
+  reason: DisputeReason;
+  /** `null`: la abrió el sistema (barrido de `transit_anomaly`/`pickup_no_show`). */
+  openedByRole: DisputePartyRole | null;
+  /** ISO date. */
+  openedAt: string;
+  outcome: DisputeOutcome;
+  /** ISO date. */
+  resolvedAt: string;
+}
+
+/**
  * Expediente de una disputa para las partes (`GET /disputes/:id`, respuesta de la apertura).
  * Nunca incluye notas internas del admin.
  */

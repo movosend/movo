@@ -856,3 +856,7 @@ Los contratos de MOVO-345 (`AdminReportById` y los de cada pestaña), más `dist
 ### PR #345 — Elegibilidad para calificar por contraparte
 
 `RATING_BLOCK_REASONS` (const, de donde sale `RatingBlockReason` y el `enum` del schema de `svc-shipments`), `RatingEligibility` por contraparte (`rateeId`, `rateeRole`, `canRate`, `reason`, `windowEndsAt`) y `ShipmentRatingEligibility` (`{ counterparties }`), la respuesta de `GET /shipments/:id/ratings/eligibility`. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-363 — Resultado de la disputa resuelta y fecha de archivo del chat
+
+`ResolvedDisputeSummary` (`types/dispute.ts`: `id`, `reason`, `openedByRole`, `openedAt`, `outcome`, `resolvedAt`, sin montos ni razonamiento, DD-056) y `ChatMessagesPage.archivesAt` (`null` si el envío nunca se entregó). Se borró `disputeOutcomeFromEventReason`: el motivo del evento de resolución (`disputeResolutionEventReason`) queda como texto para mostrar, nadie lo lee para saber el resultado. Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

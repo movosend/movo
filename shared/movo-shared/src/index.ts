@@ -278,7 +278,7 @@ export {
   splitDisputeStake,
   minimumPartialCaptureArs,
 } from "./config/dispute-resolution";
-export { disputeResolutionEventReason, disputeOutcomeFromEventReason } from "./config/dispute-resolution-reason";
+export { disputeResolutionEventReason } from "./config/dispute-resolution-reason";
 export type {
   DisputeResolvableStatus,
   DisputeAmountChoice,
@@ -907,6 +907,7 @@ export type {
   DisputeStatement,
   DisputeDetail,
   DisputeSummary,
+  ResolvedDisputeSummary,
   DisputePhotoUploadUrl,
   DisputeOutcome,
   DisputePaymentAction,
