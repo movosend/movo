@@ -54,6 +54,9 @@ const SHIPMENT_DETAIL_TYPES: readonly string[] = [
   // MOVO-334: hasta que exista la pantalla del expediente (MOVO-30), la push de disputa
   // abierta lleva al detalle del envío, que ya muestra el estado `disputed`.
   "dispute_opened",
+  // DD-056: la resolución también lleva al detalle, que ya muestra el estado final y la línea de tiempo con
+  // "Disputa resuelta". El razonamiento que promete la push queda para el expediente (MOVO-30).
+  "dispute_resolved",
 ];
 
 /** MOVO-281: el resultado de una oferta se mira en su detalle. `offer_superseded` y

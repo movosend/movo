@@ -7,6 +7,7 @@ import {
   Clock,
   Megaphone,
   PackageCheck,
+  Scale,
   Truck,
   UserCheck,
   Wallet,
@@ -48,6 +49,14 @@ export const SHIPMENT_STATUS_TONE_STYLE: Record<
   // Único tono sin hex propio: su fondo (`bg-mute`) sí cambia con el tema, así que el
   // icono tiene que seguir a `fg-3` en vez de quedar fijo en el valor light.
   neutral: { bgClass: "bg-bg-mute", iconColor: null },
+};
+
+/** Resolución de una disputa (`disputed → completed|cancelled`, DD-056): balanza en neutro, igual para todos los roles
+ * y resultados. Con el color del estado de llegada, una resolución a favor del emisor (`cancelled`) se pintaba en rojo
+ * aunque le dio la razón. El estado final lo dicen la etiqueta de la hoja y el texto por rol. */
+export const DISPUTE_RESOLUTION_VISUAL: { Icon: LucideIcon; bgClass: string; iconColor: string | null } = {
+  Icon: Scale,
+  ...SHIPMENT_STATUS_TONE_STYLE.neutral,
 };
 
 /** Ícono y estilo de un estado, con el reloj neutro de respaldo. */

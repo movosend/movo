@@ -2,8 +2,11 @@ import { useInvalidateOnPushOrForeground } from "./use-invalidate-on-push-or-for
 import { TRIPS_LIST_QUERY_KEY } from "./use-trips";
 
 /** Pushes que pueden cerrar un viaje del transportista (el backend lo hace en la misma
- * transacción): el emisor canceló el envío, o se abrió una disputa sobre su último paquete. */
-const TRIP_CHANGING_PUSH_TYPES: readonly string[] = ["shipment_cancelled", "dispute_opened"];
+ * transacción): el emisor canceló el envío, o se abrió una disputa sobre su último paquete. La resolución también:
+ * saca al envío de los paquetes del viaje que todavía cuentan. */
+const TRIP_CHANGING_PUSH_TYPES: readonly string[] = ["shipment_cancelled", "dispute_opened", "dispute_resolved"];
+
+const TRIPS_SYNC_QUERY_KEYS = [TRIPS_LIST_QUERY_KEY] as const;
 
 /**
  * Mantiene al día los viajes de Inicio cuando el cambio lo hace otra persona. Sin esto,
@@ -12,5 +15,5 @@ const TRIP_CHANGING_PUSH_TYPES: readonly string[] = ["shipment_cancelled", "disp
  * query (feedback de TestFlight, build 17).
  */
 export function useTripsSync(): void {
-  useInvalidateOnPushOrForeground(TRIPS_LIST_QUERY_KEY, TRIP_CHANGING_PUSH_TYPES);
+  useInvalidateOnPushOrForeground(TRIPS_SYNC_QUERY_KEYS, TRIP_CHANGING_PUSH_TYPES);
 }

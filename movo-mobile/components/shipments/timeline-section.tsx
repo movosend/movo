@@ -30,6 +30,7 @@ import { getFirstName } from "../../src/lib/profile-format";
 import { useAuthStore } from "../../src/store/auth-store";
 import {
   formatEventTimestamp,
+  isDisputeResolution,
   isOfferAcceptance,
   remainingLifecycleSteps,
   shipmentActorLabel,
@@ -40,7 +41,8 @@ import {
   shipmentStatusTone,
 } from "../../src/lib/shipment-format";
 import { ErrorBanner } from "../ui/error-banner";
-import { SHIPMENT_STATUS_ICON, SHIPMENT_STATUS_TONE_STYLE } from "./shipment-status-visual";
+import { disputeOutcomeFromReason, disputeOutcomeText } from "../../src/lib/dispute-format";
+import { DISPUTE_RESOLUTION_VISUAL, SHIPMENT_STATUS_ICON, SHIPMENT_STATUS_TONE_STYLE } from "./shipment-status-visual";
 import { SkeletonBlock } from "../ui/skeleton-block";
 
 export interface TimelineSectionProps {
@@ -146,7 +148,8 @@ function EventRow({
   const colors = useThemeColors();
   // Una aceptación en efectivo cae directo en `assigned`: se dibuja como "transportista elegido", no como pago reservado.
   const visualStatus = isOfferAcceptance(event.toStatus, event.fromStatus) ? Status.ASSIGNMENT_PENDING : event.toStatus;
-  const tone = SHIPMENT_STATUS_TONE_STYLE[shipmentStatusTone(visualStatus)];
+  const disputeResolution = isDisputeResolution(event.toStatus, event.fromStatus);
+  const tone = disputeResolution ? DISPUTE_RESOLUTION_VISUAL : SHIPMENT_STATUS_TONE_STYLE[shipmentStatusTone(visualStatus)];
   const timestamp = formatEventTimestamp(event.createdAt);
   // MOVO-253: tras elegir otro receptor, `parties.receiverId` es el receptor NUEVO — un
   // rechazo anterior lo hizo otra persona y no puede tomar su nombre ni su rol.
@@ -166,11 +169,24 @@ function EventRow({
       : shipmentActorLabel(event.actorId, parties, currentUserId, {
           receiverName: receiverFirstName,
         });
-  const detail = shipmentEventDetail(event.toStatus, event.fromStatus);
+  // DD-056: la resolución de una disputa dice el resultado visto por quien mira, como la tarjeta del chat.
+  const viewerRole =
+    currentUserId === null
+      ? null
+      : currentUserId === parties.senderId
+        ? "sender"
+        : currentUserId === parties.carrierId
+          ? "carrier"
+          : currentUserId === parties.receiverId
+            ? "receiver"
+            : null;
+  const detail = disputeResolution
+    ? disputeOutcomeText(disputeOutcomeFromReason(event.reason), viewerRole)
+    : shipmentEventDetail(event.toStatus, event.fromStatus);
 
   return (
     <TimelineRow
-      Icon={SHIPMENT_STATUS_ICON[visualStatus] ?? Clock}
+      Icon={disputeResolution ? DISPUTE_RESOLUTION_VISUAL.Icon : (SHIPMENT_STATUS_ICON[visualStatus] ?? Clock)}
       iconColor={tone.iconColor ?? colors.fg3}
       circleClass={tone.bgClass}
       railClass="bg-border"
@@ -205,7 +221,7 @@ function EventRow({
         ) : null}
       </View>
       {detail ? <Text className="mt-1 font-sans text-small text-fg-3">{detail}</Text> : null}
-      {event.reason && shouldShowEventReason(event.toStatus) ? (
+      {event.reason && shouldShowEventReason(event.toStatus, event.fromStatus) ? (
         <Text className="mt-2 font-sans text-small text-fg-2">{event.reason}</Text>
       ) : null}
     </TimelineRow>

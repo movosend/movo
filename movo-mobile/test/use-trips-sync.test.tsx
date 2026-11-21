@@ -58,6 +58,13 @@ describe("useTripsSync (feedback de TestFlight, build 17)", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: TRIPS_LIST_QUERY_KEY });
   });
 
+  it("una push dispute_resolved también", async () => {
+    await mount();
+    const listener = mockAddReceived.mock.calls[0][0] as (n: unknown) => void;
+    listener({ request: { content: { data: { type: "dispute_resolved", shipmentId: "s1", disputeId: "d1" } } } });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: TRIPS_LIST_QUERY_KEY });
+  });
+
   it("otras push no tocan los viajes", async () => {
     await mount();
     const listener = mockAddReceived.mock.calls[0][0] as (n: unknown) => void;

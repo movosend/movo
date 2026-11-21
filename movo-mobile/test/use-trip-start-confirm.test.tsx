@@ -55,9 +55,10 @@ describe("tripStartWhenLabel", () => {
   });
 
   it("si no sale hoy, dice la fecha: se puede iniciar días antes o vencido", () => {
-    const label = tripStartWhenLabel("2026-11-21T20:00:00.000Z");
+    // Fecha fija en el pasado: una fecha cercana a hoy hacía fallar el test el día que coincidía.
+    const label = tripStartWhenLabel("2025-03-15T15:00:00.000Z");
     expect(label).not.toMatch(/^Hoy/);
-    expect(label).toMatch(/21/);
-    expect(label).toMatch(/noviembre/i);
+    expect(label).toMatch(/15/);
+    expect(label).toMatch(/marzo/i);
   });
 });

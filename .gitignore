@@ -38,3 +38,6 @@ coverage/
 
 # DD-048: estado temporal del OAuth de la cuenta cobradora (code_verifier)
 services/movo-svc-payments/scripts/.collector-oauth-pkce.json
+
+# MCP local de cada integrante (Claude Code)
+.mcp.json

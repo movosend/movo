@@ -23,6 +23,7 @@ describe("resolveNotificationRoute (MOVO-281)", () => {
     "trip_started",
     "carrier_nearby",
     "dispute_opened",
+    "dispute_resolved",
   ])("%s abre el detalle del envío", (type) => {
     expect(resolveNotificationRoute({ type, shipmentId: "shp_1" })).toBe("/shipments/shp_1");
   });
