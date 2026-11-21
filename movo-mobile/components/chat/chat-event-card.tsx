@@ -7,7 +7,7 @@ import {
   type ChatEventGroupPosition,
 } from "../../src/lib/chat-format";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
-import { shipmentStatusVisual } from "../shipments/shipment-status-visual";
+import { DISPUTE_RESOLUTION_VISUAL, shipmentStatusVisual } from "../shipments/shipment-status-visual";
 
 const ICON_SIZE = 32;
 const PADDING_Y = 10;
@@ -32,7 +32,9 @@ export function ChatEventCard({
   testID?: string;
 }) {
   const colors = useThemeColors();
-  const visual = card.status
+  const visual = card.disputeResolution
+    ? DISPUTE_RESOLUTION_VISUAL
+    : card.status
     ? shipmentStatusVisual(card.offerAccepted ? ShipmentStatus.ASSIGNMENT_PENDING : card.status)
     : { Icon: ArrowLeftRight, bgClass: "bg-bg-mute", iconColor: null };
   const { Icon } = visual;

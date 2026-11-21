@@ -5,7 +5,7 @@ import { BottomSheetModal } from "../ui/bottom-sheet-modal";
 import { chatEventExplanation, type ChatEventCard } from "../../src/lib/chat-format";
 import { formatEventTimestamp, shipmentStatusLabel } from "../../src/lib/shipment-format";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
-import { shipmentStatusVisual } from "../shipments/shipment-status-visual";
+import { DISPUTE_RESOLUTION_VISUAL, shipmentStatusVisual } from "../shipments/shipment-status-visual";
 
 /**
  * Hoja que se abre al tocar un cambio de estado en el chat: qué pasó, cuándo, qué significa y qué sigue, con acceso
@@ -21,7 +21,9 @@ export function ChatEventInfoSheet({
   onOpenTimeline: () => void;
 }) {
   const colors = useThemeColors();
-  const visual = card?.status
+  const visual = card?.disputeResolution
+    ? DISPUTE_RESOLUTION_VISUAL
+    : card?.status
     ? shipmentStatusVisual(card.offerAccepted ? ShipmentStatus.ASSIGNMENT_PENDING : card.status)
     : { Icon: ArrowLeftRight, bgClass: "bg-bg-mute", iconColor: null };
   const { Icon } = visual;

@@ -5,18 +5,23 @@ import { AppState } from "react-native";
 import { useAuthStore } from "../store/auth-store";
 
 /**
- * Invalida `queryKey` cuando llega en primer plano un push de alguno de `pushTypes`, y cada vez que la app vuelve a
+ * Invalida cada una de `queryKeys` (como prefijos) cuando llega en primer plano un push de alguno de `pushTypes`, y cada vez que la app vuelve a
  * primer plano. Para datos que cambia otra persona (una calificación, una cancelación) y que la app no se entera de
- * otra forma. `queryKey` y `pushTypes` tienen que ser estables (constantes del módulo que lo usa): son dependencias
+ * otra forma. `queryKeys` y `pushTypes` tienen que ser estables (constantes del módulo que lo usa): son dependencias
  * del efecto.
  */
-export function useInvalidateOnPushOrForeground(queryKey: QueryKey, pushTypes: readonly string[]): void {
+export function useInvalidateOnPushOrForeground(
+  queryKeys: readonly QueryKey[],
+  pushTypes: readonly string[],
+): void {
   const queryClient = useQueryClient();
   const authenticated = useAuthStore((state) => state.status === "authenticated");
 
   useEffect(() => {
     if (!authenticated) return;
-    const refresh = () => void queryClient.invalidateQueries({ queryKey });
+    const refresh = () => {
+      for (const queryKey of queryKeys) void queryClient.invalidateQueries({ queryKey });
+    };
 
     const received = Notifications.addNotificationReceivedListener((notification) => {
       const type = (notification.request?.content?.data as { type?: unknown } | undefined)?.type;
@@ -29,5 +34,5 @@ export function useInvalidateOnPushOrForeground(queryKey: QueryKey, pushTypes: r
       received.remove();
       appState.remove();
     };
-  }, [authenticated, queryClient, queryKey, pushTypes]);
+  }, [authenticated, queryClient, queryKeys, pushTypes]);
 }

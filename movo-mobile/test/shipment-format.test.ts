@@ -17,6 +17,7 @@ import {
   shipmentLifecycleStage,
   shipmentPendingStepLabel,
   shouldShowEventReason,
+  isDisputeResolution,
   shipmentStatusLabel,
   shipmentStatusTone,
   pickupLocalityLabel,
@@ -222,6 +223,16 @@ describe("shipmentEventTitle", () => {
     expect(shipmentEventTitle(ShipmentStatus.COMPLETED, ShipmentStatus.DELIVERED)).toBe(
       "Pago liberado, envío cerrado",
     );
+  });
+
+  it("DD-056: la salida de una disputa es \"Disputa resuelta\", no un pago liberado ni una cancelación", () => {
+    expect(shipmentEventTitle(ShipmentStatus.COMPLETED, ShipmentStatus.DISPUTED)).toBe("Disputa resuelta");
+    expect(shipmentEventTitle(ShipmentStatus.CANCELLED, ShipmentStatus.DISPUTED, { isSender: true, isActor: true })).toBe(
+      "Disputa resuelta",
+    );
+    expect(isDisputeResolution(ShipmentStatus.COMPLETED, ShipmentStatus.DISPUTED)).toBe(true);
+    expect(isDisputeResolution(ShipmentStatus.COMPLETED, ShipmentStatus.DELIVERED)).toBe(false);
+    expect(isDisputeResolution(ShipmentStatus.DISPUTED, ShipmentStatus.COMPLETED)).toBe(false);
   });
 
   it("personaliza con el nombre del receptor cuando está disponible", () => {
@@ -616,6 +627,8 @@ describe("aceptación de una oferta en la línea de tiempo", () => {
     expect(shouldShowEventReason(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe(true);
     expect(shouldShowEventReason(ShipmentStatus.ASSIGNMENT_PENDING)).toBe(false);
     expect(shouldShowEventReason(ShipmentStatus.IN_TRANSIT)).toBe(false);
+    // La resolución de una disputa muestra el resultado por rol, no el motivo crudo.
+    expect(shouldShowEventReason(ShipmentStatus.CANCELLED, ShipmentStatus.DISPUTED)).toBe(false);
   });
 });
 

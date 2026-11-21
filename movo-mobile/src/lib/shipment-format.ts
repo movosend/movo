@@ -330,6 +330,10 @@ export function shipmentEventTitle(
   // emisor eligió al transportista. Titularla por el `toStatus` la mostraba como
   // "Buscando transportista", justo cuando la búsqueda terminó. El pago pendiente va
   // como detalle (`shipmentEventDetail`).
+  // DD-056: la salida de `disputed` es la resolución de la disputa, no una entrega ni una cancelación del emisor.
+  // Titularla por el `toStatus` decía "Pago liberado, envío cerrado" en un no-retiro que nunca se entregó.
+  if (isDisputeResolution(toStatus, fromStatus)) return "Disputa resuelta";
+
   if (isOfferAcceptance(toStatus, fromStatus)) {
     if (options?.isCarrier) return "El emisor aceptó tu oferta";
     const carrier = options?.carrierName;
@@ -429,13 +433,28 @@ export function isOfferAcceptance(toStatus: ShipmentStatus, fromStatus: Shipment
 }
 
 /**
+ * Si la transición es la resolución de una disputa desde el panel (DD-056): `disputed → completed` (a favor del
+ * transportista o parcial) o `disputed → cancelled` (a favor del emisor). Son las únicas salidas de `disputed`.
+ * Fuente única para la línea de tiempo y el chat.
+ */
+export function isDisputeResolution(toStatus: ShipmentStatus, fromStatus: ShipmentStatus | null): boolean {
+  return (
+    fromStatus === ShipmentStatus.DISPUTED &&
+    (toStatus === ShipmentStatus.COMPLETED || toStatus === ShipmentStatus.CANCELLED)
+  );
+}
+
+/**
  * Si el `reason` de un evento se muestra en la línea de tiempo. Solo en cancelaciones
  * y rechazos: ahí es el motivo que escribió una persona, o la explicación de un
  * barrido automático ("El receptor no confirmó dentro del plazo"). En el resto, el
  * backend guarda texto interno ("Oferta <uuid> aceptada", "Handshake de retiro
  * confirmado") que no está pensado para el usuario.
  */
-export function shouldShowEventReason(toStatus: ShipmentStatus): boolean {
+export function shouldShowEventReason(toStatus: ShipmentStatus, fromStatus: ShipmentStatus | null = null): boolean {
+  // La resolución de una disputa no muestra el motivo crudo ("Disputa resuelta a favor del transportista"): en su
+  // lugar va el resultado visto por quien mira (`disputeOutcomeText`).
+  if (isDisputeResolution(toStatus, fromStatus)) return false;
   return toStatus === ShipmentStatus.CANCELLED || toStatus === ShipmentStatus.REJECTED_BY_RECEIVER;
 }
 
