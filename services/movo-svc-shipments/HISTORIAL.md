@@ -4066,3 +4066,7 @@ reutilizado no amplía su origen ni su destino.
 ### PR #345 — Elegibilidad para calificar (`GET /shipments/:id/ratings/eligibility`)
 
 La regla de quién puede calificar (disputa activa o resuelta, no-retiro, ventana de 72 h) pasó a `checkRatingWrite` (`ratings.service.ts`), que devuelve el bloqueo con su motivo (`RatingBlockReason`) o hasta cuándo se puede escribir, en vez de tirar. El alta y la edición lo convierten en el mismo `ApiError` de antes, y `getRatingEligibility` lo evalúa para cada contraparte del caller (`ratingCounterparties`: el transportista califica a emisor y receptor) y devuelve `{ counterparties: [{ rateeId, rateeRole, canRate, reason, windowEndsAt }] }`: una regla futura que distinga al calificado (DD-063) no diverge entre filas. El `enum` del schema sale de `RATING_BLOCK_REASONS`. Sin cambios en la regla; `GET /pending-ratings` sigue sin mirar las disputas resueltas (el mobile no lo usa).
+
+### MOVO-363 — Resultado de la disputa resuelta y `archivesAt` del chat
+
+`GET /shipments/:id` suma `resolvedDisputes` (`findResolvedDisputeSummaries`, de la más vieja a la más nueva), solo para las partes. Va aparte de `dispute`, que sigue significando "hay una disputa sin resolver": el mobile lee `shipment.dispute` en varias pantallas con ese sentido. `GET /shipments/:id/chat/messages` suma `archivesAt` (`chatArchiveInstant`, `null` sin `deliveredAt`) para que la app no prometa el archivo en 24 h a un no-retiro resuelto que nunca se entregó. La lista de chats no lo trae: su copy de solo lectura no lo usa. Sin cambios de migración.

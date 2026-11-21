@@ -632,6 +632,69 @@ describe("disputas (Postgres, MOVO-334)", () => {
       expect(offers.json().items[0].shipment.dispute).toMatchObject(expected);
     });
 
+    it("el detalle del envío trae las disputas resueltas aparte de `dispute`, sin montos (MOVO-363)", async () => {
+      const carrierId = randomUUID();
+      const trip = await activeTrip(carrierId);
+      const { shipmentId } = await attachAcceptedPackage(app.db, trip, ShipmentStatus.IN_TRANSIT);
+      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.DISPUTED, null, "reclamo", {
+        dispute: { openedBy: null, openedByRole: null, reason: DisputeReason.PICKUP_NO_SHOW, description: "No se retiró" },
+      });
+      const headers = { "x-user-id": carrierId, "x-user-roles": "carrier" };
+
+      // Sin resolver: `dispute` la trae y `resolvedDisputes` queda vacío.
+      const open = (await app.inject({ method: "GET", url: `/shipments/${shipmentId}`, headers })).json();
+      expect(open.dispute).toMatchObject({ reason: DisputeReason.PICKUP_NO_SHOW });
+      expect(open.resolvedDisputes).toEqual([]);
+
+      const resolvedAt = new Date("2026-11-18T15:00:00.000Z");
+      await app.db.dispute.updateMany({
+        where: { shipmentId },
+        data: {
+          status: "resolved",
+          outcome: "carrier",
+          resolvedAt,
+          carrierAmountArs: 1000,
+          senderAmountArs: 0,
+          reasoning: "razonamiento interno del admin",
+        },
+      });
+      await app.db.shipment.update({ where: { id: shipmentId }, data: { status: ShipmentStatus.COMPLETED } });
+
+      const resolved = (await app.inject({ method: "GET", url: `/shipments/${shipmentId}`, headers })).json();
+      expect(resolved.dispute).toBeNull();
+      expect(resolved.resolvedDisputes).toEqual([
+        {
+          id: expect.any(String),
+          reason: DisputeReason.PICKUP_NO_SHOW,
+          openedByRole: null,
+          openedAt: expect.any(String),
+          outcome: "carrier",
+          resolvedAt: resolvedAt.toISOString(),
+        },
+      ]);
+      // DD-056: ni montos ni el razonamiento del admin.
+      expect(JSON.stringify(resolved.resolvedDisputes)).not.toMatch(/Amount|reasoning|razonamiento/);
+    });
+
+    it("quien no es parte del envío no recibe las disputas resueltas (MOVO-363)", async () => {
+      const carrierId = randomUUID();
+      const trip = await activeTrip(carrierId);
+      const { shipmentId } = await attachAcceptedPackage(app.db, trip, ShipmentStatus.IN_TRANSIT);
+      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.DISPUTED, null, "reclamo", {
+        dispute: { openedBy: null, openedByRole: null, reason: DisputeReason.DAMAGED, description: "Llegó roto" },
+      });
+      await app.db.dispute.updateMany({ where: { shipmentId }, data: { status: "resolved", outcome: "sender", resolvedAt: new Date() } });
+      await app.db.shipment.update({ where: { id: shipmentId }, data: { status: ShipmentStatus.CANCELLED } });
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipmentId}`,
+        headers: { "x-user-id": randomUUID(), "x-user-roles": "carrier" },
+      });
+      if (response.statusCode === 200) expect(response.json().resolvedDisputes).toEqual([]);
+      else expect([403, 404]).toContain(response.statusCode);
+    });
+
     it("con otro paquete todavía en viaje, el viaje sigue en curso", async () => {
       const trip = await activeTrip(randomUUID());
       await attachAcceptedPackage(app.db, trip, ShipmentStatus.IN_TRANSIT);

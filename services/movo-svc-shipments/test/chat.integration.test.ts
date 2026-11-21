@@ -378,12 +378,23 @@ describe("Chat del envío (MOVO-26)", () => {
       expect(early.json().error.code).toBe("CHAT_READ_ONLY");
       const recent = (await history(p.shipmentId, p.senderId)).json();
       expect(recent).toMatchObject({ access: "read_only", archived: false });
+      // MOVO-363: la app sabe cuándo se archiva (24 h tras la entrega) sin calcularlo.
+      expect(recent.archivesAt).toBe(new Date(deliveredAt.getTime() + 24 * 60 * 60 * 1000).toISOString());
 
       clock = new Date(deliveredAt.getTime() + 25 * 60 * 60 * 1000);
       const archived = await history(p.shipmentId, p.senderId);
       expect(archived.statusCode).toBe(200);
       expect(archived.json()).toMatchObject({ access: "read_only", archived: true });
       expect(archived.json().items).toHaveLength(1);
+    });
+
+    it("un envío terminado que nunca se entregó (no-retiro resuelto) no tiene fecha de archivo (MOVO-363)", async () => {
+      const p = await createShipment();
+      await app.db.shipment.update({ where: { id: p.shipmentId }, data: { status: "completed", deliveredAt: null } });
+
+      const response = await history(p.shipmentId, p.senderId);
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ access: "read_only", archived: false, archivesAt: null });
     });
 
     it("el receptor original (DD-038) lee pero no escribe: 403 CHAT_READ_ONLY", async () => {

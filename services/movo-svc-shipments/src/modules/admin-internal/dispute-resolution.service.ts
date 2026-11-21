@@ -787,7 +787,7 @@ export function createDisputeResolutionService(
             shipment.id,
             finalStatus,
             input.adminId,
-            // El mobile lee el resultado de este texto (MOVO-362): por eso sale de `@movo/shared`.
+            // Solo texto para mostrar: el resultado lo expone `resolvedDisputes` del detalle (MOVO-363), no se lee de acá.
             disputeResolutionEventReason(plan.outcome),
             {
               expectedFrom: ShipmentStatus.DISPUTED,
