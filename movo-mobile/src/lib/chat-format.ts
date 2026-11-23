@@ -442,7 +442,7 @@ export function chatReadOnlyCopy(params: {
   archived: boolean;
   status: ShipmentStatus | undefined;
   isFormerReceiver: boolean;
-  /** MOVO-363: el chat se va a archivar (el envío se entregó). `false` si nunca se entregó: no se promete el archivo. */
+  /** MOVO-363: el chat se va a archivar (el envío se entregó). `false` sin `deliveredAt`: no se promete el archivo (defensivo). */
   willArchive?: boolean;
 }): string {
   if (params.isFormerReceiver) return "Le pasaste la recepción a otra persona. Podés leer la conversación, no escribir.";
@@ -465,7 +465,7 @@ export function chatEventExplanation(
       ...(card.detail ? [card.detail] : []),
       // Solo se ve la de `→ completed`: con `→ cancelled` (a favor del emisor) el backend cierra el chat a las partes
       // (`CHAT_CLOSED`, `chat-window.ts`) y la resolución queda en la línea de tiempo del detalle.
-      // Sin "se archiva en 24 h": el archivo cuenta desde la entrega, y un no-retiro resuelto nunca se entregó.
+      // Sin "se archiva en 24 h": el archivo cuenta desde la entrega; hoy la resolución siempre fija `deliveredAt`, pero es defensivo.
       "Movo revisó lo que pasó con las partes y cerró el envío. El chat queda en solo lectura.",
     ];
   }

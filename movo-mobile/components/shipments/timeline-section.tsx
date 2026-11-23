@@ -1,5 +1,6 @@
 import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { ReceiverTransferRequest } from "@movo/shared/dist/types/receiver-transfer";
+import type { ResolvedDisputeSummary } from "@movo/shared/dist/types/dispute";
 import {
   ArrowLeftRight,
   Clock,
@@ -11,7 +12,6 @@ import { ShipmentStatus as Status } from "@movo/shared/dist/types/shipment";
 import type { ShipmentEvent } from "../../src/api/shipments-client";
 import { usePublicProfile } from "../../src/hooks/use-profile";
 import { useShipmentRatings } from "../../src/hooks/use-ratings";
-import type { ResolvedDisputeSummary } from "@movo/shared/dist/types/dispute";
 import { useShipment, useShipmentEvents } from "../../src/hooks/use-shipments";
 import { useShipmentReceiverTransfers } from "../../src/hooks/use-receiver-transfers";
 import {

@@ -388,7 +388,7 @@ describe("Chat del envío (MOVO-26)", () => {
       expect(archived.json().items).toHaveLength(1);
     });
 
-    it("un envío terminado que nunca se entregó (no-retiro resuelto) no tiene fecha de archivo (MOVO-363)", async () => {
+    it("un envío terminado sin `deliveredAt` no tiene fecha de archivo (defensivo, MOVO-363)", async () => {
       const p = await createShipment();
       await app.db.shipment.update({ where: { id: p.shipmentId }, data: { status: "completed", deliveredAt: null } });
 
