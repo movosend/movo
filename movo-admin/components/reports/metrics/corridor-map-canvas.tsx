@@ -12,8 +12,8 @@ import type {
 import { CORRIDOR_LOW_COMPLETION, corridorKey } from "@/lib/reports/catalog"
 import {
   TILE_ATTRIBUTION,
+  basemapProblemFrom,
   basemapStyleUrl,
-  isBasemapRejected,
   withArcgisToken,
   type BasemapProblem,
   type MapTheme,
@@ -126,7 +126,7 @@ export default function CorridorMapCanvas({
     tilesRef.current = null
     const apiKey = process.env.NEXT_PUBLIC_ESRI_API_KEY
     const style = basemapStyleUrl(theme, apiKey)
-    setBasemapProblem(apiKey ? null : "missing_key")
+    setBasemapProblem(apiKey ? null : { kind: "missing_key" })
     if (style && apiKey) {
       const layer = maplibreGL({
         style,
@@ -137,7 +137,8 @@ export default function CorridorMapCanvas({
       // Un error tardío de la capa del tema anterior no tiene que pisar el aviso de la actual.
       layer.getMaplibreMap()?.on("error", ({ error }: { error: unknown }) => {
         if (tilesRef.current !== layer) return
-        if (isBasemapRejected(error)) setBasemapProblem("rejected")
+        const problem = basemapProblemFrom(error)
+        if (problem) setBasemapProblem(problem)
       })
     }
   }, [theme])

@@ -178,7 +178,7 @@ describe("TrackingMap", () => {
     )
   })
 
-  it("avisa si ArcGIS rechaza la key, pero no ante otros errores", () => {
+  it("distingue key vencida de referrer, y no avisa por una tesela suelta", () => {
     vi.stubEnv("NEXT_PUBLIC_ESRI_API_KEY", "k")
     render(
       <TrackingMap tracking={trackingFixture()} follow={false} theme="light" />
@@ -186,8 +186,12 @@ describe("TrackingMap", () => {
     const emit = h.glErrorListeners.at(-1)!
     act(() => emit({ error: { status: 500 } }))
     expect(screen.queryByRole("status")).toBeNull()
-    act(() => emit({ error: { status: 498 } }))
-    expect(screen.getByRole("status").textContent).toContain("rechazó la key")
+    act(() => emit({ error: { status: 401 } }))
+    expect(screen.getByRole("status").textContent).toContain(
+      "inválida o venció"
+    )
+    act(() => emit({ error: { status: 403 } }))
+    expect(screen.getByRole("status").textContent).toContain("referrers")
   })
 
   it("destruye el mapa al desmontar", () => {

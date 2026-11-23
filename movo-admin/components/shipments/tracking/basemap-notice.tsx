@@ -1,5 +1,5 @@
 import {
-  BASEMAP_NOTICE,
+  basemapNotice,
   type BasemapProblem,
 } from "@/lib/shipments/tracking/tiles"
 
@@ -11,7 +11,7 @@ export function BasemapNotice({ problem }: { problem: BasemapProblem | null }) {
       role="status"
       className="absolute bottom-2 left-2 z-[500] max-w-[80%] rounded-md border border-border bg-background/95 px-2 py-1 text-xs text-muted-foreground"
     >
-      {BASEMAP_NOTICE[problem]}
+      {basemapNotice(problem)}
     </p>
   )
 }
