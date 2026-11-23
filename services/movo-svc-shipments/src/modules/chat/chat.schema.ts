@@ -48,12 +48,14 @@ const listMessagesQuery = {
 
 const listMessagesResponse = {
   type: "object",
-  required: ["items", "nextCursor", "access", "archived", "reportedByMe"],
+  required: ["items", "nextCursor", "access", "archived", "archivesAt", "reportedByMe"],
   properties: {
     items: { type: "array", items: chatMessageResponse },
     nextCursor: { type: ["string", "null"] },
     access: { type: "string", enum: ["open", "read_only"] },
     archived: { type: "boolean" },
+    // MOVO-363: cuándo se archiva (24 h tras la entrega); `null` si el envío nunca se entregó.
+    archivesAt: { type: ["string", "null"], format: "date-time" },
     reportedByMe: { type: "boolean" },
   },
 };

@@ -5,6 +5,7 @@ import type {
   DisputePaymentAction,
   DisputeStatementKind,
   DisputeSummary,
+  ResolvedDisputeSummary,
 } from "@movo/shared";
 import { Prisma, PrismaClient } from "../generated/prisma/client";
 import { escapeLike, normalizedSql, normalizeSearchText, shipmentTextSearchSql } from "./admin-shipment-repository";
@@ -359,6 +360,30 @@ export async function findUnresolvedDisputeSummaries(
     });
   }
   return summaries;
+}
+
+/**
+ * MOVO-363: resumen de las disputas ya resueltas de un envío, de la más vieja a la más nueva. Es lo que le permite a la
+ * app decir a favor de quién se resolvió y quién la abrió sin leerlo del texto del motivo de un evento. Sin montos ni
+ * razonamiento del admin (DD-056).
+ */
+export async function findResolvedDisputeSummaries(
+  db: Pick<PrismaClient, "dispute">,
+  shipmentId: string,
+): Promise<ResolvedDisputeSummary[]> {
+  const rows = await db.dispute.findMany({
+    where: { shipmentId, status: DisputeStatus.RESOLVED, outcome: { not: null }, resolvedAt: { not: null } },
+    orderBy: { openedAt: "asc" },
+    select: { id: true, reason: true, openedByRole: true, openedAt: true, outcome: true, resolvedAt: true },
+  });
+  return rows.map((row) => ({
+    id: row.id,
+    reason: row.reason as DisputeReason,
+    openedByRole: row.openedByRole as DisputePartyRole | null,
+    openedAt: row.openedAt.toISOString(),
+    outcome: row.outcome as DisputeOutcome,
+    resolvedAt: (row.resolvedAt as Date).toISOString(),
+  }));
 }
 
 export function createDisputeRepository(db: PrismaClient): DisputeRepository {

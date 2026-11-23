@@ -227,7 +227,7 @@ describe("ShipmentDetailScreen — chat del envío (MOVO-284)", () => {
   });
 
   it("entregado queda como solo lectura", async () => {
-    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.DELIVERED });
+    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.DELIVERED, deliveredAt: "2026-10-14T12:00:00.000Z" });
 
     const { getByTestId } = await render(<ShipmentDetailScreen />);
 
@@ -236,6 +236,14 @@ describe("ShipmentDetailScreen — chat del envío (MOVO-284)", () => {
     expect(getByTestId("shipment-detail-chat-readonly-copy")).toHaveTextContent(
       "El envío finalizó. El chat queda en solo lectura y se archiva en 24 h.",
     );
+  });
+
+  it("un envío terminado que nunca se entregó (no-retiro resuelto) no promete el archivo en 24 h (MOVO-363)", async () => {
+    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.COMPLETED, deliveredAt: null });
+
+    const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-chat-readonly-copy")).toHaveTextContent("El envío finalizó. El chat queda en solo lectura.");
   });
 
   it("sin transportista no hay chat", async () => {

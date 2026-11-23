@@ -4,6 +4,7 @@ import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import * as Crypto from "expo-crypto";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessagesPage } from "@movo/shared/dist/types/chat";
+import { resolvedDisputeByEvent } from "../lib/dispute-format";
 import { dismissChatNotifications } from "../lib/dismiss-chat-notifications";
 import { useAuthStore } from "../store/auth-store";
 import {
@@ -60,6 +61,7 @@ export function useChatConversation(shipmentId: string | undefined, options: { f
   const firstPage = messagesQuery.data?.pages[0];
   const access = firstPage?.access ?? "open";
   const archived = firstPage?.archived ?? false;
+  const archivesAt = firstPage?.archivesAt ?? null;
   const reportedByMe = firstPage?.reportedByMe ?? false;
   // Un integrante que ya no figura (receptor original, DD-038) lee, pero no escribe.
   const isFormerReceiver = participantsQuery.isSuccess && !me && access === "read_only";
@@ -81,12 +83,17 @@ export function useChatConversation(shipmentId: string | undefined, options: { f
       senderFirstName: participants.find((p) => p.role === "sender")?.firstName ?? null,
       dispute: shipmentQuery.data?.dispute ?? null,
     };
-    const statusCards = chatEventCards(eventsSinceCurrentAssignment(eventsQuery.data ?? []), viewer);
+    // El emparejamiento va sobre todos los eventos: el conteo depende de las disputas anteriores a esta asignación.
+    const viewerWithDisputes = {
+      ...viewer,
+      resolvedDisputeByEvent: resolvedDisputeByEvent(eventsQuery.data ?? [], shipmentQuery.data?.resolvedDisputes),
+    };
+    const statusCards = chatEventCards(eventsSinceCurrentAssignment(eventsQuery.data ?? []), viewerWithDisputes);
     const transferCards = transfersSinceCurrentAssignment(transfersQuery.data ?? [], eventsQuery.data ?? []).map(
       (transfer) => chatTransferCard(transfer, meId),
     );
     return [...statusCards, ...transferCards].filter((card): card is ChatEventCard => card !== null);
-  }, [eventsQuery.data, transfersQuery.data, participants, me?.role, meId, shipmentQuery.data?.dispute]);
+  }, [eventsQuery.data, transfersQuery.data, participants, me?.role, meId, shipmentQuery.data?.dispute, shipmentQuery.data?.resolvedDisputes]);
 
   const timeline = useMemo(
     () =>
@@ -271,6 +278,7 @@ export function useChatConversation(shipmentId: string | undefined, options: { f
     timeline,
     access,
     archived,
+    archivesAt,
     reportedByMe,
     isFormerReceiver,
     canWrite,

@@ -7,7 +7,7 @@ import {
   splitDisputeStake,
 } from "../src/config/dispute-resolution";
 import { estimateMpFeeArs } from "../src/config/commission";
-import { disputeOutcomeFromEventReason, disputeResolutionEventReason } from "../src/config/dispute-resolution-reason";
+import { disputeResolutionEventReason } from "../src/config/dispute-resolution-reason";
 import { renderNotificationTrigger } from "../src/config/notification-templates";
 
 describe("matriz de resolución de disputas (MOVO-337, DD-056)", () => {
@@ -101,13 +101,8 @@ describe("push disputeResolved", () => {
   });
 });
 
-describe("motivo del evento de resolución (MOVO-362)", () => {
-  it.each(["sender", "carrier", "partial"] as const)("%s: ida y vuelta entre el outcome y el texto", (outcome) => {
-    expect(disputeOutcomeFromEventReason(disputeResolutionEventReason(outcome))).toBe(outcome);
-  });
-
-  it("un motivo que no es de resolución no tiene outcome", () => {
-    expect(disputeOutcomeFromEventReason("Cambio forzado desde el panel")).toBeNull();
-    expect(disputeOutcomeFromEventReason(null)).toBeNull();
+describe("motivo del evento de resolución", () => {
+  it.each(["sender", "carrier", "partial"] as const)("%s: tiene un texto propio", (outcome) => {
+    expect(disputeResolutionEventReason(outcome)).toMatch(/^Disputa resuelta/);
   });
 });

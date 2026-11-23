@@ -1,4 +1,4 @@
-import { disputeSummaryResponse } from "../disputes/dispute-summary-response";
+import { disputeSummaryResponse, resolvedDisputeSummaryResponse } from "../disputes/dispute-summary-response";
 // Autocontenido a propósito (no importa de otros *.schema.ts) — mismo criterio que ya
 // usa movo-svc-users: cada schema no comparte definiciones entre sí.
 import { PACKAGE_INPUT_SANITY_MAX, PaymentMethod, ShipmentStatus } from "@movo/shared";
@@ -216,6 +216,9 @@ const shipmentResponse = {
     carrierTripActive: { type: "boolean" },
     // Solo en `GET /shipments/:id` para las partes, con el envío en disputa.
     dispute: disputeSummaryResponse,
+    // MOVO-363: solo en `GET /shipments/:id` para las partes. Las disputas ya resueltas (de la más vieja a la más
+    // nueva), aparte de `dispute` para que esa siga significando "hay una abierta".
+    resolvedDisputes: { type: "array", items: resolvedDisputeSummaryResponse },
   },
 };
 

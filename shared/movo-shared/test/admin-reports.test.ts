@@ -169,8 +169,8 @@ describe("métricas del panel (MOVO-35)", () => {
     for (const id of ADMIN_REPORT_IDS) expect(reportExportSections(id).length).toBeGreaterThan(0);
   });
 
-  it("solo Soporte ignora el tramo", () => {
-    expect(ADMIN_REPORT_IDS.filter((id) => !reportAppliesBand(id))).toEqual(["support"]);
+  it("Soporte, Operación y Finanzas ignoran el tramo", () => {
+    expect(ADMIN_REPORT_IDS.filter((id) => !reportAppliesBand(id))).toEqual(["support", "operations", "finance"]);
   });
 
   it("los porcentajes varían en puntos, el resto en %", () => {

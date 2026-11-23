@@ -1,4 +1,4 @@
-import { DisputeReason } from "@movo/shared";
+import { DISPUTE_OUTCOMES, DisputeReason } from "@movo/shared";
 
 /**
  * Schema de respuesta del `DisputeSummary` de @movo/shared (motivo y quién abrió la disputa sin resolver), que suman
@@ -15,5 +15,19 @@ export const disputeSummaryResponse = {
     reason: { type: "string", enum: Object.values(DisputeReason) },
     openedByRole: { type: ["string", "null"], enum: ["sender", "receiver", "carrier", null] },
     openedAt: { type: "string", format: "date-time" },
+  },
+};
+
+/** MOVO-363: schema del `ResolvedDisputeSummary` (`resolvedDisputes` de `GET /shipments/:id`). Sin montos (DD-056). */
+export const resolvedDisputeSummaryResponse = {
+  type: "object",
+  required: ["id", "reason", "openedByRole", "openedAt", "outcome", "resolvedAt"],
+  properties: {
+    id: { type: "string" },
+    reason: { type: "string", enum: Object.values(DisputeReason) },
+    openedByRole: { type: ["string", "null"], enum: ["sender", "receiver", "carrier", null] },
+    openedAt: { type: "string", format: "date-time" },
+    outcome: { type: "string", enum: [...DISPUTE_OUTCOMES] },
+    resolvedAt: { type: "string", format: "date-time" },
   },
 };

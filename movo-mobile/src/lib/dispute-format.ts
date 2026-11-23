@@ -3,8 +3,11 @@ import {
   type DisputeOutcome,
   type DisputePartyRole,
   type DisputeSummary,
+  type ResolvedDisputeSummary,
 } from "@movo/shared/dist/types/dispute";
-import { disputeOutcomeFromEventReason } from "@movo/shared/dist/config/dispute-resolution-reason";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import type { ShipmentEvent } from "../api/shipments-client";
+import { isDisputeResolution } from "./shipment-format";
 
 /** Por qué se abrió, como cláusula ("el paquete llegó dañado"). `other` no tiene cláusula: se dice "por otro motivo". */
 const REASON_CLAUSE: Record<DisputeReason, string | null> = {
@@ -54,12 +57,34 @@ export function disputeExplanation(
 }
 
 /**
- * A favor de quién se resolvió una disputa, leído del `reason` del evento de resolución (`disputed → completed|cancelled`).
- * Los eventos no traen el `outcome` (MOVO-363): el texto lo arma `svc-shipments` con `disputeResolutionEventReason` de
- * `@movo/shared`, el mismo módulo que lo lee acá, así que cambiar la redacción no rompe la lectura.
+ * MOVO-363: empareja cada evento de apertura (`→ disputed`) y de resolución (`disputed → completed|cancelled`) con su
+ * disputa de `resolvedDisputes` (del detalle del envío), por id de evento. Las disputas se resuelven de a una, así que la
+ * n-ésima apertura y la n-ésima resolución son las de la n-ésima disputa resuelta (de la más vieja a la más nueva). Una
+ * apertura sin resolución posterior (la disputa sigue abierta) no queda en el mapa. Va sobre TODOS los eventos del envío,
+ * no sobre un recorte: el conteo depende de las disputas anteriores.
  */
-export function disputeOutcomeFromReason(reason: string | null | undefined): DisputeOutcome | null {
-  return disputeOutcomeFromEventReason(reason);
+export function resolvedDisputeByEvent(
+  events: readonly ShipmentEvent[],
+  resolvedDisputes: readonly ResolvedDisputeSummary[] | null | undefined,
+): Map<string, ResolvedDisputeSummary> {
+  const byEvent = new Map<string, ResolvedDisputeSummary>();
+  if (!resolvedDisputes || resolvedDisputes.length === 0) return byEvent;
+  const totalResolutions = events.filter((event) => isDisputeResolution(event.toStatus, event.fromStatus)).length;
+  let openings = 0;
+  let resolutions = 0;
+  for (const event of events) {
+    if (isDisputeResolution(event.toStatus, event.fromStatus)) {
+      const dispute = resolvedDisputes[resolutions];
+      if (dispute) byEvent.set(event.id, dispute);
+      resolutions += 1;
+    } else if (event.toStatus === ShipmentStatus.DISPUTED) {
+      const dispute = resolvedDisputes[openings];
+      // Solo si ya tuvo su resolución: la apertura de una disputa abierta no es de ninguna resuelta.
+      if (dispute && openings < totalResolutions) byEvent.set(event.id, dispute);
+      openings += 1;
+    }
+  }
+  return byEvent;
 }
 
 /**

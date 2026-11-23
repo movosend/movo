@@ -23,7 +23,7 @@ import {
   PricingLogisticsClient,
 } from "../../adapters/pricing-logistics-client";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
-import { findUnresolvedDisputeSummaries } from "../../repositories/dispute-repository";
+import { findResolvedDisputeSummaries, findUnresolvedDisputeSummaries } from "../../repositories/dispute-repository";
 import { createOfferRepository } from "../../repositories/offer-repository";
 import { createPickupEvidenceRepository } from "../../repositories/pickup-evidence-repository";
 import { createTripRepository, TripRepository } from "../../repositories/trip-repository";
@@ -675,8 +675,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const { id } = request.params as { id: string };
       const shipment = await service.getShipmentDetail(id, callerId, callerRoles);
       // MOVO-275: solo las partes del envío (no un transportista que lo está evaluando).
-      const [receiverTransfer, funding, acceptedOffer, disputes] = await Promise.all([
-        hasShipmentAccess(shipment, callerId, callerRoles)
+      const isParty = hasShipmentAccess(shipment, callerId, callerRoles);
+      const [receiverTransfer, funding, acceptedOffer, disputes, resolvedDisputes] = await Promise.all([
+        isParty
           ? receiverTransfersService.summaryForShipment(shipment, callerId)
           : Promise.resolve(null),
         fundingService.viewFor(shipment, callerId, {
@@ -687,13 +688,15 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           ? repository.findAcceptedOfferTrip(shipment.id)
           : Promise.resolve(null),
         // Por qué está en disputa, para las partes (el motivo no es para un transportista que lo evalúa).
-        shipment.status === ShipmentStatus.DISPUTED && hasShipmentAccess(shipment, callerId, callerRoles)
+        shipment.status === ShipmentStatus.DISPUTED && isParty
           ? findUnresolvedDisputeSummaries(app.db, [shipment.id])
           : Promise.resolve(null),
+        // MOVO-363: las ya resueltas, para decir quién la abrió, por qué y a favor de quién se resolvió.
+        isParty ? findResolvedDisputeSummaries(app.db, shipment.id) : Promise.resolve([]),
       ]);
       const carrierTripActive = acceptedOffer?.trip?.status === TripStatus.ACTIVE;
       const dispute = disputes?.get(shipment.id) ?? null;
-      return { ...toShipmentDto(shipment), receiverTransfer, funding, carrierTripActive, dispute };
+      return { ...toShipmentDto(shipment), receiverTransfer, funding, carrierTripActive, dispute, resolvedDisputes };
     }
   );
 

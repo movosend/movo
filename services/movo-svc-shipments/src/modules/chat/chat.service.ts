@@ -25,7 +25,7 @@ import { NotificationsClient } from "../../adapters/notifications-client";
 import { ChatHub } from "../../realtime/chat-hub";
 import { assertShipmentAccess } from "../shipments/assert-shipment-access";
 import { safeBlockRelatedUserIds } from "../../utils/block-relations";
-import { CHAT_LISTABLE_STATUSES, ChatShipmentFacts, isChatArchived, resolveChatAccess } from "../../domain/chat-window";
+import { CHAT_LISTABLE_STATUSES, ChatShipmentFacts, chatArchiveInstant, isChatArchived, resolveChatAccess } from "../../domain/chat-window";
 import { ChatReceiptState, computeDeliveryStatus } from "../../domain/chat-receipts";
 import { moderateChatText } from "../../domain/chat-moderation";
 import { Shipment } from "../../models/shipment";
@@ -495,6 +495,7 @@ export function createChatService(deps: ChatServiceDeps) {
         nextCursor: page.nextCursor,
         access,
         archived: isChatArchived(shipment, now()),
+        archivesAt: chatArchiveInstant(shipment)?.toISOString() ?? null,
         reportedByMe: await deps.chatRepository.hasReport(shipment.id, input.callerId),
       };
     },

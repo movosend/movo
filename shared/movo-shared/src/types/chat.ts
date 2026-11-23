@@ -58,6 +58,11 @@ export interface ChatMessagesPage {
   access: Exclude<ChatAccess, "closed">;
   /** Entregado hace más de 24 h: el chat se archivó (sigue legible). */
   archived: boolean;
+  /**
+   * MOVO-363: ISO date desde la que el chat se archiva (24 h después de la entrega), o `null` si el envío no tiene
+   * `deliveredAt`: ahí no hay archivo y la app no debe prometerlo (defensivo, el backend actual siempre lo fija).
+   */
+  archivesAt: string | null;
   /** Quien mira ya reportó esta conversación. */
   reportedByMe: boolean;
 }
