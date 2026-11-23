@@ -348,7 +348,7 @@ Pendiente: probar contra `svc-admin` en dev (DoD), revisar a mano claro/oscuro y
 
 ### Fixes de la prueba del 04/11 — direcciones y aviso del mapa
 
-`routeLine` y `shortAddress` (`lib/shipments/format.ts`) muestran calle y número en lugar de la ciudad, en listado, detalle y disputas: dentro de una misma ciudad decía "Córdoba → Córdoba". `BasemapNotice` avisa en los dos mapas si falta `NEXT_PUBLIC_ESRI_API_KEY` o si ArcGIS rechaza la key (401/403/498/499); antes quedaba un fondo liso sin explicación. Falta confirmar la key y sus referrers en Vercel.
+`routeLine` y `shortAddress` (`lib/shipments/format.ts`) muestran calle y número en lugar de la ciudad, en listado, detalle y disputas: dentro de una misma ciudad decía "Córdoba → Córdoba". `BasemapNotice` avisa en los dos mapas si falta `NEXT_PUBLIC_ESRI_API_KEY` o si ArcGIS rechaza la key; antes quedaba un fondo liso sin explicación. `basemapProblemFrom` (`tiles.ts`) distingue key inválida o vencida (401/498/499: ArcGIS manda HTTP 401 con `code: 498` en el cuerpo y MapLibre solo ve el 401), referrer (403) y otro error HTTP del pedido del estilo (genérico con el código; una tesela suelta no avisa). El 23/11 la key de dev había vencido (401/498), no era un problema de referrers.
 
 ## Cola de revisión manual de KYC — `/kyc` (DD-063)
 

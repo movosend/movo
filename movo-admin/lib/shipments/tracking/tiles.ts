@@ -36,23 +36,52 @@ export function withArcgisToken(apiKey: string) {
   }
 }
 
-export type BasemapProblem = "missing_key" | "rejected"
-
-/** Estados con los que ArcGIS rechaza la key: inválida, vencida o fuera de los referrers permitidos. */
-const REJECTED_STATUSES = new Set([401, 403, 498, 499])
+export type BasemapProblem =
+  | { kind: "missing_key" }
+  | { kind: "invalid_key" }
+  | { kind: "referrer" }
+  | { kind: "error"; status: number }
 
 /**
- * `true` si un error de MapLibre significa que ArcGIS rechazó la key. Un corte de red o una tesela
- * suelta no cuentan: el mapa se recupera solo y un aviso ahí sería ruido.
+ * Key inválida, vencida o ausente en el request. ArcGIS responde HTTP 401 con `code: 498` en el
+ * cuerpo, y MapLibre solo expone el estado HTTP; 498 y 499 cubren el caso de que llegue como estado.
  */
-export function isBasemapRejected(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false
-  const status = (error as { status?: unknown }).status
-  return typeof status === "number" && REJECTED_STATUSES.has(status)
+const INVALID_KEY_STATUSES = new Set([401, 498, 499])
+
+/**
+ * Qué problema del mapa base indica un error de MapLibre, o `null` si no amerita aviso. Una key
+ * rechazada se informa venga del request que venga; otro error HTTP, solo si falló el estilo (sin él no
+ * hay fondo). Un corte de red o una tesela suelta no cuentan: el mapa se recupera solo.
+ */
+export function basemapProblemFrom(error: unknown): BasemapProblem | null {
+  if (typeof error !== "object" || error === null) return null
+  const { status, url } = error as { status?: unknown; url?: unknown }
+  if (typeof status !== "number") return null
+  if (INVALID_KEY_STATUSES.has(status)) return { kind: "invalid_key" }
+  if (status === 403) return { kind: "referrer" }
+  if (status >= 400 && typeof url === "string" && isStyleRequest(url)) {
+    return { kind: "error", status }
+  }
+  return null
 }
 
-export const BASEMAP_NOTICE: Record<BasemapProblem, string> = {
-  missing_key: "Mapa sin fondo: falta NEXT_PUBLIC_ESRI_API_KEY en este deploy.",
-  rejected:
-    "Mapa sin fondo: ArcGIS rechazó la key. Revisá que este dominio esté entre sus referrers.",
+function isStyleRequest(url: string): boolean {
+  try {
+    return new URL(url).hostname === STYLE_HOST
+  } catch {
+    return false
+  }
+}
+
+export function basemapNotice(problem: BasemapProblem): string {
+  switch (problem.kind) {
+    case "missing_key":
+      return "Mapa sin fondo: falta NEXT_PUBLIC_ESRI_API_KEY en este deploy."
+    case "invalid_key":
+      return "Mapa sin fondo: la key de ArcGIS es inválida o venció."
+    case "referrer":
+      return "Mapa sin fondo: ArcGIS rechazó la key. Revisá que este dominio esté entre sus referrers."
+    case "error":
+      return `Mapa sin fondo: ArcGIS respondió con error ${problem.status}.`
+  }
 }
