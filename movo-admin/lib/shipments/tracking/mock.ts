@@ -1,5 +1,6 @@
 import "server-only"
 import { ApiError } from "@movo/shared/src/errors/api-error"
+import { MOCK_SHIPMENTS } from "@/lib/shipments/fixtures"
 import { mockEnabled } from "@/lib/users/mock"
 import { distanceMeters, type LatLng } from "./geometry"
 import type { AdminShipmentTracking, TrackingState } from "./types"
@@ -211,6 +212,18 @@ const SCENARIOS: Record<string, () => AdminShipmentTracking> = {
     }),
 }
 
+/** Escenario del mapa para cada estado de envío de las fixtures; lo que no figura (cancelados, vencidos…) usa el recorrido cerrado. */
+const BY_STATUS: Record<string, string> = {
+  in_transit: MOCK_TRACKING_IDS.live,
+  assigned: MOCK_TRACKING_IDS.awaitingPickup,
+  assigned_unfunded: MOCK_TRACKING_IDS.unfunded,
+  published: MOCK_TRACKING_IDS.noCarrier,
+  assignment_pending: MOCK_TRACKING_IDS.noCarrier,
+  disputed: MOCK_TRACKING_IDS.disputed,
+  delivered: MOCK_TRACKING_IDS.delivered,
+  completed: MOCK_TRACKING_IDS.delivered,
+}
+
 const latency = () => Number(process.env.MOVO_ADMIN_MOCK_LATENCY_MS ?? 350)
 
 export async function mockTracking(id: string): Promise<AdminShipmentTracking> {
@@ -218,6 +231,12 @@ export async function mockTracking(id: string): Promise<AdminShipmentTracking> {
   if (process.env.MOVO_ADMIN_MOCK_FAIL?.split(",").includes("tracking"))
     throw new ApiError(502, "INTERNAL_ERROR", "Servicio no disponible.")
   const scenario = SCENARIOS[id]
-  if (!scenario) throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.")
-  return scenario()
+  if (scenario) return scenario()
+  // Cualquier otro envío del modo fixtures (los del listado y los de las disputas) toma el escenario de su estado, así el mapa
+  // nunca queda en error en una demo. Un id que ni siquiera es de las fixtures sigue siendo 404.
+  const known = MOCK_SHIPMENTS.find((s) => s.detail.id === id)
+  if (!known) throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.")
+  const template =
+    BY_STATUS[known.detail.status] ?? MOCK_TRACKING_IDS.delivered
+  return { ...SCENARIOS[template]!(), shipmentId: id }
 }

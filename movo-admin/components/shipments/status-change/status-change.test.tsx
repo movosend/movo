@@ -647,9 +647,14 @@ describe("reintento tras un resultado desconocido (el segundo factor ya se gast�
     })
     fireEvent.click(screen.getByRole("button", { name: "Forzar a Cancelado" }))
     await screen.findByRole("alert")
-    // No hay que pedir otro código: el botón sigue habilitado.
+    // No hay que pedir otro código: el botón sigue habilitado. El alert aparece antes de que termine el envío, así que se
+    // espera a que se habilite: con la máquina lenta el click caía con el botón aún deshabilitado y no se reintentaba.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Forzar a Cancelado" })
+      ).toBeEnabled()
+    )
     const retry = screen.getByRole("button", { name: "Forzar a Cancelado" })
-    expect(retry).toBeEnabled()
     expect(screen.getByText("Código verificado.")).toBeInTheDocument()
 
     actions.submitStatusChange.mockResolvedValueOnce({ ok: true, data: DONE })
