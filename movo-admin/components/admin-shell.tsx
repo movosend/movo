@@ -6,7 +6,6 @@ import {
   Activity,
   BadgeCheck,
   ChevronDown,
-  Flag,
   Headset,
   Home,
   LogOut,
@@ -52,12 +51,9 @@ import {
 } from "@/components/support/support-provider"
 import type { ReactNode, CSSProperties } from "react"
 
-const SOON = [
-  { label: "Reportes", icon: Flag },
-]
-/** Reportería (MOVO-345): el breadcrumb es "Panel / Reportería / Métricas". */
+/** Reportería (MOVO-345): el breadcrumb es "Panel / Reportería / Reportes". */
 const REPORTS = [
-  { href: "/metrics", label: "Métricas", icon: Activity },
+  { href: "/metrics", label: "Reportes", icon: Activity },
   { href: "/audit-log", label: "Bitácora", icon: ScrollText },
 ] as const
 const LIVE = [
@@ -210,27 +206,6 @@ export function AdminShell({
                       <Icon />
                       <span>{label}</span>
                     </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroup>
-            <SidebarGroup className="p-0 pt-5">
-              <SidebarGroupLabel className="h-auto px-2.5 pb-2 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
-                Próximamente
-              </SidebarGroupLabel>
-              <SidebarMenu>
-                {SOON.map(({ label, icon: Icon }) => (
-                  <SidebarMenuItem key={label}>
-                    <div
-                      aria-disabled="true"
-                      title="Llega en una próxima versión"
-                      className="flex h-9 cursor-not-allowed items-center gap-2.5 rounded-md px-2.5 text-sm text-fg-disabled select-none group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 [&_svg]:size-4"
-                    >
-                      <Icon />
-                      <span className="group-data-[collapsible=icon]:hidden">
-                        {label}
-                      </span>
-                    </div>
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>

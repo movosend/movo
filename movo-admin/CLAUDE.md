@@ -6,8 +6,8 @@ Leer `AGENTS.md` y las guías instaladas de Next antes de cambiar routing o aute
 ## Estado actual de la implementación
 
 MOVO-291 implementa login con email y contraseña, OTP por email, reenvío y sesión
-protegida en un BFF. Inicio pasó a ser el resumen de bandejas de MOVO-345 (ver `HISTORIAL.md`); las
-secciones futuras siguen deshabilitadas en el menú. El tema claro/oscuro usa Inter
+protegida en un BFF. Inicio pasó a ser el resumen de bandejas de MOVO-345 (ver `HISTORIAL.md`); el
+menú ya no tiene secciones deshabilitadas. El tema claro/oscuro usa Inter
 local, logos existentes y tokens semánticos en `app/globals.css`.
 La aceptación contra dev queda pendiente de desplegar las dependencias backend y
 configurar las variables de entorno; el deploy de `admin.movosend.app` lo hace GitHub
