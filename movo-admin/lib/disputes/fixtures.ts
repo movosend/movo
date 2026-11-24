@@ -33,7 +33,26 @@ const DAY = 24 * 60
 
 const did = (n: number) =>
   `d15b07e5-0000-4000-8000-${String(n).padStart(12, "0")}`
-const img = (id: string) => `/api/support/mock-image/${id}`
+/**
+ * Fotos reales de demostración (`public/demo/disputes/`, créditos en `CREDITS.md`). Se elige por el tipo de foto, y dentro de
+ * cada tipo de forma estable según el id, así un mismo caso siempre muestra las mismas: retiro (`-p1`) = caja cerrada en buen
+ * estado, entrega (`-p2`) = paquete rotulado, y el resto (descargos y fotos de apertura) = caja dañada.
+ */
+const DEMO_PHOTOS = {
+  pickup: ["pkg-4", "pkg-5", "pkg-6"],
+  delivery: ["pkg-3"],
+  damage: ["pkg-1", "pkg-2"],
+} as const
+const img = (id: string) => {
+  const kind = id.endsWith("-p1")
+    ? "pickup"
+    : id.endsWith("-p2")
+      ? "delivery"
+      : "damage"
+  const pool = DEMO_PHOTOS[kind]
+  const hash = [...id].reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 7)
+  return `/demo/disputes/${pool[hash % pool.length]}.jpg`
+}
 
 export interface MockDispute {
   detail: AdminDisputeDetail

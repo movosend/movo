@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs"
+import { join } from "node:path"
 import { ApiError } from "@movo/shared/src/errors/api-error"
 import type {
   AdminKycDecisionRequest,
@@ -189,6 +191,19 @@ const card = (title: string, tint: string, side: "front" | "back") =>
       `</svg>`
   )
 
+/**
+ * Foto real opcional de un caso: `public/demo/kyc/<tipo>-<n>.jpg` (n = 1..6, el orden de `SPECS`; tipos `selfie`, `portrait`,
+ * `front`, `back`). Si el archivo no está, vuelve a la ilustración de arriba, así la demo nunca queda con una imagen rota.
+ */
+const realPhoto = (kind: "selfie" | "portrait" | "front" | "back", i: number, fallback: string) => {
+  const file = `${kind}-${i + 1}.jpg`
+  try {
+    return existsSync(join(process.cwd(), "public", "demo", "kyc", file)) ? `/demo/kyc/${file}` : fallback
+  } catch {
+    return fallback
+  }
+}
+
 const initialsOf = (name: string) =>
   name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase()
 
@@ -204,10 +219,18 @@ function evidenceFor(review: AdminKycReviewDetail, i: number): AdminKycEvidence 
     imagesExpireAt: new Date(now + 60 * 60 * 1000).toISOString(),
     sessionStatus: "In Review",
     images: {
-      selfie: face("#c9d6e8", lowMatch ? "#d9b08c" : "#e2b894", initialsOf(review.fullName)),
-      documentPortrait: face("#e8e2d4", "#e2b894", initialsOf(review.fullName)),
-      documentFront: card(isLicense ? "LICENCIA DE CONDUCIR · ARGENTINA" : "DOCUMENTO DE IDENTIDAD · ARGENTINA", isLicense ? "#3b7a8c" : "#4a7a5a", "front"),
-      documentBack: card(isLicense ? "LICENCIA DE CONDUCIR" : "DOCUMENTO DE IDENTIDAD", isLicense ? "#2f6678" : "#3d664b", "back"),
+      selfie: realPhoto("selfie", i, face("#c9d6e8", lowMatch ? "#d9b08c" : "#e2b894", initialsOf(review.fullName))),
+      documentPortrait: realPhoto("portrait", i, face("#e8e2d4", "#e2b894", initialsOf(review.fullName))),
+      documentFront: realPhoto(
+        "front",
+        i,
+        card(isLicense ? "LICENCIA DE CONDUCIR · ARGENTINA" : "DOCUMENTO DE IDENTIDAD · ARGENTINA", isLicense ? "#3b7a8c" : "#4a7a5a", "front")
+      ),
+      documentBack: realPhoto(
+        "back",
+        i,
+        card(isLicense ? "LICENCIA DE CONDUCIR" : "DOCUMENTO DE IDENTIDAD", isLicense ? "#2f6678" : "#3d664b", "back")
+      ),
       livenessVideo: null,
     },
     document: {
